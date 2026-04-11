@@ -26,12 +26,14 @@ func Execute() {
 		username   string
 		password   string
 		configPath string
+		skipVerify bool
 	)
 
 	flag.StringVar(&endpoint, "endpoint", "", "CrateDB URL, e.g. https://user:pass@host:4200")
 	flag.StringVar(&username, "username", "", "CrateDB username (overrides URL userinfo)")
 	flag.StringVar(&password, "password", "", "CrateDB password (overrides URL userinfo)")
 	flag.StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
+	flag.BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification (for port-forwarding)")
 	flag.Parse()
 
 	// Support positional argument: obsi https://admin:pass@host:4200
@@ -97,7 +99,7 @@ func Execute() {
 
 	// Try connecting; if password wasn't explicitly set and connection fails,
 	// try empty password first, then prompt interactively.
-	registry, err := tryConnect(ctx, cfg, pw, passwordSet)
+	registry, err := tryConnect(ctx, cfg, pw, passwordSet, skipVerify)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error connecting to CrateDB: %v\n", err)
 		os.Exit(1)
@@ -189,7 +191,7 @@ func parseEndpointURL(raw string) (endpoint, username, password string, hasAuth 
 	return u.String(), username, password, hasAuth
 }
 
-func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExplicit bool) (*cratedb.Registry, error) {
+func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExplicit, skipVerify bool) (*cratedb.Registry, error) {
 	makeRegistry := func(password string) *cratedb.Registry {
 		return cratedb.NewRegistry(
 			cfg.Connection.Endpoint,
@@ -199,6 +201,7 @@ func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExpl
 			cfg.Connection.QueryTimeout.Duration,
 			cfg.Connection.HeartbeatInterval.Duration,
 			cfg.Connection.NodeRefreshInterval.Duration,
+			skipVerify,
 		)
 	}
 

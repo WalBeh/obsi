@@ -3,6 +3,7 @@ package cratedb
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,11 +20,18 @@ type Client struct {
 }
 
 // NewClient creates a new CrateDB HTTP client.
-func NewClient(baseURL, username, password string, timeout time.Duration) *Client {
+// If skipVerify is true, TLS certificate verification is disabled
+// (useful for port-forwarding to clusters with certs for their real hostname).
+func NewClient(baseURL, username, password string, timeout time.Duration, skipVerify bool) *Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if skipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested for port-forwarding
+	}
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: transport,
 		},
 		username: username,
 		password: password,

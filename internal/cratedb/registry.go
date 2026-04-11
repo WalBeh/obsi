@@ -44,6 +44,7 @@ type Registry struct {
 	password     string
 	pingTimeout  time.Duration // short timeout for heartbeat/ping
 	queryTimeout time.Duration // longer timeout for data queries
+	skipVerify   bool          // skip TLS certificate verification
 
 	heartbeatInterval   time.Duration
 	nodeRefreshInterval time.Duration
@@ -52,14 +53,15 @@ type Registry struct {
 }
 
 // NewRegistry creates a new node registry.
-func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout, heartbeatInterval, nodeRefreshInterval time.Duration) *Registry {
+func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout, heartbeatInterval, nodeRefreshInterval time.Duration, skipVerify bool) *Registry {
 	return &Registry{
-		primary:             NewClient(endpoint, username, password, queryTimeout),
+		primary:             NewClient(endpoint, username, password, queryTimeout, skipVerify),
 		nodes:               make(map[string]*nodeEntry),
 		username:            username,
 		password:            password,
 		pingTimeout:         pingTimeout,
 		queryTimeout:        queryTimeout,
+		skipVerify:          skipVerify,
 		heartbeatInterval:   heartbeatInterval,
 		nodeRefreshInterval: nodeRefreshInterval,
 	}
@@ -171,7 +173,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 			if restURL == "" {
 				restURL = info.Hostname + ":4200"
 			}
-			client := NewClient("http://"+restURL, r.username, r.password, r.queryTimeout)
+			client := NewClient("http://"+restURL, r.username, r.password, r.queryTimeout, r.skipVerify)
 			r.nodes[info.ID] = &nodeEntry{
 				Info:   info,
 				Health: NodeHealth{NodeID: info.ID, Reachable: true, LastSeen: time.Now()},

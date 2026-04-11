@@ -43,7 +43,7 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 		fs['total']['writes'] AS fs_writes,
 		fs['total']['bytes_read'] AS fs_bytes_read,
 		fs['total']['bytes_written'] AS fs_bytes_written,
-		is_master,
+		id = (SELECT master_node FROM sys.cluster) AS is_master,
 		os_info['available_processors'] AS num_cpus,
 		os_info['jvm']['version'] AS jvm_version,
 		os_info['jvm']['vm_name'] AS jvm_name,

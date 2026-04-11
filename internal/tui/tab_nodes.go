@@ -488,14 +488,14 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	if hist, ok := m.snap.NodeReadTPHistory[n.ID]; ok && len(hist) > 1 {
 		readSpark = sparkline(hist, 20)
 		mx, av, p := historyStats(hist)
-		readStats = fmt.Sprintf("avg:%s p90:%s max:%s", formatRate(av), formatRate(p), formatRate(mx))
+		readStats = fmt.Sprintf("%s/%s/%s", formatRate(av), formatRate(p), formatRate(mx))
 	}
 	writeSpark := ""
 	writeStats := ""
 	if hist, ok := m.snap.NodeWriteTPHistory[n.ID]; ok && len(hist) > 1 {
 		writeSpark = sparkline(hist, 20)
 		mx, av, p := historyStats(hist)
-		writeStats = fmt.Sprintf("avg:%s p90:%s max:%s", formatRate(av), formatRate(p), formatRate(mx))
+		writeStats = fmt.Sprintf("%s/%s/%s", formatRate(av), formatRate(p), formatRate(mx))
 	}
 	lines = append(lines, fmt.Sprintf("    Disk read    %8s/s  %6s IOPS %s %s",
 		formatRate(n.ReadThroughput), formatIOPS(n.ReadIOPS),

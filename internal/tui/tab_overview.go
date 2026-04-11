@@ -6,12 +6,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
 // OverviewModel shows cluster health checks and a node summary.
 type OverviewModel struct {
 	snap   store.StoreSnapshot
+	scroll int
+	lines  []string // cached rendered lines
 	width  int
 	height int
 }
@@ -22,25 +26,80 @@ func NewOverviewModel(width, height int) OverviewModel {
 
 func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 	m.snap = snap
+	// Re-render all sections into lines
+	var sections []string
+	sections = append(sections, m.renderClusterSettings())
+	sections = append(sections, m.renderChecks())
+	sections = append(sections, m.renderNodeSummary())
+	sections = append(sections, m.renderTableHealth())
+	sections = append(sections, m.renderSummit())
+	content := strings.Join(sections, "\n\n")
+	m.lines = strings.Split(content, "\n")
+	m.clampScroll()
 	return m
 }
 
 func (m OverviewModel) SetSize(width, height int) OverviewModel {
 	m.width = width
 	m.height = height
+	m.clampScroll()
 	return m
 }
 
+func (m OverviewModel) HandleKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
+	km := DefaultKeyMap()
+	switch {
+	case key.Matches(msg, km.Up):
+		if m.scroll > 0 {
+			m.scroll--
+		}
+	case key.Matches(msg, km.Down):
+		m.scroll++
+		m.clampScroll()
+	}
+	return m, nil
+}
+
+func (m *OverviewModel) clampScroll() {
+	maxScroll := len(m.lines) - m.height
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.scroll > maxScroll {
+		m.scroll = maxScroll
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+}
+
 func (m OverviewModel) View() string {
-	var sections []string
+	if len(m.lines) == 0 {
+		return "Loading..."
+	}
 
-	sections = append(sections, m.renderClusterSettings())
-	sections = append(sections, m.renderChecks())
-	sections = append(sections, m.renderNodeSummary())
-	sections = append(sections, m.renderTableHealth())
-	sections = append(sections, m.renderSummit())
+	// Virtual scroll: show only what fits
+	end := m.scroll + m.height
+	if end > len(m.lines) {
+		end = len(m.lines)
+	}
 
-	return strings.Join(sections, "\n\n")
+	visible := m.lines[m.scroll:end]
+
+	var result []string
+	if m.scroll > 0 {
+		result = append(result, styleDim.Render(fmt.Sprintf("  ↑ scroll up (%d lines above)", m.scroll)))
+		if len(visible) > 0 {
+			visible = visible[0 : len(visible)-1] // make room for indicator
+		}
+	}
+	result = append(result, visible...)
+	remaining := len(m.lines) - end
+	if remaining > 0 {
+		result = append(result, styleDim.Render(fmt.Sprintf("  ↓ scroll down (%d lines below)", remaining)))
+	}
+
+	return strings.Join(result, "\n")
 }
 
 func (m OverviewModel) renderChecks() string {

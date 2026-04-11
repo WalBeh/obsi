@@ -325,6 +325,15 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 	r.mu.RUnlock()
 
 	for _, entry := range entries {
+		// Back off on consistently unreachable nodes:
+		// after 3 fails, only ping every 6th heartbeat cycle (~30s at 5s interval)
+		if entry.Health.ConsecutiveFails >= 3 {
+			entry.Health.BackoffCounter++
+			if entry.Health.BackoffCounter%6 != 0 {
+				continue
+			}
+		}
+
 		wg.Add(1)
 		go func(e *nodeEntry) {
 			defer wg.Done()
@@ -346,6 +355,7 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 				e.Health.LastSeen = time.Now()
 				e.Health.LastLatency = latency
 				e.Health.ConsecutiveFails = 0
+				e.Health.BackoffCounter = 0
 			}
 		}(entry)
 	}

@@ -101,8 +101,8 @@ func (m *NodesModel) rebuildSorted() {
 	m.sorted = m.sorted[:0]
 	for i, n := range m.snap.Nodes {
 		if m.search != "" {
-			name := strings.ToLower(n.Name + " " + n.Zone + " " + n.Hostname)
-			if !strings.Contains(name, strings.ToLower(m.search)) {
+			searchable := strings.ToLower(n.Name + " " + n.Zone + " " + n.NodeRole)
+			if !strings.Contains(searchable, strings.ToLower(m.search)) {
 				continue
 			}
 		}

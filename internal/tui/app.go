@@ -101,6 +101,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.activeTab = (a.activeTab + 1) % Tab(len(tabNames))
 		case key.Matches(msg, a.keyMap.PrevTab):
 			a.activeTab = (a.activeTab - 1 + Tab(len(tabNames))) % Tab(len(tabNames))
+		case key.Matches(msg, a.keyMap.Throttle):
+			a.collectors.CycleThrottle()
+			return a, nil
 		case key.Matches(msg, a.keyMap.Refresh):
 			// Manual refresh for current tab's data
 			switch a.activeTab {
@@ -129,7 +132,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.nodes = a.nodes.Refresh(snap)
 		a.queries = a.queries.Refresh(snap)
 		a.tables = a.tables.Refresh(snap)
-		a.statusBar = a.statusBar.Refresh(a.registry.Status())
+		a.statusBar = a.statusBar.Refresh(
+			a.registry.Status(),
+			a.collectors.Throttle(),
+			a.collectors.SuggestThrottle(),
+		)
 		return a, a.doStoreTick()
 	}
 
@@ -181,6 +188,10 @@ func (a *App) renderTabBar() string {
 
 func (a *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 	switch a.activeTab {
+	case TabOverview:
+		var cmd tea.Cmd
+		a.overview, cmd = a.overview.HandleKey(msg)
+		return cmd
 	case TabNodes:
 		var cmd tea.Cmd
 		a.nodes, cmd = a.nodes.HandleKey(msg)

@@ -24,7 +24,7 @@ func DefaultConfig() *Config {
 			},
 			"nodes": {
 				Enabled:  true,
-				Interval: Duration{5 * time.Second},
+				Interval: Duration{10 * time.Second},
 			},
 			"queries": {
 				Enabled:  true,

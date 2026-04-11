@@ -11,6 +11,18 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
+// ThrottleLevel controls how aggressively obsi polls the cluster.
+type ThrottleLevel int
+
+const (
+	ThrottleNone   ThrottleLevel = iota // normal intervals
+	ThrottleMild                        // 2x intervals
+	ThrottleHeavy                       // 5x intervals
+)
+
+var throttleNames = [3]string{"normal", "mild (2x)", "heavy (5x)"}
+var throttleMultipliers = [3]int{1, 2, 5}
+
 // Manager starts and stops collector goroutines.
 type Manager struct {
 	collectors []Collector
@@ -18,6 +30,8 @@ type Manager struct {
 	store      *store.Store
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
+	throttle   ThrottleLevel
+	throttleMu sync.RWMutex
 }
 
 // NewManager creates a new collector manager.
@@ -36,6 +50,51 @@ func (m *Manager) Start(ctx context.Context) {
 		m.wg.Add(1)
 		go m.runCollector(ctx, c)
 	}
+}
+
+// SetThrottle changes the throttle level for all collectors.
+func (m *Manager) SetThrottle(level ThrottleLevel) {
+	m.throttleMu.Lock()
+	defer m.throttleMu.Unlock()
+	m.throttle = level
+	slog.Info("throttle changed", "level", throttleNames[level])
+}
+
+// CycleThrottle cycles through throttle levels.
+func (m *Manager) CycleThrottle() ThrottleLevel {
+	m.throttleMu.Lock()
+	defer m.throttleMu.Unlock()
+	m.throttle = (m.throttle + 1) % 3
+	slog.Info("throttle changed", "level", throttleNames[m.throttle])
+	return m.throttle
+}
+
+// Throttle returns the current throttle level.
+func (m *Manager) Throttle() ThrottleLevel {
+	m.throttleMu.RLock()
+	defer m.throttleMu.RUnlock()
+	return m.throttle
+}
+
+// ThrottleName returns the display name for a throttle level.
+func ThrottleName(level ThrottleLevel) string {
+	return throttleNames[level]
+}
+
+// SuggestThrottle checks node heap pressure and suggests throttling.
+// Returns true if any node has heap > 85%.
+func (m *Manager) SuggestThrottle() bool {
+	snap := m.store.Snapshot()
+	for _, n := range snap.Nodes {
+		if n.Gone || n.HeapMax == 0 {
+			continue
+		}
+		heapPct := float64(n.HeapUsed) / float64(n.HeapMax) * 100
+		if heapPct > 85 {
+			return true
+		}
+	}
+	return false
 }
 
 // TriggerCollector runs a named collector once immediately in the background.
@@ -70,14 +129,26 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 		m.store.MarkStale(c.Name())
 	}
 
-	ticker := time.NewTicker(c.Interval())
+	baseInterval := c.Interval()
+	ticker := time.NewTicker(baseInterval)
 	defer ticker.Stop()
+
+	lastMultiplier := 1
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// Adjust ticker if throttle level changed
+			m.throttleMu.RLock()
+			mult := throttleMultipliers[m.throttle]
+			m.throttleMu.RUnlock()
+			if mult != lastMultiplier {
+				lastMultiplier = mult
+				ticker.Reset(baseInterval * time.Duration(mult))
+			}
+
 			if err := c.Collect(ctx, m.registry, m.store); err != nil {
 				slog.Warn("collector failed", "collector", c.Name(), "error", err)
 				m.store.MarkStale(c.Name())

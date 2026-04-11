@@ -4,13 +4,16 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/waltergrande/cratedb-observer/internal/collector"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
 // StatusBarModel renders the connection status bar.
 type StatusBarModel struct {
-	status cratedb.RegistryStatus
-	width  int
+	status        cratedb.RegistryStatus
+	throttle      collector.ThrottleLevel
+	heapWarning   bool
+	width         int
 }
 
 // NewStatusBarModel creates a new status bar.
@@ -19,8 +22,10 @@ func NewStatusBarModel(width int) StatusBarModel {
 }
 
 // Refresh updates the status bar with new registry status.
-func (m StatusBarModel) Refresh(status cratedb.RegistryStatus) StatusBarModel {
+func (m StatusBarModel) Refresh(status cratedb.RegistryStatus, throttle collector.ThrottleLevel, heapWarning bool) StatusBarModel {
 	m.status = status
+	m.throttle = throttle
+	m.heapWarning = heapWarning
 	return m
 }
 
@@ -66,9 +71,17 @@ func (m StatusBarModel) View() string {
 
 	nodes := fmt.Sprintf(" │ nodes: %d", s.TotalNodes)
 
-	left := connIndicator + connPath + cluster + nodes
+	// Throttle indicator
+	throttleStr := ""
+	if m.throttle != collector.ThrottleNone {
+		throttleStr = " │ " + styleHealthYellow.Render("⚡ "+collector.ThrottleName(m.throttle))
+	} else if m.heapWarning {
+		throttleStr = " │ " + styleHealthRed.Render("⚠ heap>85% t:throttle")
+	}
 
-	help := styleDim.Render("1-4:tabs  r:reconnect  q:quit")
+	left := connIndicator + connPath + cluster + nodes + throttleStr
+
+	help := styleDim.Render("t:throttle  r:reconnect  q:quit")
 
 	// Pad to fill width
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(help) - 2

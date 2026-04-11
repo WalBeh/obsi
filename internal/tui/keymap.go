@@ -14,6 +14,7 @@ type KeyMap struct {
 	Down    key.Binding
 	Search    key.Binding
 	SortNext  key.Binding
+	Throttle  key.Binding
 	Refresh   key.Binding
 	Escape    key.Binding
 	Reconnect key.Binding
@@ -64,7 +65,11 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("s"),
 			key.WithHelp("s", "cycle sort"),
 		),
-		Refresh: key.NewBinding(
+		Throttle: key.NewBinding(
+		key.WithKeys("t"),
+		key.WithHelp("t", "cycle throttle"),
+	),
+	Refresh: key.NewBinding(
 			key.WithKeys("R", "ctrl+r", "f5"),
 			key.WithHelp("ctrl+r", "refresh"),
 		),

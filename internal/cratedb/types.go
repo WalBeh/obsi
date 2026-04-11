@@ -56,6 +56,7 @@ type NodeHealth struct {
 	LastSeen         time.Time
 	LastLatency      time.Duration
 	ConsecutiveFails int
+	BackoffCounter   int // used to space out pings on unreachable nodes
 }
 
 // ClusterSettings holds key cluster-level settings from sys.cluster.

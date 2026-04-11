@@ -10,7 +10,8 @@ import (
 )
 
 type ClusterCollector struct {
-	interval time.Duration
+	interval        time.Duration
+	lastSummitFetch time.Time
 }
 
 func NewClusterCollector(cfg config.CollectorConfig) *ClusterCollector {
@@ -53,17 +54,20 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 
 	st.UpdateClusterSettings(settings)
 
-	// Fetch a random summit — CrateDB's Easter egg
-	summitResp, err := reg.Query(ctx, `SELECT mountain, height, region, country, first_ascent FROM sys.summits ORDER BY random() LIMIT 1`)
-	if err == nil && len(summitResp.Rows) > 0 {
-		r := summitResp.Rows[0]
-		st.UpdateSummit(cratedb.Summit{
-			Mountain:    toString(r[0]),
-			Height:      int(toFloat64(r[1])),
-			Region:      toString(r[2]),
-			Country:     toString(r[3]),
-			FirstAscent: int(toFloat64(r[4])),
-		})
+	// Random summit — only fetch every 5 minutes (ORDER BY random() is a full scan)
+	if time.Since(c.lastSummitFetch) > 5*time.Minute {
+		summitResp, err := reg.Query(ctx, `SELECT mountain, height, region, country, first_ascent FROM sys.summits ORDER BY random() LIMIT 1`)
+		if err == nil && len(summitResp.Rows) > 0 {
+			r := summitResp.Rows[0]
+			st.UpdateSummit(cratedb.Summit{
+				Mountain:    toString(r[0]),
+				Height:      int(toFloat64(r[1])),
+				Region:      toString(r[2]),
+				Country:     toString(r[3]),
+				FirstAscent: int(toFloat64(r[4])),
+			})
+			c.lastSummitFetch = time.Now()
+		}
 	}
 
 	return nil

@@ -44,6 +44,7 @@ type Store struct {
 	activeQueries []cratedb.ActiveQuery
 	tables        []cratedb.TableInfo
 	shards        []cratedb.ShardInfo
+	allocations   []cratedb.AllocationInfo
 
 	// Track known nodes for disappearance detection
 	knownNodes map[string]NodeSnapshot // nodeID -> last known snapshot
@@ -79,6 +80,7 @@ type StoreSnapshot struct {
 	ActiveQueries []cratedb.ActiveQuery
 	Tables        []cratedb.TableInfo
 	Shards        []cratedb.ShardInfo
+	Allocations   []cratedb.AllocationInfo
 
 	NodeCPUHistory         map[string][]float64
 	NodeHeapHistory        map[string][]float64
@@ -257,6 +259,28 @@ func (s *Store) UpdateTables(tables []cratedb.TableInfo, shards []cratedb.ShardI
 	s.lastUpdated["shards"] = time.Now()
 }
 
+// UpdateAllocations updates allocation info for non-STARTED shards.
+func (s *Store) UpdateAllocations(allocs []cratedb.AllocationInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.allocations = allocs
+}
+
+// UpdateShardsPartial replaces only non-STARTED shards in the existing list,
+// keeping STARTED shards from the last full collection intact.
+func (s *Store) UpdateShardsPartial(nonStarted []cratedb.ShardInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]cratedb.ShardInfo, 0, len(s.shards))
+	for _, sh := range s.shards {
+		if sh.RoutingState == "STARTED" {
+			kept = append(kept, sh)
+		}
+	}
+	s.shards = append(kept, nonStarted...)
+	s.lastUpdated["shards"] = time.Now()
+}
+
 // MarkStale marks a collector's data as stale.
 func (s *Store) MarkStale(collectorName string) {
 	s.mu.Lock()
@@ -279,6 +303,7 @@ func (s *Store) Snapshot() StoreSnapshot {
 		ActiveQueries:   copySlice(s.activeQueries),
 		Tables:          copySlice(s.tables),
 		Shards:          copySlice(s.shards),
+		Allocations:     copySlice(s.allocations),
 		NodeCPUHistory:        make(map[string][]float64),
 		NodeHeapHistory:       make(map[string][]float64),
 		NodeLoadHistory:       make(map[string][]float64),

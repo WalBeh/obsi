@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -10,7 +11,8 @@ import (
 )
 
 type ShardsCollector struct {
-	interval time.Duration
+	interval     time.Duration
+	hasUnhealthy bool
 }
 
 func NewShardsCollector(cfg config.CollectorConfig) *ShardsCollector {
@@ -36,32 +38,30 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		s.node['id'] AS node_id,
 		s.node['name'] AS node_name,
 		s.recovery['stage'] AS recovery_stage,
-		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent
+		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent,
+		s.relocating_node
 	FROM sys.shards s
 	ORDER BY s.schema_name, s.table_name, s.id`)
 	if err != nil {
 		return err
 	}
 
-	shards := make([]cratedb.ShardInfo, 0, len(resp.Rows))
-	for _, row := range resp.Rows {
-		shard := cratedb.ShardInfo{
-			ID:              int(toFloat64(row[0])),
-			SchemaName:      toString(row[1]),
-			TableName:       toString(row[2]),
-			PartitionIdent:  toString(row[3]),
-			NumDocs:         int64(toFloat64(row[4])),
-			Primary:         toBool(row[5]),
-			State:           toString(row[6]),
-			RoutingState:    toString(row[7]),
-			Relocating:      toBool(row[8]),
-			Size:            int64(toFloat64(row[9])),
-			NodeID:          toString(row[10]),
-			NodeName:        toString(row[11]),
-			RecoveryStage:   toString(row[12]),
-			RecoveryPercent: toFloat64(row[13]),
+	shards := parseShardRows(resp.Rows)
+
+	// Check for non-STARTED shards and conditionally query allocations
+	hasNonStarted := false
+	for _, s := range shards {
+		if s.RoutingState != "STARTED" {
+			hasNonStarted = true
+			break
 		}
-		shards = append(shards, shard)
+	}
+	c.hasUnhealthy = hasNonStarted
+
+	if hasNonStarted {
+		c.collectAllocations(ctx, reg, st)
+	} else {
+		st.UpdateAllocations(nil)
 	}
 
 	// Build table list from information_schema (source of truth for all tables)
@@ -138,6 +138,128 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 
 	st.UpdateTables(tables, shards)
 	return nil
+}
+
+// CollectFastPath runs a lightweight query for only non-STARTED shards.
+// Called at high frequency (5s) when the user is on the Shards tab.
+func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
+	if !c.hasUnhealthy {
+		return nil
+	}
+
+	resp, err := reg.Query(ctx, `SELECT
+		s.id,
+		s.schema_name,
+		s.table_name,
+		s.partition_ident,
+		s.num_docs,
+		s.primary,
+		s.state,
+		s.routing_state,
+		s.relocating_node IS NOT NULL AS relocating,
+		s.size,
+		s.node['id'] AS node_id,
+		s.node['name'] AS node_name,
+		s.recovery['stage'] AS recovery_stage,
+		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent,
+		s.relocating_node
+	FROM sys.shards s
+	WHERE s.routing_state != 'STARTED'
+	ORDER BY s.schema_name, s.table_name, s.id`)
+	if err != nil {
+		return err
+	}
+
+	nonStarted := parseShardRows(resp.Rows)
+	st.UpdateShardsPartial(nonStarted)
+
+	if len(nonStarted) > 0 {
+		c.collectAllocations(ctx, reg, st)
+	} else {
+		c.hasUnhealthy = false
+		st.UpdateAllocations(nil)
+	}
+
+	return nil
+}
+
+// collectAllocations queries sys.allocations for non-STARTED shards.
+// Fails gracefully on older CrateDB versions that lack sys.allocations.
+func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.Registry, st *store.Store) {
+	resp, err := reg.Query(ctx, `SELECT
+		table_schema,
+		table_name,
+		partition_ident,
+		shard_id,
+		"primary",
+		current_state,
+		node_id,
+		explanations
+	FROM sys.allocations
+	WHERE current_state != 'STARTED'`)
+	if err != nil {
+		slog.Warn("sys.allocations query failed (may require CrateDB 4.2+)", "error", err)
+		return
+	}
+
+	allocs := make([]cratedb.AllocationInfo, 0, len(resp.Rows))
+	for _, row := range resp.Rows {
+		explanation := ""
+		// explanations can be an array of strings or a single string
+		switch v := row[7].(type) {
+		case string:
+			explanation = v
+		case []interface{}:
+			// Join multiple explanations, deduplicate later in TUI
+			for i, e := range v {
+				if s, ok := e.(string); ok {
+					if i > 0 {
+						explanation += "; "
+					}
+					explanation += s
+				}
+			}
+		}
+
+		alloc := cratedb.AllocationInfo{
+			TableSchema:    toString(row[0]),
+			TableName:      toString(row[1]),
+			PartitionIdent: toString(row[2]),
+			ShardID:        int(toFloat64(row[3])),
+			Primary:        toBool(row[4]),
+			CurrentState:   toString(row[5]),
+			NodeID:         toString(row[6]),
+			Explanation:    explanation,
+		}
+		allocs = append(allocs, alloc)
+	}
+
+	st.UpdateAllocations(allocs)
+}
+
+func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
+	shards := make([]cratedb.ShardInfo, 0, len(rows))
+	for _, row := range rows {
+		shard := cratedb.ShardInfo{
+			ID:              int(toFloat64(row[0])),
+			SchemaName:      toString(row[1]),
+			TableName:       toString(row[2]),
+			PartitionIdent:  toString(row[3]),
+			NumDocs:         int64(toFloat64(row[4])),
+			Primary:         toBool(row[5]),
+			State:           toString(row[6]),
+			RoutingState:    toString(row[7]),
+			Relocating:      toBool(row[8]),
+			Size:            int64(toFloat64(row[9])),
+			NodeID:          toString(row[10]),
+			NodeName:        toString(row[11]),
+			RecoveryStage:   toString(row[12]),
+			RecoveryPercent: toFloat64(row[13]),
+			RelocatingNode:  toString(row[14]),
+		}
+		shards = append(shards, shard)
+	}
+	return shards
 }
 
 func aggregateTables(shards []cratedb.ShardInfo) []cratedb.TableInfo {

@@ -14,3 +14,10 @@ type Collector interface {
 	Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error
 	Interval() time.Duration
 }
+
+// FastPathCollector is an optional interface for collectors that support
+// a lightweight, high-frequency collection mode for active monitoring.
+type FastPathCollector interface {
+	Collector
+	CollectFastPath(ctx context.Context, reg *cratedb.Registry, st *store.Store) error
+}

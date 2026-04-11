@@ -20,9 +20,10 @@ const (
 	TabNodes
 	TabQueries
 	TabTables
+	TabShards
 )
 
-var tabNames = []string{"Overview", "Nodes", "Queries", "Tables"}
+var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards"}
 
 // StoreTickMsg triggers a TUI refresh from the store.
 type StoreTickMsg struct{}
@@ -34,6 +35,7 @@ type App struct {
 	nodes       NodesModel
 	queries     QueriesModel
 	tables      TablesModel
+	shards      ShardsModel
 	statusBar   StatusBarModel
 	store       *store.Store
 	registry    *cratedb.Registry
@@ -73,6 +75,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.nodes = a.nodes.SetSize(a.width, bodyHeight)
 		a.queries = a.queries.SetSize(a.width, bodyHeight)
 		a.tables = a.tables.SetSize(a.width, bodyHeight)
+		a.shards = a.shards.SetSize(a.width, bodyHeight)
 		a.statusBar = a.statusBar.SetWidth(a.width)
 		return a, nil
 
@@ -90,17 +93,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, a.keyMap.Quit):
 			return a, tea.Quit
 		case key.Matches(msg, a.keyMap.Tab1):
-			a.activeTab = TabOverview
+			a.setActiveTab(TabOverview)
 		case key.Matches(msg, a.keyMap.Tab2):
-			a.activeTab = TabNodes
+			a.setActiveTab(TabNodes)
 		case key.Matches(msg, a.keyMap.Tab3):
-			a.activeTab = TabQueries
+			a.setActiveTab(TabQueries)
 		case key.Matches(msg, a.keyMap.Tab4):
-			a.activeTab = TabTables
+			a.setActiveTab(TabTables)
+		case key.Matches(msg, a.keyMap.Tab5):
+			a.setActiveTab(TabShards)
 		case key.Matches(msg, a.keyMap.NextTab):
-			a.activeTab = (a.activeTab + 1) % Tab(len(tabNames))
+			a.setActiveTab((a.activeTab + 1) % Tab(len(tabNames)))
 		case key.Matches(msg, a.keyMap.PrevTab):
-			a.activeTab = (a.activeTab - 1 + Tab(len(tabNames))) % Tab(len(tabNames))
+			a.setActiveTab((a.activeTab - 1 + Tab(len(tabNames))) % Tab(len(tabNames)))
 		case key.Matches(msg, a.keyMap.Throttle):
 			a.collectors.CycleThrottle()
 			return a, nil
@@ -108,6 +113,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Manual refresh for current tab's data
 			switch a.activeTab {
 			case TabTables:
+				a.collectors.TriggerCollector(a.ctx, "shards")
+			case TabShards:
 				a.collectors.TriggerCollector(a.ctx, "shards")
 			case TabOverview:
 				a.collectors.TriggerCollector(a.ctx, "health")
@@ -132,6 +139,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.nodes = a.nodes.Refresh(snap)
 		a.queries = a.queries.Refresh(snap)
 		a.tables = a.tables.Refresh(snap)
+		a.shards = a.shards.Refresh(snap)
 		a.statusBar = a.statusBar.Refresh(
 			a.registry.Status(),
 			a.collectors.Throttle(),
@@ -160,6 +168,8 @@ func (a *App) View() string {
 		body = a.queries.View()
 	case TabTables:
 		body = a.tables.View()
+	case TabShards:
+		body = a.shards.View()
 	}
 
 	status := a.statusBar.View()
@@ -204,6 +214,10 @@ func (a *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		var cmd tea.Cmd
 		a.tables, cmd = a.tables.HandleKey(msg)
 		return cmd
+	case TabShards:
+		var cmd tea.Cmd
+		a.shards, cmd = a.shards.HandleKey(msg)
+		return cmd
 	}
 	return nil
 }
@@ -214,8 +228,15 @@ func (a *App) isTabInputMode() bool {
 		return a.nodes.searching
 	case TabTables:
 		return a.tables.searching
+	case TabShards:
+		return a.shards.searching
 	}
 	return false
+}
+
+func (a *App) setActiveTab(tab Tab) {
+	a.activeTab = tab
+	a.collectors.SetFastPath("shards", tab == TabShards)
 }
 
 func (a *App) doStoreTick() tea.Cmd {

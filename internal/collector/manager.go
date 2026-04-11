@@ -25,21 +25,24 @@ var throttleMultipliers = [3]int{1, 2, 5}
 
 // Manager starts and stops collector goroutines.
 type Manager struct {
-	collectors []Collector
-	registry   *cratedb.Registry
-	store      *store.Store
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	throttle   ThrottleLevel
-	throttleMu sync.RWMutex
+	collectors      []Collector
+	registry        *cratedb.Registry
+	store           *store.Store
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	throttle        ThrottleLevel
+	throttleMu      sync.RWMutex
+	fastPathMu      sync.RWMutex
+	fastPathEnabled map[string]bool
 }
 
 // NewManager creates a new collector manager.
 func NewManager(reg *cratedb.Registry, st *store.Store, collectors ...Collector) *Manager {
 	return &Manager{
-		collectors: collectors,
-		registry:   reg,
-		store:      st,
+		collectors:      collectors,
+		registry:        reg,
+		store:           st,
+		fastPathEnabled: make(map[string]bool),
 	}
 }
 
@@ -97,6 +100,17 @@ func (m *Manager) SuggestThrottle() bool {
 	return false
 }
 
+// SetFastPath enables or disables the fast-path ticker for a named collector.
+// Only collectors implementing FastPathCollector respond to this.
+func (m *Manager) SetFastPath(collectorName string, enabled bool) {
+	m.fastPathMu.Lock()
+	defer m.fastPathMu.Unlock()
+	if m.fastPathEnabled[collectorName] != enabled {
+		m.fastPathEnabled[collectorName] = enabled
+		slog.Debug("fast-path toggled", "collector", collectorName, "enabled", enabled)
+	}
+}
+
 // TriggerCollector runs a named collector once immediately in the background.
 func (m *Manager) TriggerCollector(ctx context.Context, name string) {
 	for _, c := range m.collectors {
@@ -133,9 +147,36 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	ticker := time.NewTicker(baseInterval)
 	defer ticker.Stop()
 
+	// Fast-path support: second ticker for high-frequency lightweight collection
+	fpc, hasFastPath := c.(FastPathCollector)
+	var fastCh <-chan time.Time
+	var fastTicker *time.Ticker
+	if hasFastPath {
+		fastTicker = time.NewTicker(5 * time.Second)
+		fastTicker.Stop() // start stopped
+		defer fastTicker.Stop()
+	}
+	fastPathActive := false
+
 	lastMultiplier := 1
 
 	for {
+		// Check fast-path toggle
+		if hasFastPath {
+			m.fastPathMu.RLock()
+			shouldBeActive := m.fastPathEnabled[c.Name()]
+			m.fastPathMu.RUnlock()
+			if shouldBeActive && !fastPathActive {
+				fastTicker.Reset(5 * time.Second)
+				fastCh = fastTicker.C
+				fastPathActive = true
+			} else if !shouldBeActive && fastPathActive {
+				fastTicker.Stop()
+				fastCh = nil
+				fastPathActive = false
+			}
+		}
+
 		select {
 		case <-ctx.Done():
 			return
@@ -152,6 +193,10 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 			if err := c.Collect(ctx, m.registry, m.store); err != nil {
 				slog.Warn("collector failed", "collector", c.Name(), "error", err)
 				m.store.MarkStale(c.Name())
+			}
+		case <-fastCh:
+			if err := fpc.CollectFastPath(ctx, m.registry, m.store); err != nil {
+				slog.Warn("fast-path collect failed", "collector", c.Name(), "error", err)
 			}
 		}
 	}

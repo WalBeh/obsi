@@ -109,20 +109,34 @@ type ActiveQuery struct {
 
 // ShardInfo represents a row from sys.shards.
 type ShardInfo struct {
-	ID           int
-	SchemaName   string
-	TableName    string
+	ID             int
+	SchemaName     string
+	TableName      string
 	PartitionIdent string
-	NumDocs      int64
-	Primary      bool
-	State        string
-	RoutingState string
-	Relocating   bool
-	Size         int64
-	NodeID       string
-	NodeName     string
+	NumDocs        int64
+	Primary        bool
+	State          string
+	RoutingState   string
+	Relocating     bool
+	RelocatingNode string // target node name when relocating
+	Size           int64
+	NodeID         string
+	NodeName       string
 	RecoveryStage   string
 	RecoveryPercent float64
+}
+
+// AllocationInfo represents a row from sys.allocations for non-STARTED shards.
+type AllocationInfo struct {
+	TableSchema    string
+	TableName      string
+	PartitionIdent string
+	ShardID        int
+	Primary        bool
+	CurrentState   string
+	NodeID         string
+	NodeName       string
+	Explanation    string
 }
 
 // TableSettings holds table-level configuration from information_schema.tables.

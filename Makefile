@@ -9,7 +9,7 @@ TARGETS := \
 	$(OUTDIR)/$(APP)-darwin-amd64 \
 	$(OUTDIR)/$(APP)-darwin-arm64
 
-.PHONY: build all clean
+.PHONY: build all clean $(APP) $(TARGETS)
 
 build: $(APP)
 
@@ -31,4 +31,4 @@ $(OUTDIR)/$(APP)-darwin-arm64:
 	GOOS=darwin GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ .
 
 clean:
-	rm -rf $(OUTDIR)
+	rm -rf $(OUTDIR) $(APP)

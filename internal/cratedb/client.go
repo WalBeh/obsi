@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -17,6 +18,7 @@ type Client struct {
 	httpClient *http.Client
 	username   string
 	password   string
+	lastLatency time.Duration // latency of the most recent successful query
 }
 
 // NewClient creates a new CrateDB HTTP client.
@@ -28,7 +30,7 @@ func NewClient(baseURL, username, password string, timeout time.Duration, skipVe
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-requested for port-forwarding
 	}
 	return &Client{
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,
@@ -61,10 +63,12 @@ func (c *Client) Query(ctx context.Context, stmt string, args ...interface{}) (*
 		req.SetBasicAuth(c.username, c.password)
 	}
 
+	start := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http request to %s: %w", c.baseURL, err)
 	}
+	c.lastLatency = time.Since(start)
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)

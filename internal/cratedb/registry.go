@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 )
@@ -20,6 +21,15 @@ type RegistryStatus struct {
 	DirectReachable bool   // whether any direct node is reachable
 	Reconnecting    bool   // whether a reconnect attempt is in progress
 	Nodes           []NodeHealth
+	Latency         LatencyStats // query latency stats for the active endpoint
+}
+
+// LatencyStats holds computed latency percentiles.
+type LatencyStats struct {
+	Avg time.Duration
+	P90 time.Duration
+	Max time.Duration
+	N   int // number of samples
 }
 
 type nodeEntry struct {
@@ -49,6 +59,10 @@ type Registry struct {
 	heartbeatInterval   time.Duration
 	nodeRefreshInterval time.Duration
 
+	latencySamples []time.Duration // circular buffer of recent query latencies
+	latencyIdx     int             // next write position
+	latencyFull    bool            // buffer has wrapped at least once
+
 	cancel context.CancelFunc
 }
 
@@ -64,6 +78,7 @@ func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout,
 		skipVerify:          skipVerify,
 		heartbeatInterval:   heartbeatInterval,
 		nodeRefreshInterval: nodeRefreshInterval,
+		latencySamples:      make([]time.Duration, 100), // last 100 queries
 	}
 }
 
@@ -147,7 +162,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 		fs['total']['writes'] AS fs_writes,
 		fs['total']['bytes_read'] AS fs_bytes_read,
 		fs['total']['bytes_written'] AS fs_bytes_written,
-		is_master,
+		id = (SELECT master_node FROM sys.cluster) AS is_master,
 		os_info['available_processors'] AS num_cpus,
 		os_info['jvm']['version'] AS jvm_version,
 		os_info['jvm']['vm_name'] AS jvm_name,
@@ -213,6 +228,7 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 	if err == nil {
 		r.mu.Lock()
 		r.lastActive = "loadbalancer"
+		r.recordLatency(r.primary.lastLatency)
 		r.mu.Unlock()
 		return resp, nil
 	}
@@ -244,6 +260,7 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 		if err == nil {
 			r.mu.Lock()
 			r.lastActive = entry.Info.Name
+			r.recordLatency(entry.Client.lastLatency)
 			r.mu.Unlock()
 			return resp, nil
 		}
@@ -252,6 +269,47 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 	}
 
 	return nil, fmt.Errorf("all nodes failed, last error: %w", lastErr)
+}
+
+// recordLatency adds a sample to the circular buffer. Caller must hold r.mu.
+func (r *Registry) recordLatency(d time.Duration) {
+	r.latencySamples[r.latencyIdx] = d
+	r.latencyIdx = (r.latencyIdx + 1) % len(r.latencySamples)
+	if r.latencyIdx == 0 {
+		r.latencyFull = true
+	}
+}
+
+// computeLatencyStats returns avg/p90/max from collected samples. Caller must hold r.mu.
+func (r *Registry) computeLatencyStats() LatencyStats {
+	n := r.latencyIdx
+	if r.latencyFull {
+		n = len(r.latencySamples)
+	}
+	if n == 0 {
+		return LatencyStats{}
+	}
+
+	sorted := make([]time.Duration, n)
+	if r.latencyFull {
+		copy(sorted, r.latencySamples)
+	} else {
+		copy(sorted, r.latencySamples[:n])
+	}
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+
+	var sum time.Duration
+	for _, d := range sorted {
+		sum += d
+	}
+
+	p90Idx := (n - 1) * 90 / 100
+	return LatencyStats{
+		Avg: sum / time.Duration(n),
+		P90: sorted[p90Idx],
+		Max: sorted[n-1],
+		N:   n,
+	}
 }
 
 // Status returns the current connection summary.
@@ -276,6 +334,7 @@ func (r *Registry) Status() RegistryStatus {
 
 	status.DirectReachable = status.HealthyNodes > 0
 	status.Connected = r.primaryOK || status.DirectReachable
+	status.Latency = r.computeLatencyStats()
 	return status
 }
 

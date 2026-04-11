@@ -2,11 +2,23 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/waltergrande/cratedb-observer/internal/collector"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
+
+func fmtMs(d time.Duration) string {
+	ms := float64(d) / float64(time.Millisecond)
+	if ms < 1 {
+		return fmt.Sprintf("%.1fms", ms)
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	return fmt.Sprintf("%.1fs", ms/1000)
+}
 
 // StatusBarModel renders the connection status bar.
 type StatusBarModel struct {
@@ -79,7 +91,14 @@ func (m StatusBarModel) View() string {
 		throttleStr = " │ " + styleHealthRed.Render("⚠ heap>85% t:throttle")
 	}
 
-	left := connIndicator + connPath + cluster + nodes + throttleStr
+	// Latency stats
+	latencyStr := ""
+	if s.Latency.N > 0 {
+		latencyStr = fmt.Sprintf(" │ latency %s/%s/%s",
+			fmtMs(s.Latency.Avg), fmtMs(s.Latency.P90), fmtMs(s.Latency.Max))
+	}
+
+	left := connIndicator + connPath + cluster + nodes + latencyStr + throttleStr
 
 	help := styleDim.Render("t:throttle  r:reconnect  q:quit")
 

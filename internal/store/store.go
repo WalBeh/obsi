@@ -21,6 +21,9 @@ type NodeSnapshot struct {
 	WriteIOPS      float64 // write ops/sec
 	ReadThroughput float64 // bytes/sec read
 	WriteThroughput float64 // bytes/sec written
+
+	// Thread pool deltas (new rejections since last poll)
+	ThreadPoolNewRejections int64 // sum of new rejections across write/search/generic
 }
 
 type ioSample struct {
@@ -52,6 +55,9 @@ type Store struct {
 	// Previous sample for IO rate derivation
 	prevIOSample map[string]ioSample
 	prevIOTime   time.Time
+
+	// Previous thread pool rejected counters: nodeID -> poolName -> rejected
+	prevRejected map[string]map[string]int64
 
 	// Time-series ring buffers (keyed by node ID)
 	nodeCPUHistory         map[string]*RingBuf[float64]
@@ -106,6 +112,7 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 	return &Store{
 		knownNodes:            make(map[string]NodeSnapshot),
 		prevIOSample:          make(map[string]ioSample),
+		prevRejected:          make(map[string]map[string]int64),
 		nodeCPUHistory:        make(map[string]*RingBuf[float64]),
 		nodeHeapHistory:       make(map[string]*RingBuf[float64]),
 		nodeLoadHistory:       make(map[string]*RingBuf[float64]),
@@ -184,6 +191,31 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 		}
 	}
 	s.prevIOTime = now
+
+	// Compute thread pool rejection deltas
+	trackedPools := map[string]bool{"write": true, "search": true, "generic": true}
+	for i := range nodes {
+		n := &nodes[i]
+		var newRej int64
+		prev := s.prevRejected[n.ID]
+		curr := make(map[string]int64)
+		for _, p := range n.ThreadPools {
+			if !trackedPools[p.Name] {
+				continue
+			}
+			curr[p.Name] = p.Rejected
+			if prev != nil {
+				if old, ok := prev[p.Name]; ok {
+					delta := p.Rejected - old
+					if delta > 0 {
+						newRej += delta
+					}
+				}
+			}
+		}
+		n.ThreadPoolNewRejections = newRej
+		s.prevRejected[n.ID] = curr
+	}
 
 	// Track node disappearances
 	currentIDs := make(map[string]bool)

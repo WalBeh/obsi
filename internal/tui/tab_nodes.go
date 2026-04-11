@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
@@ -271,12 +272,13 @@ func (m NodesModel) View() string {
 	}
 
 	// Column header
-	header := styleHeader.Render(fmt.Sprintf("  %-3s %-20s %6s %6s %6s %6s %10s %9s %9s",
+	header := styleHeader.Render(fmt.Sprintf("  %-3s %-20s %6s %6s %6s %6s %5s %10s %9s %9s",
 		"", m.nodeSortHeader("NAME", NodeSortByName),
 		m.nodeSortHeader("CPU%", NodeSortByCPU),
 		m.nodeSortHeader("HEAP%", NodeSortByHeap),
 		m.nodeSortHeader("SAT%", NodeSortBySat),
 		m.nodeSortHeader("LOAD1", NodeSortByLoad),
+		"TPOOL",
 		m.nodeSortHeader("IOPS r/w", NodeSortByIO),
 		"READ/s", "WRITE/s"))
 	lines = append(lines, header)
@@ -356,12 +358,15 @@ func (m NodesModel) View() string {
 		cpuStr := formatCPU(n.CPUPercent)
 		iopsStr := fmt.Sprintf("%.0f/%.0f", n.ReadIOPS, n.WriteIOPS)
 
-		row := fmt.Sprintf("%s%s %s %s %s %s %6.2f %10s %9s %9s",
+		tpoolFlag := threadPoolFlag(n)
+
+		row := fmt.Sprintf("%s%s %s %s %s %s %6.2f %5s %10s %9s %9s",
 			marker, indicator, nodeName,
 			cpuStyle.Render(fmt.Sprintf("%6s", cpuStr)),
 			heapStyle.Render(fmt.Sprintf("%6.1f", heapPct)),
 			satStyle.Render(fmt.Sprintf("%6.0f", loadSat)),
 			n.Load[0],
+			tpoolFlag,
 			iopsStr, formatRate(n.ReadThroughput), formatRate(n.WriteThroughput),
 		)
 		lines = append(lines, row)
@@ -379,6 +384,34 @@ func (m NodesModel) View() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// threadPoolFlag returns a colored pressure indicator for the node list.
+// Dim "·" when healthy, yellow "▲" when queue > 0, red "▲" when new rejections detected.
+func threadPoolFlag(n store.NodeSnapshot) string {
+	if n.ThreadPoolNewRejections > 0 {
+		return styleHighValue.Render("▲ REJ")
+	}
+	var totalQueue int64
+	for _, p := range n.ThreadPools {
+		if p.Name == "write" || p.Name == "search" || p.Name == "generic" {
+			totalQueue += p.Queue
+		}
+	}
+	if totalQueue > 0 {
+		return styleHealthYellow.Render(fmt.Sprintf("▲ Q%d", totalQueue))
+	}
+	return styleDim.Render("  ·  ")
+}
+
+// getThreadPool returns the stats for a named pool, or nil if not found.
+func getThreadPool(pools []cratedb.ThreadPoolStats, name string) *cratedb.ThreadPoolStats {
+	for i := range pools {
+		if pools[i].Name == name {
+			return &pools[i]
+		}
+	}
+	return nil
 }
 
 func (m NodesModel) nodeSortHeader(label string, field NodeSortField) string {
@@ -457,6 +490,14 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	}
 	lines = append(lines, fmt.Sprintf("    Load / CPUs  %s %4s %s %s", metricBar(loadSat, barWidth), satLabel, styleDim.Render(satDetail), styleDim.Render(satSpark)))
 
+	// Load average
+	loadSpark := ""
+	if hist, ok := m.snap.NodeLoadHistory[n.ID]; ok && len(hist) > 1 {
+		loadSpark = " " + sparkline(hist, 30)
+	}
+	lines = append(lines, fmt.Sprintf("    Load avg     1m: %.2f   5m: %.2f   15m: %.2f %s",
+		n.Load[0], n.Load[1], n.Load[2], styleDim.Render(loadSpark)))
+
 	// Heap bar + sparkline
 	heapLabel := fmt.Sprintf("%.1f%%", heapPct)
 	heapDetail := fmt.Sprintf("(%s / %s)", formatBytes(n.HeapUsed), formatBytes(n.HeapMax))
@@ -504,13 +545,38 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 		formatRate(n.WriteThroughput), formatIOPS(n.WriteIOPS),
 		styleDim.Render(writeSpark), styleDim.Render(writeStats)))
 
-	// Load average with sparkline
-	loadSpark := ""
-	if hist, ok := m.snap.NodeLoadHistory[n.ID]; ok && len(hist) > 1 {
-		loadSpark = " " + sparkline(hist, 30)
+	// Thread pools
+	if len(n.ThreadPools) > 0 {
+		lines = append(lines, "")
+		rejLabel := "rejected"
+		if n.ThreadPoolNewRejections > 0 {
+			rejLabel = styleHighValue.Render("rejected*")
+		}
+		lines = append(lines, styleDim.Render(fmt.Sprintf("    Thread Pools       active  queue  %s  completed", rejLabel)))
+		for _, name := range []string{"write", "search", "generic"} {
+			if p := getThreadPool(n.ThreadPools, name); p != nil {
+				queueStyle := styleDim
+				if p.Queue > 0 {
+					queueStyle = styleHealthYellow
+				}
+				rejStr := fmt.Sprintf("%8d", p.Rejected)
+				if p.Rejected > 0 {
+					rejStr = styleDim.Render(rejStr) // counter, not alarming by itself
+				} else {
+					rejStr = styleDim.Render(rejStr)
+				}
+				lines = append(lines, fmt.Sprintf("    %-18s %5d  %s  %s  %9d",
+					name,
+					p.Active,
+					queueStyle.Render(fmt.Sprintf("%5d", p.Queue)),
+					rejStr,
+					p.Completed))
+			}
+		}
+		if n.ThreadPoolNewRejections > 0 {
+			lines = append(lines, styleHighValue.Render(fmt.Sprintf("    * %d new rejections since last poll", n.ThreadPoolNewRejections)))
+		}
 	}
-	lines = append(lines, fmt.Sprintf("    Load avg     1m: %.2f   5m: %.2f   15m: %.2f %s",
-		n.Load[0], n.Load[1], n.Load[2], styleDim.Render(loadSpark)))
 
 	// Latency (if direct reachable)
 	if n.LastLatency > 0 {

@@ -47,6 +47,19 @@ type NodeInfo struct {
 	NumCPUs        int    // from os_info['available_processors']
 	JVMVersion string // from os_info['jvm']['version']
 	JVMName    string // from os_info['jvm']['vm_name']
+
+	ThreadPools []ThreadPoolStats // from sys.nodes thread_pools
+}
+
+// ThreadPoolStats represents one thread pool entry from sys.nodes.
+type ThreadPoolStats struct {
+	Name      string
+	Active    int64
+	Queue     int64
+	Rejected  int64
+	Completed int64
+	Threads   int64
+	Largest   int64
 }
 
 // NodeHealth tracks heartbeat state for one node.

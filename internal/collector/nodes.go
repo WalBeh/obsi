@@ -48,7 +48,8 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 		os_info['jvm']['version'] AS jvm_version,
 		os_info['jvm']['vm_name'] AS jvm_name,
 		attributes['zone'] AS zone,
-		attributes['node_name'] AS node_role
+		attributes['node_name'] AS node_role,
+		thread_pools
 	FROM sys.nodes
 	ORDER BY name`)
 	if err != nil {
@@ -93,6 +94,7 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 			JVMName:        toString(row[27]),
 			Zone:           toString(row[28]),
 			NodeRole:       toString(row[29]),
+			ThreadPools:    parseThreadPools(row[30]),
 		}
 
 		snap := store.NodeSnapshot{NodeInfo: info}
@@ -106,4 +108,29 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 
 	st.UpdateNodes(nodes)
 	return nil
+}
+
+// parseThreadPools converts the thread_pools array-of-objects from CrateDB into typed structs.
+func parseThreadPools(v interface{}) []cratedb.ThreadPoolStats {
+	arr, ok := v.([]interface{})
+	if !ok || arr == nil {
+		return nil
+	}
+	pools := make([]cratedb.ThreadPoolStats, 0, len(arr))
+	for _, item := range arr {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		pools = append(pools, cratedb.ThreadPoolStats{
+			Name:      toString(m["name"]),
+			Active:    int64(toFloat64(m["active"])),
+			Queue:     int64(toFloat64(m["queue"])),
+			Rejected:  int64(toFloat64(m["rejected"])),
+			Completed: int64(toFloat64(m["completed"])),
+			Threads:   int64(toFloat64(m["threads"])),
+			Largest:   int64(toFloat64(m["largest"])),
+		})
+	}
+	return pools
 }

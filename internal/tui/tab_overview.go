@@ -361,6 +361,22 @@ func (m OverviewModel) renderClusterSettings() string {
 		lines = append(lines, fmt.Sprintf("  Topology: %d nodes", nodeCount))
 	}
 
+	// Data size and shard counts from table info
+	var primarySize, totalSize int64
+	var primaryShards, replicaShards int
+	for _, t := range m.snap.Tables {
+		primarySize += t.TotalSize
+		totalSize += t.TotalDiskSize
+		primaryShards += t.PrimaryShards
+		replicaShards += t.ReplicaShards
+	}
+	totalShards := primaryShards + replicaShards
+	if totalShards > 0 {
+		lines = append(lines, fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%dp / %dr)",
+			formatBytes(primarySize), formatBytes(totalSize),
+			totalShards, primaryShards, replicaShards))
+	}
+
 	return strings.Join(lines, "\n")
 }
 

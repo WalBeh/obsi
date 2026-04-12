@@ -272,7 +272,7 @@ func (m NodesModel) View() string {
 	}
 
 	// Column header
-	header := styleHeader.Render(fmt.Sprintf("  %-3s %-20s %6s %6s %6s %6s %5s %10s %9s %9s",
+	header := styleHeader.Render(fmt.Sprintf("  %-3s %-20s %6s %6s %6s %6s %5s %10s %15s",
 		"", m.nodeSortHeader("NAME", NodeSortByName),
 		m.nodeSortHeader("CPU%", NodeSortByCPU),
 		m.nodeSortHeader("HEAP%", NodeSortByHeap),
@@ -280,7 +280,7 @@ func (m NodesModel) View() string {
 		m.nodeSortHeader("LOAD1", NodeSortByLoad),
 		"TPOOL",
 		m.nodeSortHeader("IOPS r/w", NodeSortByIO),
-		"READ/s", "WRITE/s"))
+		"DISK r/w"))
 	lines = append(lines, header)
 
 	if len(m.sorted) == 0 {
@@ -360,14 +360,16 @@ func (m NodesModel) View() string {
 
 		tpoolFlag := threadPoolFlag(n)
 
-		row := fmt.Sprintf("%s%s %s %s %s %s %6.2f %5s %10s %9s %9s",
+		diskStr := fmt.Sprintf("%s/%s", formatRate(n.ReadThroughput), formatRate(n.WriteThroughput))
+
+		row := fmt.Sprintf("%s%s %s %s %s %s %6.2f %5s %10s %15s",
 			marker, indicator, nodeName,
 			cpuStyle.Render(fmt.Sprintf("%6s", cpuStr)),
 			heapStyle.Render(fmt.Sprintf("%6.1f", heapPct)),
 			satStyle.Render(fmt.Sprintf("%6.0f", loadSat)),
 			n.Load[0],
 			tpoolFlag,
-			iopsStr, formatRate(n.ReadThroughput), formatRate(n.WriteThroughput),
+			iopsStr, diskStr,
 		)
 		lines = append(lines, row)
 	}

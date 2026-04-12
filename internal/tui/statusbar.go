@@ -25,6 +25,7 @@ type StatusBarModel struct {
 	status        cratedb.RegistryStatus
 	throttle      collector.ThrottleLevel
 	heapWarning   bool
+	clusterHealth string // "GREEN", "YELLOW", "RED", or ""
 	width         int
 }
 
@@ -34,10 +35,11 @@ func NewStatusBarModel(width int) StatusBarModel {
 }
 
 // Refresh updates the status bar with new registry status.
-func (m StatusBarModel) Refresh(status cratedb.RegistryStatus, throttle collector.ThrottleLevel, heapWarning bool) StatusBarModel {
+func (m StatusBarModel) Refresh(status cratedb.RegistryStatus, throttle collector.ThrottleLevel, heapWarning bool, clusterHealth string) StatusBarModel {
 	m.status = status
 	m.throttle = throttle
 	m.heapWarning = heapWarning
+	m.clusterHealth = clusterHealth
 	return m
 }
 
@@ -78,7 +80,16 @@ func (m StatusBarModel) View() string {
 
 	cluster := ""
 	if s.ClusterName != "" {
-		cluster = fmt.Sprintf(" │ %s", s.ClusterName)
+		name := s.ClusterName
+		switch m.clusterHealth {
+		case "GREEN":
+			name = styleHealthGreen.Render(name)
+		case "YELLOW":
+			name = styleHealthYellow.Render(name)
+		case "RED":
+			name = styleHealthRed.Render(name)
+		}
+		cluster = fmt.Sprintf(" │ %s", name)
 	}
 
 	nodes := fmt.Sprintf(" │ nodes: %d", s.TotalNodes)

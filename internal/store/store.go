@@ -317,6 +317,25 @@ func (s *Store) UpdateShardsPartial(nonStarted []cratedb.ShardInfo) {
 	s.lastUpdated["shards"] = time.Now()
 }
 
+// ClusterHealth returns the worst table health across the cluster: "RED", "YELLOW", "GREEN", or "" if unknown.
+func (s *Store) ClusterHealth() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.tableHealth) == 0 {
+		return ""
+	}
+	worst := "GREEN"
+	for _, h := range s.tableHealth {
+		if h.Health == "RED" {
+			return "RED"
+		}
+		if h.Health == "YELLOW" {
+			worst = "YELLOW"
+		}
+	}
+	return worst
+}
+
 // AnyNodeHeapAbove returns true if any node has heap usage above the given percentage.
 func (s *Store) AnyNodeHeapAbove(pct float64) bool {
 	s.mu.RLock()

@@ -169,6 +169,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.registry.Status(),
 			throttle,
 			a.collectors.SuggestThrottle(),
+			a.store.ClusterHealth(),
 		)
 		return a, a.doStoreTick()
 	}

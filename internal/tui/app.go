@@ -291,13 +291,13 @@ func (a *App) setActiveTab(tab Tab) {
 func (a *App) snapshotHint() store.SnapshotHint {
 	switch a.activeTab {
 	case TabOverview:
-		return store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeShards: true}
+		return store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeTables: true}
 	case TabNodes:
 		return store.SnapshotHint{IncludeNodes: true}
 	case TabQueries:
 		return store.SnapshotHint{IncludeQueries: true}
 	case TabTables:
-		return store.SnapshotHint{IncludeShards: true, IncludeHealth: true}
+		return store.SnapshotHint{IncludeTables: true, IncludeHealth: true}
 	case TabShards:
 		return store.SnapshotHint{IncludeShards: true}
 	default:

@@ -289,7 +289,7 @@ func (m TablesModel) View() string {
 	}
 
 	lines = append(lines, fmt.Sprintf("  %d tables, %d total shards │ %s%s%s%s │ %s",
-		len(m.snap.Tables), len(m.snap.Shards),
+		len(m.snap.Tables), m.snap.TotalShards,
 		sortIndicator, filterInfo, healthFilter,
 		styleDim.Render(lastRefresh),
 		styleDim.Render("s:sort  /:search  f:unhealthy  R:refresh")))

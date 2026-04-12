@@ -87,6 +87,7 @@ type StoreSnapshot struct {
 	ActiveQueries []cratedb.ActiveQuery
 	Tables        []cratedb.TableInfo
 	ViewCount     int
+	TotalShards   int
 	Shards        []cratedb.ShardInfo
 	Allocations   []cratedb.AllocationInfo
 
@@ -335,7 +336,8 @@ func (s *Store) AnyNodeHeapAbove(pct float64) bool {
 // for tabs that don't need them.
 type SnapshotHint struct {
 	IncludeNodes       bool // node list + history ring buffers
-	IncludeShards      bool // shards, tables, allocations
+	IncludeTables      bool // table list + shard count (lightweight)
+	IncludeShards      bool // full shard list + allocations (expensive on large clusters)
 	IncludeQueries     bool // active queries
 	IncludeHealth      bool // cluster checks + table health
 	IncludeCluster     bool // cluster settings + summit
@@ -398,13 +400,14 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeQueries {
 		snap.ActiveQueries = copySlice(s.activeQueries)
 	}
-	if hint.IncludeShards {
+	if hint.IncludeTables || hint.IncludeShards {
 		snap.Tables = copySlice(s.tables)
 		snap.ViewCount = s.viewCount
+		snap.TotalShards = len(s.shards)
+	}
+	if hint.IncludeShards {
 		snap.Shards = copySlice(s.shards)
 		snap.Allocations = copySlice(s.allocations)
-		// Tables tab also needs health for coloring
-		snap.TableHealth = copySlice(s.tableHealth)
 	}
 
 	if throttleMultiplier < 1 {

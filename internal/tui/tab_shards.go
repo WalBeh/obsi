@@ -44,8 +44,6 @@ type ShardsModel struct {
 	countUnassigned   int
 	countRelocating   int
 	problemShards     []cratedb.ShardInfo
-	recoveringShards  []cratedb.ShardInfo
-	relocatingShards  []cratedb.ShardInfo
 }
 
 func NewShardsModel(width, height int) ShardsModel {
@@ -61,8 +59,6 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 	m.countUnassigned = 0
 	m.countRelocating = 0
 	m.problemShards = m.problemShards[:0]
-	m.recoveringShards = m.recoveringShards[:0]
-	m.relocatingShards = m.relocatingShards[:0]
 
 	for _, s := range snap.Shards {
 		switch s.RoutingState {
@@ -78,12 +74,6 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 
 		if s.RoutingState != "STARTED" {
 			m.problemShards = append(m.problemShards, s)
-		}
-		if s.RecoveryStage != "" && s.RecoveryStage != "DONE" {
-			m.recoveringShards = append(m.recoveringShards, s)
-		}
-		if s.Relocating {
-			m.relocatingShards = append(m.relocatingShards, s)
 		}
 	}
 
@@ -106,21 +96,14 @@ func (m ShardsModel) SetSize(width, height int) ShardsModel {
 }
 
 func (m ShardsModel) listHeight() int {
-	// Estimate header lines: title(1) + summary(1) + blank(1) + recovery section + relocating section + separator(1) + column header(1)
-	headerLines := 5
+	// title(1) + summary(1) + blank(1) + column header(1)
+	headerLines := 4
 	if m.searching {
-		headerLines += 2
-	}
-	// Count non-scrollable sections
-	if len(m.recoveringShards) > 0 {
-		headerLines += len(m.recoveringShards) + 2 // title + shards + blank
-	}
-	if len(m.relocatingShards) > 0 {
-		headerLines += len(m.relocatingShards) + 2
+		headerLines++
 	}
 
-	// Reserve 35% for detail panel, at least 6 lines
-	detailReserve := m.height * 35 / 100
+	// Reserve 40% for detail panel, at least 6 lines
+	detailReserve := m.height * 40 / 100
 	if detailReserve < 6 {
 		detailReserve = 6
 	}
@@ -291,125 +274,106 @@ func (m ShardsModel) View() string {
 	lines = append(lines, "")
 
 	// Happy path: all healthy
-	if len(m.problemShards) == 0 && len(m.relocatingShards) == 0 {
+	if len(m.problemShards) == 0 {
 		lines = append(lines, styleHealthGreen.Render(
 			fmt.Sprintf("  All %d shards healthy", totalShards)))
 		return strings.Join(lines, "\n")
 	}
 
-	// Recovery progress section
-	if len(m.recoveringShards) > 0 {
-		lines = append(lines, sectionTitle("Recovery Progress"))
-		for _, s := range m.recoveringShards {
-			lines = append(lines, m.renderRecoveryShard(s))
-		}
-		lines = append(lines, "")
+	// Search input
+	if m.searching {
+		lines = append(lines, fmt.Sprintf("  Search: %s▏", m.search))
 	}
 
-	// Relocating section
-	if len(m.relocatingShards) > 0 {
-		lines = append(lines, sectionTitle("Relocating"))
-		for _, s := range m.relocatingShards {
-			target := s.RelocatingNode
-			if target == "" {
-				target = "unknown"
+	// Column header
+	sortIndicator := fmt.Sprintf("sort: %s", shardSortFieldNames[m.sortField])
+	if m.sortDesc {
+		sortIndicator += " ↓"
+	} else {
+		sortIndicator += " ↑"
+	}
+
+	filterInfo := ""
+	if m.search != "" {
+		filterInfo = fmt.Sprintf(" | filter: %q (%d match)", m.search, len(m.sorted))
+	}
+
+	lines = append(lines, fmt.Sprintf("  Shards (%d) | %s%s | %s",
+		len(m.problemShards), sortIndicator, filterInfo,
+		styleDim.Render("s:sort  /:search  R:refresh")))
+
+	header := styleHeader.Render(fmt.Sprintf("  %-3s %-28s %5s %3s %-14s %21s %10s %s",
+		"", "TABLE", "SHARD", "P/R", "STATE", "RECOVERY", "SIZE", "NODE"))
+	lines = append(lines, header)
+
+	if len(m.sorted) == 0 {
+		lines = append(lines, "  No matching shards")
+	} else {
+		// Virtual scrolling
+		listH := m.listHeight()
+		visibleEnd := m.scroll + listH
+		if visibleEnd > len(m.sorted) {
+			visibleEnd = len(m.sorted)
+		}
+
+		if m.scroll > 0 {
+			lines = append(lines, styleDim.Render(fmt.Sprintf("  ↑ %d more above", m.scroll)))
+		}
+
+		for viewIdx := m.scroll; viewIdx < visibleEnd; viewIdx++ {
+			shardIdx := m.sorted[viewIdx]
+			s := m.problemShards[shardIdx]
+			marker := "  "
+			if viewIdx == m.selected {
+				marker = "▸ "
 			}
+
+			tableName := fmt.Sprintf("%s.%s", s.SchemaName, s.TableName)
+			if len(tableName) > 28 {
+				tableName = tableName[:25] + "..."
+			}
+
 			pr := "R"
 			if s.Primary {
 				pr = "P"
 			}
-			lines = append(lines, fmt.Sprintf("    %s.%s shard %d (%s) -> %s",
-				s.SchemaName, s.TableName, s.ID, pr, target))
+
+			stateStyle := styleDim
+			switch s.RoutingState {
+			case "UNASSIGNED":
+				stateStyle = styleHealthRed
+			case "INITIALIZING":
+				stateStyle = styleHealthYellow
+			case "RELOCATING":
+				stateStyle = styleHealthYellow
+			}
+
+			node := s.NodeName
+			if node == "" {
+				node = "-"
+			}
+
+			// Show inline recovery progress for recovering shards
+			recovery := ""
+			if s.RecoveryStage != "" && s.RecoveryStage != "DONE" {
+				pct := s.RecoveryPercent
+				if pct > 100 {
+					pct = 100
+				}
+				bar := metricBar(pct, 12)
+				recovery = fmt.Sprintf("%s %5.1f%%", bar, pct)
+			}
+
+			row := fmt.Sprintf("%s%-28s %5d  %s  %s %21s %10s %s",
+				marker, tableName, s.ID, pr,
+				stateStyle.Render(fmt.Sprintf("%-14s", s.RoutingState)),
+				recovery, formatBytes(s.Size), node)
+			lines = append(lines, row)
 		}
-		lines = append(lines, "")
-	}
 
-	// Search input
-	if m.searching {
-		lines = append(lines, fmt.Sprintf("  Search: %s▏", m.search))
-		lines = append(lines, "")
-	}
-
-	// Problem shards list header
-	if len(m.problemShards) > 0 {
-		sortIndicator := fmt.Sprintf("sort: %s", shardSortFieldNames[m.sortField])
-		if m.sortDesc {
-			sortIndicator += " ↓"
-		} else {
-			sortIndicator += " ↑"
-		}
-
-		filterInfo := ""
-		if m.search != "" {
-			filterInfo = fmt.Sprintf(" | filter: %q (%d match)", m.search, len(m.sorted))
-		}
-
-		lines = append(lines, fmt.Sprintf("  Problem Shards (%d) | %s%s | %s",
-			len(m.problemShards), sortIndicator, filterInfo,
-			styleDim.Render("s:sort  /:search  R:refresh")))
-
-		header := styleHeader.Render(fmt.Sprintf("  %-3s %-28s %5s %3s %-14s %-10s %s",
-			"", "TABLE", "SHARD", "P/R", "STATE", "SIZE", "NODE"))
-		lines = append(lines, header)
-
-		if len(m.sorted) == 0 {
-			lines = append(lines, "  No matching shards")
-		} else {
-			// Virtual scrolling
-			listH := m.listHeight()
-			visibleEnd := m.scroll + listH
-			if visibleEnd > len(m.sorted) {
-				visibleEnd = len(m.sorted)
-			}
-
-			if m.scroll > 0 {
-				lines = append(lines, styleDim.Render(fmt.Sprintf("  ↑ %d more above", m.scroll)))
-			}
-
-			for viewIdx := m.scroll; viewIdx < visibleEnd; viewIdx++ {
-				shardIdx := m.sorted[viewIdx]
-				s := m.problemShards[shardIdx]
-				marker := "  "
-				if viewIdx == m.selected {
-					marker = "▸ "
-				}
-
-				tableName := fmt.Sprintf("%s.%s", s.SchemaName, s.TableName)
-				if len(tableName) > 28 {
-					tableName = tableName[:25] + "..."
-				}
-
-				pr := "R"
-				if s.Primary {
-					pr = "P"
-				}
-
-				stateStyle := styleDim
-				switch s.RoutingState {
-				case "UNASSIGNED":
-					stateStyle = styleHealthRed
-				case "INITIALIZING":
-					stateStyle = styleHealthYellow
-				case "RELOCATING":
-					stateStyle = styleHealthYellow
-				}
-
-				node := s.NodeName
-				if node == "" {
-					node = "-"
-				}
-
-				row := fmt.Sprintf("%s%-28s %5d  %s  %s %10s %s",
-					marker, tableName, s.ID, pr,
-					stateStyle.Render(fmt.Sprintf("%-14s", s.RoutingState)),
-					formatBytes(s.Size), node)
-				lines = append(lines, row)
-			}
-
-			remaining := len(m.sorted) - visibleEnd
-			if remaining > 0 {
-				lines = append(lines, styleDim.Render(fmt.Sprintf("  ↓ %d more below", remaining)))
-			}
+		remaining := len(m.sorted) - visibleEnd
+		if remaining > 0 {
+			lines = append(lines, styleDim.Render(fmt.Sprintf("  ↓ %d more below", remaining)))
 		}
 	}
 
@@ -445,28 +409,6 @@ func (m ShardsModel) renderSummary() string {
 	return fmt.Sprintf("  %s%s", strings.Join(parts, " | "), styleDim.Render(lastRefresh))
 }
 
-func (m ShardsModel) renderRecoveryShard(s cratedb.ShardInfo) string {
-	pr := "replica"
-	if s.Primary {
-		pr = "primary"
-	}
-
-	barWidth := 20
-	pct := s.RecoveryPercent
-	if pct > 100 {
-		pct = 100
-	}
-	bar := metricBar(pct, barWidth)
-
-	stage := s.RecoveryStage
-	if stage == "" {
-		stage = "unknown"
-	}
-
-	return fmt.Sprintf("    %s.%s shard %d (%s)  %s %5.1f%%  stage: %s",
-		s.SchemaName, s.TableName, s.ID, pr, bar, pct, stage)
-}
-
 func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 	pr := "replica"
 	if s.Primary {
@@ -484,7 +426,16 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 		s.RoutingState, formatBytes(s.Size), formatRecords(s.NumDocs)))
 
 	if s.RecoveryStage != "" {
-		lines = append(lines, fmt.Sprintf("    Recovery: %s (%.1f%%)", s.RecoveryStage, s.RecoveryPercent))
+		pct := s.RecoveryPercent
+		if pct > 100 {
+			pct = 100
+		}
+		bar := metricBar(pct, 20)
+		lines = append(lines, fmt.Sprintf("    Recovery: %s %5.1f%%  stage: %s", bar, pct, s.RecoveryStage))
+	}
+
+	if s.Relocating && s.RelocatingNode != "" {
+		lines = append(lines, fmt.Sprintf("    Relocating to: %s", s.RelocatingNode))
 	}
 
 	// Find allocation reasons for this specific shard

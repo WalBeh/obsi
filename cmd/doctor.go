@@ -4,14 +4,37 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
+	"github.com/spf13/cobra"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
-// RunDoctor checks connectivity, permissions, and reports what the observer can and can't do.
-func RunDoctor(ctx context.Context, registry *cratedb.Registry) {
-	fmt.Println("\nChecking CrateDB connectivity and permissions...\n")
+var doctorCmd = &cobra.Command{
+	Use:   "doctor [endpoint|profile]",
+	Short: "Check connectivity, permissions, and exit",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runDoctor,
+}
+
+func runDoctor(cmd *cobra.Command, args []string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	_, registry, err := resolveConnection(ctx, cmd, args)
+	if err != nil {
+		return err
+	}
+
+	runDoctorChecks(ctx, registry)
+	return nil
+}
+
+// runDoctorChecks checks connectivity, permissions, and reports what the observer can and can't do.
+func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
+	fmt.Print("\nChecking CrateDB connectivity and permissions...\n\n")
 
 	// 1. Basic connectivity + version
 	var version string
@@ -153,7 +176,6 @@ func checkTable(ctx context.Context, registry *cratedb.Registry, name, query, pu
 	resp, err := registry.Query(ctx, query)
 	if err != nil {
 		errMsg := err.Error()
-		// Try to extract just the CrateDB error message
 		if idx := strings.Index(errMsg, "message:"); idx >= 0 {
 			errMsg = strings.TrimSpace(errMsg[idx+8:])
 		}

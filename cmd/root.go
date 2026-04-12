@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -13,6 +12,7 @@ import (
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
 
 	"github.com/waltergrande/cratedb-observer/internal/collector"
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -21,87 +21,69 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/tui"
 )
 
-func Execute() {
-	var (
-		endpoint   string
-		username   string
-		password   string
-		configPath string
-		skipVerify bool
-		doctor       bool
-		profile      string
-		listProfiles bool
-	)
+var (
+	endpoint   string
+	username   string
+	password   string
+	configPath string
+	skipVerify bool
+	profile    string
+)
 
-	flag.StringVar(&endpoint, "endpoint", "", "CrateDB URL, e.g. https://user:pass@host:4200")
-	flag.StringVar(&username, "username", "", "CrateDB username (overrides URL userinfo)")
-	flag.StringVar(&password, "password", "", "CrateDB password (overrides URL userinfo)")
-	flag.StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
-	flag.BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification (for port-forwarding)")
-	flag.BoolVar(&doctor, "doctor", false, "Check connectivity, permissions, and exit")
-	flag.StringVar(&profile, "profile", "", "Named cluster profile from config")
-	flag.BoolVar(&listProfiles, "list-profiles", false, "List saved profiles and exit")
-
-	// Reorder os.Args so flags can appear anywhere (before or after positional URL)
-	reorderArgs()
-	flag.Parse()
-
-	// Support positional arguments:
-	//   obsi https://admin:pass@host:4200       → URL
-	//   obsi prod                                → profile name (no scheme = profile)
-	//   obsi prod --doctor                       → profile + flag
-	if flag.NArg() > 0 {
-		arg := flag.Arg(0)
-		if strings.Contains(arg, "://") {
-			if endpoint == "" {
-				endpoint = arg
-			}
-		} else if profile == "" {
-			profile = arg
-		}
+func newRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "obsi [endpoint|profile]",
+		Short: "CrateDB cluster observer TUI",
+		Long:  "A terminal-based monitoring tool for CrateDB clusters.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runRoot,
 	}
 
-	// Check which flags were explicitly provided
-	passwordSet := false
-	usernameSet := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "password" {
-			passwordSet = true
+	cmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "CrateDB URL, e.g. https://user:pass@host:4200")
+	cmd.PersistentFlags().StringVar(&username, "username", "", "CrateDB username (overrides URL userinfo)")
+	cmd.PersistentFlags().StringVar(&password, "password", "", "CrateDB password (overrides URL userinfo)")
+	cmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
+	cmd.PersistentFlags().BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification")
+	cmd.PersistentFlags().StringVar(&profile, "profile", "", "Named cluster profile from config")
+
+	cmd.AddCommand(doctorCmd)
+	cmd.AddCommand(profilesCmd)
+	return cmd
+}
+
+func Execute() {
+	if err := newRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+// resolvePositionalArg interprets a positional argument as either a URL or profile name.
+func resolvePositionalArg(args []string) {
+	if len(args) == 0 {
+		return
+	}
+	arg := args[0]
+	if strings.Contains(arg, "://") {
+		if endpoint == "" {
+			endpoint = arg
 		}
-		if f.Name == "username" {
-			usernameSet = true
-		}
-	})
+	} else if profile == "" {
+		profile = arg
+	}
+}
+
+// resolveConnection loads config, resolves profile/endpoint/credentials, connects,
+// and returns the registry. Shared by root and doctor commands.
+func resolveConnection(ctx context.Context, cmd *cobra.Command, args []string) (*config.Config, *cratedb.Registry, error) {
+	resolvePositionalArg(args)
+
+	passwordSet := cmd.Flags().Lookup("password").Changed
+	usernameSet := cmd.Flags().Lookup("username").Changed
 
 	// Load config
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// List profiles and exit
-	if listProfiles {
-		if len(cfg.Profiles) == 0 {
-			fmt.Println("No profiles saved.")
-			fmt.Println("Create one: obsi https://user:pass@host:4200 --profile <name>")
-		} else {
-			fmt.Printf("Profiles in %s:\n\n", configPath)
-			for name, p := range cfg.Profiles {
-				marker := "  "
-				if name == cfg.LastProfile {
-					marker = "* "
-				}
-				keyStatus := "no password in keyring"
-				if pw, err := config.ResolvePasswordFor(p.Endpoint, p.Username); err == nil && pw != "" {
-					keyStatus = "password in keyring"
-				}
-				fmt.Printf("  %s%-12s  %s@%s  (%s)\n", marker, name, p.Username, p.Endpoint, keyStatus)
-			}
-			fmt.Println()
-			fmt.Println("  * = last used")
-		}
-		return
+		return nil, nil, fmt.Errorf("error loading config: %w", err)
 	}
 
 	// Resolve profile: explicit --profile, positional name, or last_profile from config
@@ -119,15 +101,15 @@ func Execute() {
 				cfg.Connection.Username = p.Username
 			}
 		} else if endpoint == "" {
-			fmt.Fprintf(os.Stderr, "Profile %q not found in config.\n", profile)
+			msg := fmt.Sprintf("profile %q not found in config", profile)
 			if len(cfg.Profiles) > 0 {
-				fmt.Fprintf(os.Stderr, "Available profiles:")
+				names := make([]string, 0, len(cfg.Profiles))
 				for name := range cfg.Profiles {
-					fmt.Fprintf(os.Stderr, " %s", name)
+					names = append(names, name)
 				}
-				fmt.Fprintln(os.Stderr)
+				msg += fmt.Sprintf("\navailable profiles: %s", strings.Join(names, ", "))
 			}
-			os.Exit(1)
+			return nil, nil, fmt.Errorf("%s", msg)
 		}
 	}
 
@@ -158,7 +140,6 @@ func Execute() {
 			Endpoint: cfg.Connection.Endpoint,
 			Username: cfg.Connection.Username,
 		}
-		// Store password in keyring so future --profile runs don't need the URL
 		if passwordSet && password != "" {
 			_ = config.StorePassword(cfg.Connection.Endpoint, cfg.Connection.Username, password)
 		}
@@ -167,7 +148,6 @@ func Execute() {
 			fmt.Fprintf(os.Stderr, "Warning: could not save profile: %v\n", err)
 		}
 	} else if profile != "" {
-		// Update last_profile even when loading existing profile
 		if cfg.LastProfile != profile {
 			cfg.LastProfile = profile
 			_ = config.Save(configPath, cfg)
@@ -181,30 +161,29 @@ func Execute() {
 	} else {
 		pw, err = config.ResolvePassword(&cfg.Connection)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving password: %v\n", err)
-			os.Exit(1)
+			return nil, nil, fmt.Errorf("error resolving password: %w", err)
 		}
 	}
 
 	// Setup logging
 	setupLogging(cfg.Logging)
 
-	// Create context with signal handling
+	// Try connecting
+	registry, err := tryConnect(ctx, cfg, pw, passwordSet, skipVerify)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error connecting to CrateDB: %w", err)
+	}
+
+	return cfg, registry, nil
+}
+
+func runRoot(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Try connecting; if password wasn't explicitly set and connection fails,
-	// try empty password first, then prompt interactively.
-	registry, err := tryConnect(ctx, cfg, pw, passwordSet, skipVerify)
+	cfg, registry, err := resolveConnection(ctx, cmd, args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error connecting to CrateDB: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Doctor mode: check permissions and exit
-	if doctor {
-		RunDoctor(ctx, registry)
-		return
+		return err
 	}
 
 	// Start heartbeat and node refresh
@@ -223,37 +202,13 @@ func Execute() {
 
 	// Run TUI (blocks until quit)
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
+		return fmt.Errorf("error running TUI: %w", err)
 	}
 
 	// Cleanup
 	cancel()
 	mgr.Stop()
-}
-
-// reorderArgs moves flags after positional args so Go's flag package can parse them.
-// e.g. "obsi https://... --doctor" → "obsi --doctor https://..."
-func reorderArgs() {
-	args := os.Args[1:]
-	var flags, positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "-") {
-			flags = append(flags, args[i])
-			// If it's a non-bool flag, grab the next arg as its value
-			// Bool flags: --doctor, --skip-verify
-			name := strings.TrimLeft(args[i], "-")
-			if eq := strings.IndexByte(name, '='); eq >= 0 {
-				continue // --flag=value, already consumed
-			}
-			if name != "doctor" && name != "skip-verify" && name != "list-profiles" && name != "h" && name != "help" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				i++
-				flags = append(flags, args[i])
-			}
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
-	copy(os.Args[1:], append(flags, positional...))
+	return nil
 }
 
 func defaultConfigPath() string {
@@ -293,7 +248,6 @@ func setupLogging(cfg config.LoggingConfig) {
 			handler = slog.NewTextHandler(f, opts)
 		}
 	} else {
-		// When no log file, discard logs (TUI owns the terminal)
 		handler = slog.NewTextHandler(os.NewFile(0, os.DevNull), opts)
 	}
 
@@ -312,7 +266,7 @@ func parseEndpointURL(raw string) (endpoint, username, password string, hasAuth 
 		username = u.User.Username()
 		password, _ = u.User.Password()
 		hasAuth = true
-		u.User = nil // strip credentials from URL
+		u.User = nil
 	}
 
 	return u.String(), username, password, hasAuth
@@ -368,7 +322,6 @@ func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExpl
 		if err := reg.Bootstrap(ctx); err != nil {
 			return nil, err
 		}
-		// Store for next time
 		_ = config.StorePassword(cfg.Connection.Endpoint, cfg.Connection.Username, prompted)
 		return reg, nil
 	}

@@ -559,11 +559,11 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	}
 
 	if hasIOPS {
-		lines = append(lines, fmt.Sprintf("    Disk read    %9s/s %6s IOPS %s %s",
-			formatRate(n.ReadThroughput), formatIOPS(n.ReadIOPS),
+		lines = append(lines, fmt.Sprintf("    Disk read    %9s/s %s %s",
+			formatRate(n.ReadThroughput),
 			styleDim.Render(readTPSpark), styleDim.Render(readTPStats)))
-		lines = append(lines, fmt.Sprintf("    Disk write   %9s/s %6s IOPS %s %s",
-			formatRate(n.WriteThroughput), formatIOPS(n.WriteIOPS),
+		lines = append(lines, fmt.Sprintf("    Disk write   %9s/s %s %s",
+			formatRate(n.WriteThroughput),
 			styleDim.Render(writeTPSpark), styleDim.Render(writeTPStats)))
 
 		readIOPSSpark, readIOPSStats := "", ""
@@ -578,8 +578,12 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 			mx, av, p := historyStats(hist)
 			writeIOPSStats = fmt.Sprintf("%s/%s/%s", formatIOPS(av), formatIOPS(p), formatIOPS(mx))
 		}
-		lines = append(lines, fmt.Sprintf("    IOPS read    %24s %s %s", "", styleDim.Render(readIOPSSpark), styleDim.Render(readIOPSStats)))
-		lines = append(lines, fmt.Sprintf("    IOPS write   %24s %s %s", "", styleDim.Render(writeIOPSSpark), styleDim.Render(writeIOPSStats)))
+		lines = append(lines, fmt.Sprintf("    IOPS read    %9s %s %s",
+			formatIOPS(n.ReadIOPS),
+			styleDim.Render(readIOPSSpark), styleDim.Render(readIOPSStats)))
+		lines = append(lines, fmt.Sprintf("    IOPS write   %9s %s %s",
+			formatIOPS(n.WriteIOPS),
+			styleDim.Render(writeIOPSSpark), styleDim.Render(writeIOPSStats)))
 	} else {
 		lines = append(lines, fmt.Sprintf("    Disk read    %9s/s %s %s",
 			formatRate(n.ReadThroughput),

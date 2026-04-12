@@ -18,10 +18,12 @@ const (
 	ThrottleNone   ThrottleLevel = iota // normal intervals
 	ThrottleMild                        // 2x intervals
 	ThrottleHeavy                       // 5x intervals
+	ThrottleMax                         // heartbeat only — all collectors paused
+	throttleLevels                      // sentinel: total number of levels
 )
 
-var throttleNames = [3]string{"normal", "mild (2x)", "heavy (5x)"}
-var throttleMultipliers = [3]int{1, 2, 5}
+var throttleNames = []string{"normal", "mild (2x)", "heavy (5x)", "max (paused)"}
+var throttleMultipliers = []int{1, 2, 5, 0} // 0 = paused
 
 // Manager starts and stops collector goroutines.
 type Manager struct {
@@ -34,16 +36,23 @@ type Manager struct {
 	throttleMu      sync.RWMutex
 	fastPathMu      sync.RWMutex
 	fastPathEnabled map[string]bool
+	tracker         *QueryTracker
 }
 
 // NewManager creates a new collector manager.
-func NewManager(reg *cratedb.Registry, st *store.Store, collectors ...Collector) *Manager {
+func NewManager(reg *cratedb.Registry, st *store.Store, tracker *QueryTracker, collectors ...Collector) *Manager {
 	return &Manager{
 		collectors:      collectors,
 		registry:        reg,
 		store:           st,
+		tracker:         tracker,
 		fastPathEnabled: make(map[string]bool),
 	}
+}
+
+// QueryTracker returns the query execution stats tracker.
+func (m *Manager) QueryTracker() *QueryTracker {
+	return m.tracker
 }
 
 // Start launches one goroutine per collector.
@@ -67,7 +76,7 @@ func (m *Manager) SetThrottle(level ThrottleLevel) {
 func (m *Manager) CycleThrottle() ThrottleLevel {
 	m.throttleMu.Lock()
 	defer m.throttleMu.Unlock()
-	m.throttle = (m.throttle + 1) % 3
+	m.throttle = (m.throttle + 1) % throttleLevels
 	slog.Info("throttle changed", "level", throttleNames[m.throttle])
 	return m.throttle
 }
@@ -107,7 +116,11 @@ func (m *Manager) SetFastPath(collectorName string, enabled bool) {
 }
 
 // TriggerCollector runs a named collector once immediately in the background.
+// Blocked in ThrottleMax mode — all collectors are paused.
 func (m *Manager) TriggerCollector(ctx context.Context, name string) {
+	if m.Throttle() == ThrottleMax {
+		return
+	}
 	for _, c := range m.collectors {
 		if c.Name() == name {
 			go func(c Collector) {
@@ -153,14 +166,33 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	for {
 		// Compute effective interval from current throttle level
 		m.throttleMu.RLock()
-		mult := throttleMultipliers[m.throttle]
+		level := m.throttle
+		mult := throttleMultipliers[level]
 		m.throttleMu.RUnlock()
+
+		// ThrottleMax: all collectors paused — sleep and re-check.
+		if level == ThrottleMax {
+			if hasFastPath && fastPathActive {
+				fastTicker.Stop()
+				fastCh = nil
+				fastPathActive = false
+			}
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+				continue
+			}
+		}
+
 		effectiveInterval := baseInterval * time.Duration(mult)
 
-		// Check fast-path toggle
+		// Check fast-path toggle — force off when throttle >= Heavy
 		if hasFastPath {
 			m.fastPathMu.RLock()
-			shouldBeActive := m.fastPathEnabled[c.Name()]
+			shouldBeActive := m.fastPathEnabled[c.Name()] && level < ThrottleHeavy
 			m.fastPathMu.RUnlock()
 			if shouldBeActive && !fastPathActive {
 				fastTicker.Reset(5 * time.Second)
@@ -173,7 +205,7 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 			}
 		}
 
-		// Use time.After instead of a ticker to guarantee the full interval
+		// Use time.NewTimer instead of a ticker to guarantee the full interval
 		// elapses between collections, including after slow queries.
 		timer := time.NewTimer(effectiveInterval)
 		select {
@@ -194,13 +226,13 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 }
 
 // DefaultCollectors returns all enabled collectors based on configuration.
-func DefaultCollectors(cfg map[string]config.CollectorConfig) []Collector {
+func DefaultCollectors(cfg map[string]config.CollectorConfig, tracker *QueryTracker) []Collector {
 	all := map[string]Collector{
-		"cluster": NewClusterCollector(cfg["cluster"]),
-		"health":  NewHealthCollector(cfg["health"]),
-		"nodes":   NewNodesCollector(cfg["nodes"]),
-		"queries": NewQueriesCollector(cfg["queries"]),
-		"shards":  NewShardsCollector(cfg["shards"]),
+		"cluster": NewClusterCollector(cfg["cluster"], tracker),
+		"health":  NewHealthCollector(cfg["health"], tracker),
+		"nodes":   NewNodesCollector(cfg["nodes"], tracker),
+		"queries": NewQueriesCollector(cfg["queries"], tracker),
+		"shards":  NewShardsCollector(cfg["shards"], tracker),
 	}
 
 	var enabled []Collector

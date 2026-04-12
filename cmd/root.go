@@ -193,8 +193,13 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	// Create store
 	st := store.New(cfg.TUI.SparklineHistory, cfg.Collectors)
 
+	// Create query tracker and attach to registry
+	tracker := collector.NewQueryTracker(cfg.Collectors)
+	registry.SetRecorder(tracker)
+
 	// Create and start collectors
-	mgr := collector.NewManager(registry, st, collector.DefaultCollectors(cfg.Collectors)...)
+	collectors := collector.DefaultCollectors(cfg.Collectors, tracker)
+	mgr := collector.NewManager(registry, st, tracker, collectors...)
 	mgr.Start(ctx)
 
 	// Create and run TUI

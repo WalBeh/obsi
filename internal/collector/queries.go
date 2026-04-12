@@ -11,17 +11,18 @@ import (
 
 type QueriesCollector struct {
 	interval time.Duration
+	tracker  *QueryTracker
 }
 
-func NewQueriesCollector(cfg config.CollectorConfig) *QueriesCollector {
-	return &QueriesCollector{interval: cfg.Interval.Duration}
+func NewQueriesCollector(cfg config.CollectorConfig, tracker *QueryTracker) *QueriesCollector {
+	return &QueriesCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
 func (c *QueriesCollector) Name() string           { return "queries" }
 func (c *QueriesCollector) Interval() time.Duration { return c.interval }
 
 func (c *QueriesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
-	resp, err := reg.Query(ctx, `SELECT
+	resp, err := trackedQuery(ctx, c.tracker, QueryActiveJobs, reg, `SELECT
 		id, node['name'] AS node_name, started, stmt, username
 	FROM sys.jobs
 	ORDER BY started ASC`)

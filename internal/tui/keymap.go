@@ -20,6 +20,7 @@ type KeyMap struct {
 	Refresh   key.Binding
 	Escape    key.Binding
 	Reconnect key.Binding
+	QueryLog  key.Binding
 	Quit      key.Binding
 	Help      key.Binding
 }
@@ -90,6 +91,10 @@ func DefaultKeyMap() KeyMap {
 		Reconnect: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "reconnect"),
+		),
+		QueryLog: key.NewBinding(
+			key.WithKeys("L"),
+			key.WithHelp("L", "query log"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

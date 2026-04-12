@@ -12,17 +12,18 @@ import (
 type ClusterCollector struct {
 	interval        time.Duration
 	lastSummitFetch time.Time
+	tracker         *QueryTracker
 }
 
-func NewClusterCollector(cfg config.CollectorConfig) *ClusterCollector {
-	return &ClusterCollector{interval: cfg.Interval.Duration}
+func NewClusterCollector(cfg config.CollectorConfig, tracker *QueryTracker) *ClusterCollector {
+	return &ClusterCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
 func (c *ClusterCollector) Name() string           { return "cluster" }
 func (c *ClusterCollector) Interval() time.Duration { return c.interval }
 
 func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
-	resp, err := reg.Query(ctx, `SELECT
+	resp, err := trackedQuery(ctx, c.tracker, QueryClusterSettings, reg, `SELECT
 		settings['cluster']['max_shards_per_node'] AS max_shards_per_node,
 		settings['cluster']['routing']['allocation']['enable'] AS alloc_enable,
 		settings['cluster']['routing']['allocation']['node_concurrent_recoveries'] AS node_concurrent_recoveries,
@@ -56,7 +57,7 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 
 	// Random summit — only fetch every 5 minutes (ORDER BY random() is a full scan)
 	if time.Since(c.lastSummitFetch) > 5*time.Minute {
-		summitResp, err := reg.Query(ctx, `SELECT mountain, height, region, country, first_ascent FROM sys.summits ORDER BY random() LIMIT 1`)
+		summitResp, err := trackedQuery(ctx, c.tracker, QuerySummit, reg, `SELECT mountain, height, region, country, first_ascent FROM sys.summits ORDER BY random() LIMIT 1`)
 		if err == nil && len(summitResp.Rows) > 0 {
 			r := summitResp.Rows[0]
 			st.UpdateSummit(cratedb.Summit{

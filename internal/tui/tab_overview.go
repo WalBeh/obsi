@@ -327,15 +327,22 @@ func (m OverviewModel) renderClusterSettings() string {
 
 	var lines []string
 	lines = append(lines, title)
-	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Max shards/node: %d │ Shard recovery: %s/s (max %d/node, %d/cluster)",
-		allocStyle.Render(cs.AllocationEnable),
-		cs.MaxShardsPerNode,
-		cs.RecoveryMaxBytesPerSec,
-		cs.NodeConcurrentRecoveries,
-		cs.ClusterConcurrentRebalance))
-	lines = append(lines, fmt.Sprintf("  Disk watermarks: %s  %s",
-		diskWatermarkSummary(cs),
-		styleDim.Render("(│=low ┃=high ╋=flood on disk bars)")))
+
+	// Data size and shard counts
+	var primarySize, totalSize int64
+	var primaryShards, replicaShards int
+	for _, t := range m.snap.Tables {
+		primarySize += t.TotalSize
+		totalSize += t.TotalDiskSize
+		primaryShards += t.PrimaryShards
+		replicaShards += t.ReplicaShards
+	}
+	totalShards := primaryShards + replicaShards
+	if totalShards > 0 {
+		lines = append(lines, fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%dp / %dr)",
+			formatBytes(primarySize), formatBytes(totalSize),
+			totalShards, primaryShards, replicaShards))
+	}
 
 	// Node/zone topology
 	nodeCount := 0
@@ -361,21 +368,16 @@ func (m OverviewModel) renderClusterSettings() string {
 		lines = append(lines, fmt.Sprintf("  Topology: %d nodes", nodeCount))
 	}
 
-	// Data size and shard counts from table info
-	var primarySize, totalSize int64
-	var primaryShards, replicaShards int
-	for _, t := range m.snap.Tables {
-		primarySize += t.TotalSize
-		totalSize += t.TotalDiskSize
-		primaryShards += t.PrimaryShards
-		replicaShards += t.ReplicaShards
-	}
-	totalShards := primaryShards + replicaShards
-	if totalShards > 0 {
-		lines = append(lines, fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%dp / %dr)",
-			formatBytes(primarySize), formatBytes(totalSize),
-			totalShards, primaryShards, replicaShards))
-	}
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("  Watermarks: %s │ %s │ %s",
+		cs.DiskWatermarkLow, cs.DiskWatermarkHigh, cs.DiskWatermarkFlood))
+	lines = append(lines, fmt.Sprintf("  Allocation: %s │ max shards/node: %d",
+		allocStyle.Render(cs.AllocationEnable),
+		cs.MaxShardsPerNode))
+	lines = append(lines, fmt.Sprintf("  Recovery: %s/s │ %d/node │ %d/cluster",
+		cs.RecoveryMaxBytesPerSec,
+		cs.NodeConcurrentRecoveries,
+		cs.ClusterConcurrentRebalance))
 
 	return strings.Join(lines, "\n")
 }

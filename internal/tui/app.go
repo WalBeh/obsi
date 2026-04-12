@@ -151,7 +151,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StoreTickMsg:
 		throttle := a.collectors.Throttle()
-		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle))
+		hint := a.snapshotHint()
+		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
 		switch a.activeTab {
 		case TabOverview:
 			a.overview = a.overview.Refresh(snap)
@@ -271,7 +272,8 @@ func (a *App) setActiveTab(tab Tab) {
 	a.collectors.SetFastPath("shards", tab == TabShards)
 	// Refresh the newly active tab immediately so it has current data
 	throttle := a.collectors.Throttle()
-	snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle))
+	hint := a.snapshotHint()
+	snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
 	switch tab {
 	case TabOverview:
 		a.overview = a.overview.Refresh(snap)
@@ -283,6 +285,23 @@ func (a *App) setActiveTab(tab Tab) {
 		a.tables = a.tables.Refresh(snap)
 	case TabShards:
 		a.shards = a.shards.Refresh(snap)
+	}
+}
+
+func (a *App) snapshotHint() store.SnapshotHint {
+	switch a.activeTab {
+	case TabOverview:
+		return store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeShards: true}
+	case TabNodes:
+		return store.SnapshotHint{IncludeNodes: true}
+	case TabQueries:
+		return store.SnapshotHint{IncludeQueries: true}
+	case TabTables:
+		return store.SnapshotHint{IncludeShards: true, IncludeHealth: true}
+	case TabShards:
+		return store.SnapshotHint{IncludeShards: true}
+	default:
+		return store.SnapshotHint{}
 	}
 }
 

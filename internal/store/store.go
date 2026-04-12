@@ -331,58 +331,80 @@ func (s *Store) AnyNodeHeapAbove(pct float64) bool {
 	return false
 }
 
+// SnapshotHint tells Snapshot which data to include, avoiding expensive copies
+// for tabs that don't need them.
+type SnapshotHint struct {
+	IncludeNodes       bool // node list + history ring buffers
+	IncludeShards      bool // shards, tables, allocations
+	IncludeQueries     bool // active queries
+	IncludeHealth      bool // cluster checks + table health
+	IncludeCluster     bool // cluster settings + summit
+}
+
 // Snapshot returns a read-only copy of the store.
 // throttleMultiplier adjusts staleness thresholds to match the effective poll interval.
-func (s *Store) Snapshot(throttleMultiplier int) StoreSnapshot {
+func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	snap := StoreSnapshot{
-		ClusterSettings: s.clusterSettings,
-		Summit:          s.summit,
-		ClusterChecks:   copySlice(s.clusterChecks),
-		TableHealth:     copySlice(s.tableHealth),
-		Nodes:           copySlice(s.nodes),
-		ActiveQueries:   copySlice(s.activeQueries),
-		Tables:          copySlice(s.tables),
-		ViewCount:       s.viewCount,
-		Shards:          copySlice(s.shards),
-		Allocations:     copySlice(s.allocations),
-		NodeCPUHistory:        make(map[string][]float64),
-		NodeHeapHistory:       make(map[string][]float64),
-		NodeLoadHistory:       make(map[string][]float64),
-		NodeLoadSatHistory:    make(map[string][]float64),
-		NodeReadIOPSHistory:   make(map[string][]float64),
-		NodeWriteIOPSHistory:  make(map[string][]float64),
-		NodeReadTPHistory:     make(map[string][]float64),
-		NodeWriteTPHistory:    make(map[string][]float64),
-		Staleness:             make(map[string]bool),
-		LastUpdated:           make(map[string]time.Time),
+		Staleness:   make(map[string]bool),
+		LastUpdated: make(map[string]time.Time),
 	}
 
-	for id, buf := range s.nodeCPUHistory {
-		snap.NodeCPUHistory[id] = buf.Slice()
+	if hint.IncludeCluster {
+		snap.ClusterSettings = s.clusterSettings
+		snap.Summit = s.summit
 	}
-	for id, buf := range s.nodeHeapHistory {
-		snap.NodeHeapHistory[id] = buf.Slice()
+	if hint.IncludeHealth {
+		snap.ClusterChecks = copySlice(s.clusterChecks)
+		snap.TableHealth = copySlice(s.tableHealth)
 	}
-	for id, buf := range s.nodeLoadHistory {
-		snap.NodeLoadHistory[id] = buf.Slice()
+	if hint.IncludeNodes {
+		snap.Nodes = copySlice(s.nodes)
+		snap.NodeCPUHistory = make(map[string][]float64, len(s.nodeCPUHistory))
+		snap.NodeHeapHistory = make(map[string][]float64, len(s.nodeHeapHistory))
+		snap.NodeLoadHistory = make(map[string][]float64, len(s.nodeLoadHistory))
+		snap.NodeLoadSatHistory = make(map[string][]float64, len(s.nodeLoadSatHistory))
+		snap.NodeReadIOPSHistory = make(map[string][]float64, len(s.nodeReadIOPSHistory))
+		snap.NodeWriteIOPSHistory = make(map[string][]float64, len(s.nodeWriteIOPSHistory))
+		snap.NodeReadTPHistory = make(map[string][]float64, len(s.nodeReadTPHistory))
+		snap.NodeWriteTPHistory = make(map[string][]float64, len(s.nodeWriteTPHistory))
+		for id, buf := range s.nodeCPUHistory {
+			snap.NodeCPUHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeHeapHistory {
+			snap.NodeHeapHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeLoadHistory {
+			snap.NodeLoadHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeLoadSatHistory {
+			snap.NodeLoadSatHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeReadIOPSHistory {
+			snap.NodeReadIOPSHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeWriteIOPSHistory {
+			snap.NodeWriteIOPSHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeReadTPHistory {
+			snap.NodeReadTPHistory[id] = buf.Slice()
+		}
+		for id, buf := range s.nodeWriteTPHistory {
+			snap.NodeWriteTPHistory[id] = buf.Slice()
+		}
 	}
-	for id, buf := range s.nodeLoadSatHistory {
-		snap.NodeLoadSatHistory[id] = buf.Slice()
+	if hint.IncludeQueries {
+		snap.ActiveQueries = copySlice(s.activeQueries)
 	}
-	for id, buf := range s.nodeReadIOPSHistory {
-		snap.NodeReadIOPSHistory[id] = buf.Slice()
-	}
-	for id, buf := range s.nodeWriteIOPSHistory {
-		snap.NodeWriteIOPSHistory[id] = buf.Slice()
-	}
-	for id, buf := range s.nodeReadTPHistory {
-		snap.NodeReadTPHistory[id] = buf.Slice()
-	}
-	for id, buf := range s.nodeWriteTPHistory {
-		snap.NodeWriteTPHistory[id] = buf.Slice()
+	if hint.IncludeShards {
+		snap.Tables = copySlice(s.tables)
+		snap.ViewCount = s.viewCount
+		snap.Shards = copySlice(s.shards)
+		snap.Allocations = copySlice(s.allocations)
+		// Tables tab also needs health for coloring
+		snap.TableHealth = copySlice(s.tableHealth)
 	}
 
 	if throttleMultiplier < 1 {

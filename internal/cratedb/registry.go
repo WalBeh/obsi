@@ -39,6 +39,21 @@ type nodeEntry struct {
 	Client *Client
 }
 
+// Query labels for registry-internal queries. Defined here (not in collector)
+// to avoid import cycles. Referenced by collector.queryDefs for the tracker.
+const (
+	QueryLabelHeartbeat     = "registry.heartbeat"
+	QueryLabelBootstrap     = "registry.bootstrap"
+	QueryLabelNodeDiscovery = "registry.node_discovery"
+)
+
+// QueryRecorder is an optional interface for recording query execution stats.
+// Implemented by collector.QueryTracker; kept as an interface to avoid import cycles.
+type QueryRecorder interface {
+	Record(label string, dur time.Duration, rows int64)
+	RecordError(label string, err error)
+}
+
 // Registry maintains the set of known nodes and their health.
 // It provides failover-aware query execution.
 type Registry struct {
@@ -64,7 +79,8 @@ type Registry struct {
 	latencyIdx     int             // next write position
 	latencyFull    bool            // buffer has wrapped at least once
 
-	cancel context.CancelFunc
+	cancel   context.CancelFunc
+	recorder QueryRecorder // optional query stats recorder
 }
 
 // NewRegistry creates a new node registry.
@@ -83,13 +99,21 @@ func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout,
 	}
 }
 
+// SetRecorder attaches a query stats recorder to the registry.
+func (r *Registry) SetRecorder(rec QueryRecorder) {
+	r.recorder = rec
+}
+
 // Bootstrap connects to CrateDB and discovers all nodes.
 func (r *Registry) Bootstrap(ctx context.Context) error {
 	// Get cluster name
+	start := time.Now()
 	resp, err := r.primary.Query(ctx, "SELECT name FROM sys.cluster")
 	if err != nil {
+		r.recordQuery(QueryLabelBootstrap, time.Since(start), 0, err)
 		return fmt.Errorf("bootstrap cluster name: %w", err)
 	}
+	r.recordQuery(QueryLabelBootstrap, time.Since(start), int64(len(resp.Rows)), nil)
 	if len(resp.Rows) > 0 {
 		if name, ok := resp.Rows[0][0].(string); ok {
 			r.mu.Lock()
@@ -142,6 +166,7 @@ func (r *Registry) Reconnect(ctx context.Context) {
 
 // Refresh re-discovers nodes via sys.nodes from any reachable endpoint.
 func (r *Registry) Refresh(ctx context.Context) error {
+	start := time.Now()
 	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url,
 		process['cpu']['percent'] AS cpu_percent,
 		os['cpu']['system'] AS cpu_system,
@@ -170,9 +195,12 @@ func (r *Registry) Refresh(ctx context.Context) error {
 		attributes['zone'] AS zone,
 		attributes['node_name'] AS node_role
 	FROM sys.nodes`)
+	dur := time.Since(start)
 	if err != nil {
+		r.recordQuery(QueryLabelNodeDiscovery, dur, 0, err)
 		return fmt.Errorf("discover nodes: %w", err)
 	}
+	r.recordQuery(QueryLabelNodeDiscovery, dur, int64(len(resp.Rows)), nil)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -385,7 +413,12 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 		pingCtx, cancel := context.WithTimeout(ctx, r.pingTimeout)
 		defer cancel()
 
-		_, err := r.primary.Ping(pingCtx)
+		latency, err := r.primary.Ping(pingCtx)
+		if err != nil {
+			r.recordQuery(QueryLabelHeartbeat, latency, 0, err)
+		} else {
+			r.recordQuery(QueryLabelHeartbeat, latency, 1, nil)
+		}
 		r.mu.Lock()
 		wasPrimaryOK := r.primaryOK
 		r.primaryOK = err == nil
@@ -459,6 +492,18 @@ func (r *Registry) refreshLoop(ctx context.Context) {
 				slog.Warn("node refresh failed", "error", err)
 			}
 		}
+	}
+}
+
+// recordQuery delegates to the optional QueryRecorder if set.
+func (r *Registry) recordQuery(label string, dur time.Duration, rows int64, err error) {
+	if r.recorder == nil {
+		return
+	}
+	if err != nil {
+		r.recorder.RecordError(label, err)
+	} else {
+		r.recorder.Record(label, dur, rows)
 	}
 }
 

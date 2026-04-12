@@ -11,10 +11,11 @@ import (
 
 type HealthCollector struct {
 	interval time.Duration
+	tracker  *QueryTracker
 }
 
-func NewHealthCollector(cfg config.CollectorConfig) *HealthCollector {
-	return &HealthCollector{interval: cfg.Interval.Duration}
+func NewHealthCollector(cfg config.CollectorConfig, tracker *QueryTracker) *HealthCollector {
+	return &HealthCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
 func (c *HealthCollector) Name() string           { return "health" }
@@ -22,7 +23,7 @@ func (c *HealthCollector) Interval() time.Duration { return c.interval }
 
 func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
 	// Fetch cluster checks
-	checksResp, err := reg.Query(ctx, `SELECT id, severity, description, passed FROM sys.checks ORDER BY severity DESC, passed`)
+	checksResp, err := trackedQuery(ctx, c.tracker, QueryClusterChecks, reg, `SELECT id, severity, description, passed FROM sys.checks ORDER BY severity DESC, passed`)
 	if err != nil {
 		return err
 	}
@@ -39,7 +40,7 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	}
 
 	// Fetch table health
-	healthResp, err := reg.Query(ctx, `SELECT table_schema, table_name, health, missing_shards, underreplicated_shards, partition_ident FROM sys.health ORDER BY health, table_schema, table_name`)
+	healthResp, err := trackedQuery(ctx, c.tracker, QueryTableHealth, reg, `SELECT table_schema, table_name, health, missing_shards, underreplicated_shards, partition_ident FROM sys.health ORDER BY health, table_schema, table_name`)
 	if err != nil {
 		return err
 	}

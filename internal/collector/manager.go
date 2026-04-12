@@ -34,16 +34,23 @@ type Manager struct {
 	throttleMu      sync.RWMutex
 	fastPathMu      sync.RWMutex
 	fastPathEnabled map[string]bool
+	tracker         *QueryTracker
 }
 
 // NewManager creates a new collector manager.
-func NewManager(reg *cratedb.Registry, st *store.Store, collectors ...Collector) *Manager {
+func NewManager(reg *cratedb.Registry, st *store.Store, tracker *QueryTracker, collectors ...Collector) *Manager {
 	return &Manager{
 		collectors:      collectors,
 		registry:        reg,
 		store:           st,
+		tracker:         tracker,
 		fastPathEnabled: make(map[string]bool),
 	}
+}
+
+// QueryTracker returns the query execution stats tracker.
+func (m *Manager) QueryTracker() *QueryTracker {
+	return m.tracker
 }
 
 // Start launches one goroutine per collector.
@@ -194,13 +201,13 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 }
 
 // DefaultCollectors returns all enabled collectors based on configuration.
-func DefaultCollectors(cfg map[string]config.CollectorConfig) []Collector {
+func DefaultCollectors(cfg map[string]config.CollectorConfig, tracker *QueryTracker) []Collector {
 	all := map[string]Collector{
-		"cluster": NewClusterCollector(cfg["cluster"]),
-		"health":  NewHealthCollector(cfg["health"]),
-		"nodes":   NewNodesCollector(cfg["nodes"]),
-		"queries": NewQueriesCollector(cfg["queries"]),
-		"shards":  NewShardsCollector(cfg["shards"]),
+		"cluster": NewClusterCollector(cfg["cluster"], tracker),
+		"health":  NewHealthCollector(cfg["health"], tracker),
+		"nodes":   NewNodesCollector(cfg["nodes"], tracker),
+		"queries": NewQueriesCollector(cfg["queries"], tracker),
+		"shards":  NewShardsCollector(cfg["shards"], tracker),
 	}
 
 	var enabled []Collector

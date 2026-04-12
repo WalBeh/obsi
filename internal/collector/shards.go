@@ -16,10 +16,11 @@ type ShardsCollector struct {
 	hasUnhealthy        bool
 	hasExplanationsCol  bool // false until first successful query with explanations
 	triedExplanations   bool // true after first allocations attempt
+	tracker             *QueryTracker
 }
 
-func NewShardsCollector(cfg config.CollectorConfig) *ShardsCollector {
-	return &ShardsCollector{interval: cfg.Interval.Duration}
+func NewShardsCollector(cfg config.CollectorConfig, tracker *QueryTracker) *ShardsCollector {
+	return &ShardsCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
 func (c *ShardsCollector) Name() string           { return "shards" }
@@ -27,7 +28,7 @@ func (c *ShardsCollector) Interval() time.Duration { return c.interval }
 
 func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
 	// Get shard details
-	resp, err := reg.Query(ctx, `SELECT
+	resp, err := trackedQuery(ctx, c.tracker, QueryShards, reg, `SELECT
 		s.id,
 		s.schema_name,
 		s.table_name,
@@ -76,7 +77,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	}
 
 	// Build table list from information_schema (source of truth for all tables)
-	infoResp, err := reg.Query(ctx, `SELECT
+	infoResp, err := trackedQuery(ctx, c.tracker, QueryTables, reg, `SELECT
 		table_schema, table_name,
 		number_of_shards, number_of_replicas,
 		clustered_by, partitioned_by, column_policy,
@@ -95,7 +96,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 
 	// Count views separately for the Overview display
 	viewCount := 0
-	if viewResp, err := reg.Query(ctx, `SELECT count(*) FROM information_schema.tables
+	if viewResp, err := trackedQuery(ctx, c.tracker, QueryViewCount, reg, `SELECT count(*) FROM information_schema.tables
 		WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
 		AND table_type = 'VIEW'`); err == nil && len(viewResp.Rows) > 0 {
 		viewCount = int(toFloat64(viewResp.Rows[0][0]))
@@ -167,7 +168,7 @@ func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Regi
 		return nil
 	}
 
-	resp, err := reg.Query(ctx, `SELECT
+	resp, err := trackedQuery(ctx, c.tracker, QueryShardsFastPath, reg, `SELECT
 		s.id,
 		s.schema_name,
 		s.table_name,
@@ -212,7 +213,7 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 	var resp *cratedb.SQLResponse
 	var err error
 	if useExplanations {
-		resp, err = reg.Query(ctx, `SELECT
+		resp, err = trackedQuery(ctx, c.tracker, QueryAllocations, reg, `SELECT
 			table_schema,
 			table_name,
 			partition_ident,
@@ -238,7 +239,7 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 	}
 
 	if !useExplanations && resp == nil {
-		resp, err = reg.Query(ctx, `SELECT
+		resp, err = trackedQuery(ctx, c.tracker, QueryAllocations, reg, `SELECT
 			table_schema,
 			table_name,
 			partition_ident,

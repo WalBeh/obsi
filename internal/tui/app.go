@@ -31,23 +31,25 @@ type StoreTickMsg struct{}
 
 // App is the root bubbletea model.
 type App struct {
-	activeTab   Tab
-	overview    OverviewModel
-	nodes       NodesModel
-	queries     QueriesModel
-	tables      TablesModel
-	shards      ShardsModel
-	sql         SQLModel
-	statusBar   StatusBarModel
-	store       *store.Store
-	registry    *cratedb.Registry
-	collectors  *collector.Manager
-	ctx         context.Context
-	keyMap      KeyMap
-	refreshRate time.Duration
-	width       int
-	height      int
-	ready       bool
+	activeTab    Tab
+	overview     OverviewModel
+	nodes        NodesModel
+	queries      QueriesModel
+	tables       TablesModel
+	shards       ShardsModel
+	sql          SQLModel
+	statusBar    StatusBarModel
+	queryLog     QueryLogOverlay
+	showQueryLog bool
+	store        *store.Store
+	registry     *cratedb.Registry
+	collectors   *collector.Manager
+	ctx          context.Context
+	keyMap       KeyMap
+	refreshRate  time.Duration
+	width        int
+	height       int
+	ready        bool
 }
 
 // NewApp creates the root TUI model.
@@ -73,14 +75,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.ready = true
-		bodyHeight := a.height - 3 // tab bar + status bar
-		a.overview = a.overview.SetSize(a.width, bodyHeight)
-		a.nodes = a.nodes.SetSize(a.width, bodyHeight)
-		a.queries = a.queries.SetSize(a.width, bodyHeight)
-		a.tables = a.tables.SetSize(a.width, bodyHeight)
-		a.shards = a.shards.SetSize(a.width, bodyHeight)
-		a.sql = a.sql.SetSize(a.width, bodyHeight)
-		a.statusBar = a.statusBar.SetWidth(a.width)
+		a.queryLog.SetSize(a.width, a.height*40/100)
+		a.resizeTabs()
 		return a, nil
 
 	case tea.KeyMsg:
@@ -137,6 +133,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.collectors.TriggerCollector(a.ctx, "queries")
 			}
 			return a, nil
+		case key.Matches(msg, a.keyMap.QueryLog):
+			a.showQueryLog = !a.showQueryLog
+			if a.showQueryLog {
+				a.queryLog.SetSize(a.width, a.height*40/100)
+				a.queryLog.Refresh(a.collectors.QueryTracker(), a.collectors.Throttle())
+			}
+			a.resizeTabs()
+			return a, nil
 		case key.Matches(msg, a.keyMap.Reconnect):
 			a.registry.Reconnect(a.ctx)
 			return a, nil
@@ -171,6 +175,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.collectors.SuggestThrottle(),
 			a.store.ClusterHealth(),
 		)
+		if a.showQueryLog {
+			a.queryLog.Refresh(a.collectors.QueryTracker(), throttle)
+		}
 		return a, a.doStoreTick()
 	}
 
@@ -202,12 +209,17 @@ func (a *App) View() string {
 
 	status := a.statusBar.View()
 
-	// Calculate available body height and truncate if needed
-	bodyHeight := a.height - 3 // tab bar (1) + spacing (1) + status bar (1)
+	// Calculate available body height
+	bodyHeight := a.bodyHeight()
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
 	body = lipgloss.NewStyle().MaxHeight(bodyHeight).Render(body)
+
+	if a.showQueryLog {
+		overlay := a.queryLog.View()
+		return lipgloss.JoinVertical(lipgloss.Left, tabBar, body, overlay, status)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, tabBar, body, status)
 }
@@ -304,6 +316,31 @@ func (a *App) snapshotHint() store.SnapshotHint {
 	default:
 		return store.SnapshotHint{}
 	}
+}
+
+// bodyHeight returns the available height for the tab body, accounting for
+// tab bar, status bar, and optionally the query log overlay.
+func (a *App) bodyHeight() int {
+	h := a.height - 3 // tab bar (1) + spacing (1) + status bar (1)
+	if a.showQueryLog {
+		h -= a.queryLog.Height()
+	}
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// resizeTabs recalculates tab body sizes (e.g. after toggling the overlay).
+func (a *App) resizeTabs() {
+	bodyHeight := a.bodyHeight()
+	a.overview = a.overview.SetSize(a.width, bodyHeight)
+	a.nodes = a.nodes.SetSize(a.width, bodyHeight)
+	a.queries = a.queries.SetSize(a.width, bodyHeight)
+	a.tables = a.tables.SetSize(a.width, bodyHeight)
+	a.shards = a.shards.SetSize(a.width, bodyHeight)
+	a.sql = a.sql.SetSize(a.width, bodyHeight)
+	a.statusBar = a.statusBar.SetWidth(a.width)
 }
 
 func (a *App) doStoreTick() tea.Cmd {

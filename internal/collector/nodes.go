@@ -11,10 +11,11 @@ import (
 
 type NodesCollector struct {
 	interval time.Duration
+	tracker  *QueryTracker
 }
 
-func NewNodesCollector(cfg config.CollectorConfig) *NodesCollector {
-	return &NodesCollector{interval: cfg.Interval.Duration}
+func NewNodesCollector(cfg config.CollectorConfig, tracker *QueryTracker) *NodesCollector {
+	return &NodesCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
 func (c *NodesCollector) Name() string           { return "nodes" }
@@ -23,7 +24,7 @@ func (c *NodesCollector) Interval() time.Duration { return c.interval }
 func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
 	// GREATEST(..., 0) clamps byte-size columns: during restore, CrateDB can
 	// return negative values that crash its own ByteSizeValue formatter.
-	resp, err := reg.Query(ctx, `SELECT
+	resp, err := trackedQuery(ctx, c.tracker, QueryNodes, reg, `SELECT
 		id, name, hostname, rest_url,
 		process['cpu']['percent'] AS cpu_percent,
 		os['cpu']['system'] AS cpu_system,

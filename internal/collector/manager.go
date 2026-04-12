@@ -138,8 +138,6 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	}
 
 	baseInterval := c.Interval()
-	ticker := time.NewTicker(baseInterval)
-	defer ticker.Stop()
 
 	// Fast-path support: second ticker for high-frequency lightweight collection
 	fpc, hasFastPath := c.(FastPathCollector)
@@ -152,9 +150,13 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	}
 	fastPathActive := false
 
-	lastMultiplier := 1
-
 	for {
+		// Compute effective interval from current throttle level
+		m.throttleMu.RLock()
+		mult := throttleMultipliers[m.throttle]
+		m.throttleMu.RUnlock()
+		effectiveInterval := baseInterval * time.Duration(mult)
+
 		// Check fast-path toggle
 		if hasFastPath {
 			m.fastPathMu.RLock()
@@ -171,25 +173,19 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 			}
 		}
 
+		// Use time.After instead of a ticker to guarantee the full interval
+		// elapses between collections, including after slow queries.
+		timer := time.NewTimer(effectiveInterval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			// Adjust ticker if throttle level changed
-			m.throttleMu.RLock()
-			mult := throttleMultipliers[m.throttle]
-			m.throttleMu.RUnlock()
-			if mult != lastMultiplier {
-				lastMultiplier = mult
-				ticker.Reset(baseInterval * time.Duration(mult))
-			}
-
+		case <-timer.C:
 			if err := c.Collect(ctx, m.registry, m.store); err != nil {
 				slog.Warn("collector failed", "collector", c.Name(), "error", err)
-				// Don't mark stale — keep showing last successful data.
-			// Time-based staleness in Snapshot() handles aging out.
 			}
 		case <-fastCh:
+			timer.Stop()
 			if err := fpc.CollectFastPath(ctx, m.registry, m.store); err != nil {
 				slog.Warn("fast-path collect failed", "collector", c.Name(), "error", err)
 			}

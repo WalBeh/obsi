@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,6 +28,7 @@ func Execute() {
 		password   string
 		configPath string
 		skipVerify bool
+		doctor     bool
 	)
 
 	flag.StringVar(&endpoint, "endpoint", "", "CrateDB URL, e.g. https://user:pass@host:4200")
@@ -34,6 +36,10 @@ func Execute() {
 	flag.StringVar(&password, "password", "", "CrateDB password (overrides URL userinfo)")
 	flag.StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
 	flag.BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification (for port-forwarding)")
+	flag.BoolVar(&doctor, "doctor", false, "Check connectivity, permissions, and exit")
+
+	// Reorder os.Args so flags can appear anywhere (before or after positional URL)
+	reorderArgs()
 	flag.Parse()
 
 	// Support positional argument: obsi https://admin:pass@host:4200
@@ -105,6 +111,12 @@ func Execute() {
 		os.Exit(1)
 	}
 
+	// Doctor mode: check permissions and exit
+	if doctor {
+		RunDoctor(ctx, registry)
+		return
+	}
+
 	// Start heartbeat and node refresh
 	registry.Start(ctx)
 
@@ -127,6 +139,31 @@ func Execute() {
 	// Cleanup
 	cancel()
 	mgr.Stop()
+}
+
+// reorderArgs moves flags after positional args so Go's flag package can parse them.
+// e.g. "obsi https://... --doctor" → "obsi --doctor https://..."
+func reorderArgs() {
+	args := os.Args[1:]
+	var flags, positional []string
+	for i := 0; i < len(args); i++ {
+		if strings.HasPrefix(args[i], "-") {
+			flags = append(flags, args[i])
+			// If it's a non-bool flag, grab the next arg as its value
+			// Bool flags: --doctor, --skip-verify
+			name := strings.TrimLeft(args[i], "-")
+			if eq := strings.IndexByte(name, '='); eq >= 0 {
+				continue // --flag=value, already consumed
+			}
+			if name != "doctor" && name != "skip-verify" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				flags = append(flags, args[i])
+			}
+		} else {
+			positional = append(positional, args[i])
+		}
+	}
+	copy(os.Args[1:], append(flags, positional...))
 }
 
 func defaultConfigPath() string {

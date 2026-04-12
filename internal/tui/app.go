@@ -21,9 +21,10 @@ const (
 	TabQueries
 	TabTables
 	TabShards
+	TabSQL
 )
 
-var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards"}
+var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards", "SQL"}
 
 // StoreTickMsg triggers a TUI refresh from the store.
 type StoreTickMsg struct{}
@@ -36,6 +37,7 @@ type App struct {
 	queries     QueriesModel
 	tables      TablesModel
 	shards      ShardsModel
+	sql         SQLModel
 	statusBar   StatusBarModel
 	store       *store.Store
 	registry    *cratedb.Registry
@@ -57,6 +59,7 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		ctx:         ctx,
 		keyMap:      DefaultKeyMap(),
 		refreshRate: refreshRate,
+		sql:         NewSQLModel(0, 0, reg, ctx),
 	}
 }
 
@@ -76,6 +79,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.queries = a.queries.SetSize(a.width, bodyHeight)
 		a.tables = a.tables.SetSize(a.width, bodyHeight)
 		a.shards = a.shards.SetSize(a.width, bodyHeight)
+		a.sql = a.sql.SetSize(a.width, bodyHeight)
 		a.statusBar = a.statusBar.SetWidth(a.width)
 		return a, nil
 
@@ -86,7 +90,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Type == tea.KeyCtrlC {
 				return a, tea.Quit
 			}
-			return a, a.delegateKey(msg)
+			// Allow tab navigation from SQL tab via tab/shift+tab
+			if a.activeTab == TabSQL &&
+				(key.Matches(msg, a.keyMap.NextTab) || key.Matches(msg, a.keyMap.PrevTab)) {
+				// Don't return — fall through to tab switching below
+			} else {
+				return a, a.delegateKey(msg)
+			}
 		}
 
 		switch {
@@ -102,6 +112,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.setActiveTab(TabTables)
 		case key.Matches(msg, a.keyMap.Tab5):
 			a.setActiveTab(TabShards)
+		case key.Matches(msg, a.keyMap.Tab6):
+			a.setActiveTab(TabSQL)
 		case key.Matches(msg, a.keyMap.NextTab):
 			a.setActiveTab((a.activeTab + 1) % Tab(len(tabNames)))
 		case key.Matches(msg, a.keyMap.PrevTab):
@@ -131,6 +143,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			return a, a.delegateKey(msg)
 		}
+		return a, nil
+
+	case SQLResultMsg:
+		a.sql = a.sql.HandleResult(msg)
 		return a, nil
 
 	case StoreTickMsg:
@@ -170,6 +186,8 @@ func (a *App) View() string {
 		body = a.tables.View()
 	case TabShards:
 		body = a.shards.View()
+	case TabSQL:
+		body = a.sql.View()
 	}
 
 	status := a.statusBar.View()
@@ -218,6 +236,10 @@ func (a *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		var cmd tea.Cmd
 		a.shards, cmd = a.shards.HandleKey(msg)
 		return cmd
+	case TabSQL:
+		var cmd tea.Cmd
+		a.sql, cmd = a.sql.HandleKey(msg)
+		return cmd
 	}
 	return nil
 }
@@ -230,6 +252,8 @@ func (a *App) isTabInputMode() bool {
 		return a.tables.searching
 	case TabShards:
 		return a.shards.searching
+	case TabSQL:
+		return a.sql.IsEditing()
 	}
 	return false
 }

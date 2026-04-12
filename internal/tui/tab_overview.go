@@ -338,10 +338,23 @@ func (m OverviewModel) renderClusterSettings() string {
 		replicaShards += t.ReplicaShards
 	}
 	totalShards := primaryShards + replicaShards
+	tableCount := len(m.snap.Tables)
+	viewCount := m.snap.ViewCount
+
 	if totalShards > 0 {
-		lines = append(lines, fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%dp / %dr)",
+		dataLine := fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%dp / %dr) │ %d tables",
 			formatBytes(primarySize), formatBytes(totalSize),
-			totalShards, primaryShards, replicaShards))
+			totalShards, primaryShards, replicaShards, tableCount)
+		if viewCount > 0 {
+			dataLine += fmt.Sprintf(", %d views", viewCount)
+		}
+		lines = append(lines, dataLine)
+	} else if tableCount > 0 || viewCount > 0 {
+		dataLine := fmt.Sprintf("  Data: %d tables", tableCount)
+		if viewCount > 0 {
+			dataLine += fmt.Sprintf(", %d views", viewCount)
+		}
+		lines = append(lines, dataLine)
 	}
 
 	// Node/zone topology

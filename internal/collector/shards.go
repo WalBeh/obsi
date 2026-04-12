@@ -73,12 +73,21 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		settings['codec'] AS codec
 	FROM information_schema.tables
 	WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
+	AND table_type = 'BASE TABLE'
 	ORDER BY table_schema, table_name`)
 	if err != nil {
 		// Fall back to shard-only aggregation
 		tables := aggregateTables(shards)
-		st.UpdateTables(tables, shards)
+		st.UpdateTables(tables, 0, shards)
 		return nil
+	}
+
+	// Count views separately for the Overview display
+	viewCount := 0
+	if viewResp, err := reg.Query(ctx, `SELECT count(*) FROM information_schema.tables
+		WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
+		AND table_type = 'VIEW'`); err == nil && len(viewResp.Rows) > 0 {
+		viewCount = int(toFloat64(viewResp.Rows[0][0]))
 	}
 
 	// Aggregate shard data by table key
@@ -136,7 +145,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		tables = append(tables, ti)
 	}
 
-	st.UpdateTables(tables, shards)
+	st.UpdateTables(tables, viewCount, shards)
 	return nil
 }
 

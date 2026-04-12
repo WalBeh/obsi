@@ -46,6 +46,7 @@ type Store struct {
 	nodes         []NodeSnapshot
 	activeQueries []cratedb.ActiveQuery
 	tables        []cratedb.TableInfo
+	viewCount     int
 	shards        []cratedb.ShardInfo
 	allocations   []cratedb.AllocationInfo
 
@@ -85,6 +86,7 @@ type StoreSnapshot struct {
 	Nodes         []NodeSnapshot
 	ActiveQueries []cratedb.ActiveQuery
 	Tables        []cratedb.TableInfo
+	ViewCount     int
 	Shards        []cratedb.ShardInfo
 	Allocations   []cratedb.AllocationInfo
 
@@ -283,10 +285,11 @@ func (s *Store) UpdateActiveQueries(queries []cratedb.ActiveQuery) {
 }
 
 // UpdateTables updates table and shard info.
-func (s *Store) UpdateTables(tables []cratedb.TableInfo, shards []cratedb.ShardInfo) {
+func (s *Store) UpdateTables(tables []cratedb.TableInfo, viewCount int, shards []cratedb.ShardInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tables = tables
+	s.viewCount = viewCount
 	s.shards = shards
 	s.lastUpdated["shards"] = time.Now()
 }
@@ -334,6 +337,7 @@ func (s *Store) Snapshot() StoreSnapshot {
 		Nodes:           copySlice(s.nodes),
 		ActiveQueries:   copySlice(s.activeQueries),
 		Tables:          copySlice(s.tables),
+		ViewCount:       s.viewCount,
 		Shards:          copySlice(s.shards),
 		Allocations:     copySlice(s.allocations),
 		NodeCPUHistory:        make(map[string][]float64),

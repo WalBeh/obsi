@@ -27,16 +27,17 @@ var sortFieldNames = [sortFieldCount]string{"name", "size", "shards", "records"}
 
 // TablesModel shows tables with shard distribution per node.
 type TablesModel struct {
-	snap      store.StoreSnapshot
-	sorted    []int // indices into snap.Tables after sort+filter
-	selected  int
-	scroll    int // first visible row index
-	sortField SortField
-	sortDesc  bool
-	searching bool
-	search    string
-	width     int
-	height    int
+	snap        store.StoreSnapshot
+	sorted      []int // indices into snap.Tables after sort+filter
+	selected    int
+	scroll      int // first visible row index
+	sortField   SortField
+	sortDesc    bool
+	searching   bool
+	search      string
+	width       int
+	height      int
+	tableHealth map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
 }
 
 func NewTablesModel(width, height int) TablesModel {
@@ -45,6 +46,7 @@ func NewTablesModel(width, height int) TablesModel {
 
 func (m TablesModel) Refresh(snap store.StoreSnapshot) TablesModel {
 	m.snap = snap
+	m.buildHealthMap()
 	m.rebuildSorted()
 	if m.selected >= len(m.sorted) && len(m.sorted) > 0 {
 		m.selected = len(m.sorted) - 1
@@ -99,6 +101,18 @@ func (m *TablesModel) clampScroll() {
 	}
 	if m.scroll < 0 {
 		m.scroll = 0
+	}
+}
+
+func (m *TablesModel) buildHealthMap() {
+	m.tableHealth = make(map[string]string)
+	for _, h := range m.snap.TableHealth {
+		key := h.TableSchema + "." + h.TableName
+		prev := m.tableHealth[key]
+		// Keep worst health: RED > YELLOW > GREEN
+		if prev == "" || prev == "GREEN" || (prev == "YELLOW" && h.Health == "RED") {
+			m.tableHealth[key] = h.Health
+		}
 	}
 }
 
@@ -311,7 +325,18 @@ func (m TablesModel) View() string {
 			tableName = tableName[:27] + "..."
 		}
 
-		row := fmt.Sprintf("%s%-30s %7d %7d %10s %10s %10s",
+		// Color table name by health status
+		health := m.tableHealth[t.SchemaName+"."+t.TableName]
+		switch health {
+		case "RED":
+			tableName = styleHealthRed.Render(fmt.Sprintf("%-30s", tableName))
+		case "YELLOW":
+			tableName = styleHealthYellow.Render(fmt.Sprintf("%-30s", tableName))
+		default:
+			tableName = fmt.Sprintf("%-30s", tableName)
+		}
+
+		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s",
 			marker, tableName,
 			t.PrimaryShards, t.ReplicaShards,
 			formatRecords(t.TotalRecords), formatBytes(t.TotalSize), formatBytes(t.TotalDiskSize))
@@ -326,8 +351,15 @@ func (m TablesModel) View() string {
 
 	// Detail panel for selected table (always visible below the list)
 	if m.selected < len(m.sorted) {
+		t := m.snap.Tables[m.sorted[m.selected]]
 		lines = append(lines, "")
-		lines = append(lines, m.renderDetail(m.snap.Tables[m.sorted[m.selected]]))
+		lines = append(lines, m.renderDetail(t))
+
+		// Show health issues for this table
+		healthLines := m.renderTableHealth(t)
+		if healthLines != "" {
+			lines = append(lines, healthLines)
+		}
 	}
 
 	return strings.Join(lines, "\n")
@@ -432,6 +464,29 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m TablesModel) renderTableHealth(t cratedb.TableInfo) string {
+	var issues []string
+	for _, h := range m.snap.TableHealth {
+		if h.TableSchema != t.SchemaName || h.TableName != t.TableName {
+			continue
+		}
+		if h.Health == "GREEN" {
+			continue
+		}
+		style := healthStyle(h.Health)
+		detail := fmt.Sprintf("    %s missing: %d, underreplicated: %d",
+			style.Render(h.Health), h.MissingShards, h.UnderReplicated)
+		if h.Partition != "" {
+			detail += fmt.Sprintf(" (partition: %s)", h.Partition)
+		}
+		issues = append(issues, detail)
+	}
+	if len(issues) == 0 {
+		return ""
+	}
+	return "    Health:\n" + strings.Join(issues, "\n")
 }
 
 func formatRecords(n int64) string {

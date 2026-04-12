@@ -228,6 +228,7 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 			c.triedExplanations = true
 			c.hasExplanationsCol = false
 			useExplanations = false
+			err = nil // clear so we fall through to the no-explanations query
 		} else {
 			c.triedExplanations = true
 			if err == nil {
@@ -236,8 +237,7 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 		}
 	}
 
-	if !useExplanations && err != nil {
-		// Retry without explanations column
+	if !useExplanations && resp == nil {
 		resp, err = reg.Query(ctx, `SELECT
 			table_schema,
 			table_name,

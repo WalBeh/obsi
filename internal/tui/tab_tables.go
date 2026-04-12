@@ -37,7 +37,8 @@ type TablesModel struct {
 	search      string
 	width       int
 	height      int
-	tableHealth map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
+	tableHealth    map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
+	filterUnhealthy bool
 }
 
 func NewTablesModel(width, height int) TablesModel {
@@ -122,6 +123,12 @@ func (m *TablesModel) rebuildSorted() {
 		if m.search != "" {
 			name := strings.ToLower(t.SchemaName + "." + t.TableName)
 			if !strings.Contains(name, strings.ToLower(m.search)) {
+				continue
+			}
+		}
+		if m.filterUnhealthy {
+			health := m.tableHealth[t.SchemaName+"."+t.TableName]
+			if health == "" || health == "GREEN" {
 				continue
 			}
 		}
@@ -224,6 +231,11 @@ func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
 			m.scroll = 0
 			m.rebuildSorted()
 		}
+	case msg.Type == tea.KeyRunes && string(msg.Runes) == "f":
+		m.filterUnhealthy = !m.filterUnhealthy
+		m.selected = 0
+		m.scroll = 0
+		m.rebuildSorted()
 	}
 	return m, nil
 }
@@ -271,11 +283,16 @@ func (m TablesModel) View() string {
 		lastRefresh = fmt.Sprintf(" │ updated %s ago", ago)
 	}
 
-	lines = append(lines, fmt.Sprintf("  %d tables, %d total shards │ %s%s%s │ %s",
+	healthFilter := ""
+	if m.filterUnhealthy {
+		healthFilter = " │ " + styleHealthYellow.Render("unhealthy only")
+	}
+
+	lines = append(lines, fmt.Sprintf("  %d tables, %d total shards │ %s%s%s%s │ %s",
 		len(m.snap.Tables), len(m.snap.Shards),
-		sortIndicator, filterInfo,
+		sortIndicator, filterInfo, healthFilter,
 		styleDim.Render(lastRefresh),
-		styleDim.Render("s:sort  /:search  R:refresh")))
+		styleDim.Render("s:sort  /:search  f:unhealthy  R:refresh")))
 	lines = append(lines, "")
 
 	// Search input line

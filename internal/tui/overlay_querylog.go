@@ -18,7 +18,23 @@ var (
 
 	styleOverlayErr = lipgloss.NewStyle().
 		Foreground(colorRed)
+
+	styleOverlayDelta = lipgloss.NewStyle().
+		Foreground(colorGreen)
+
+	styleOverlayDotActive = lipgloss.NewStyle().
+		Foreground(colorGreen)
+
+	styleOverlayDotRecent = lipgloss.NewStyle().
+		Foreground(colorDim)
 )
+
+// queryActivity tracks per-label change detection for visual cues.
+type queryActivity struct {
+	prevExecCount int64
+	delta         int64     // how many new executions since last change
+	changedAt     time.Time // when the delta was last detected
+}
 
 // QueryLogOverlay renders a bottom-drawer showing query execution stats.
 type QueryLogOverlay struct {
@@ -28,6 +44,7 @@ type QueryLogOverlay struct {
 	throttle  collector.ThrottleLevel
 	sorted    bool
 	sortOrder []string // cached label order after first sort
+	activity  map[string]*queryActivity
 }
 
 // SetSize updates the available dimensions.
@@ -40,6 +57,26 @@ func (o *QueryLogOverlay) SetSize(width, height int) {
 func (o *QueryLogOverlay) Refresh(tracker *collector.QueryTracker, throttle collector.ThrottleLevel) {
 	o.stats = tracker.Snapshot()
 	o.throttle = throttle
+
+	// Detect exec count changes for visual activity cues.
+	if o.activity == nil {
+		o.activity = make(map[string]*queryActivity, len(o.stats))
+	}
+	now := time.Now()
+	for _, s := range o.stats {
+		a, ok := o.activity[s.Label]
+		if !ok {
+			a = &queryActivity{prevExecCount: s.ExecCount}
+			o.activity[s.Label] = a
+			continue
+		}
+		if s.ExecCount != a.prevExecCount {
+			a.delta = s.ExecCount - a.prevExecCount
+			a.changedAt = now
+			a.prevExecCount = s.ExecCount
+		}
+	}
+
 	// Sort only on first load — order is stable (category+label never change).
 	if !o.sorted {
 		sort.Slice(o.stats, func(i, j int) bool {
@@ -90,6 +127,7 @@ func (o *QueryLogOverlay) View() string {
 	const (
 		colLabel    = 26
 		colExec     = 7
+		colDelta    = 4
 		colLastRun  = 12
 		colDur      = 9
 		colAvgRows  = 9
@@ -99,9 +137,10 @@ func (o *QueryLogOverlay) View() string {
 
 	title := styleTitle.Render(fmt.Sprintf("── Query Log ── throttle: %s ──", throttleName))
 
-	header := fmt.Sprintf("  %-*s %*s %*s %*s %*s %-*s %*s",
+	header := fmt.Sprintf("  . %-*s %*s %-*s %*s %*s %*s %-*s %*s",
 		colLabel, "QUERY",
 		colExec, "#EXEC",
+		colDelta, "",
 		colLastRun, "LAST RUN",
 		colDur, "DURATION",
 		colAvgRows, "AVG ROWS",
@@ -149,9 +188,31 @@ func (o *QueryLogOverlay) View() string {
 			errStyle = styleOverlayErr
 		}
 
-		line := fmt.Sprintf("  %-*s %*d %*s %*s %*s %-*s %s",
+		// Recency dot: green < 1s, dim < 5s, space otherwise
+		dot := " "
+		if a, ok := o.activity[s.Label]; ok && !a.changedAt.IsZero() {
+			age := now.Sub(a.changedAt)
+			if age < 1*time.Second {
+				dot = styleOverlayDotActive.Render("●")
+			} else if age < 5*time.Second {
+				dot = styleOverlayDotRecent.Render("●")
+			}
+		}
+
+		// Delta suffix: show +N in green for 1s after change
+		delta := fmt.Sprintf("%-*s", colDelta, "")
+		if a, ok := o.activity[s.Label]; ok && a.delta > 0 {
+			age := now.Sub(a.changedAt)
+			if age < 1*time.Second {
+				delta = styleOverlayDelta.Render(fmt.Sprintf("+%-*d", colDelta-1, a.delta))
+			}
+		}
+
+		line := fmt.Sprintf("  %s %-*s %*d %s %*s %*s %*s %-*s %s",
+			dot,
 			colLabel, s.Label,
 			colExec, s.ExecCount,
+			delta,
 			colLastRun, lastRun,
 			colDur, dur,
 			colAvgRows, avgRows,

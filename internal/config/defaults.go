@@ -16,7 +16,7 @@ func DefaultConfig() *Config {
 		Collectors: map[string]CollectorConfig{
 			"cluster": {
 				Enabled:  true,
-				Interval: Duration{10 * time.Second},
+				Interval: Duration{60 * time.Second},
 			},
 			"health": {
 				Enabled:  true,

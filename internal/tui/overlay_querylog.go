@@ -172,7 +172,9 @@ func (o *QueryLogOverlay) View() string {
 		}
 
 		effInterval := "—"
-		if s.Interval > 0 {
+		if mult == 0 && s.Interval > 0 {
+			effInterval = styleOverlayErr.Render("paused")
+		} else if s.Interval > 0 {
 			eff := s.Interval * time.Duration(mult)
 			effInterval = formatDuration(eff)
 			if mult > 1 {

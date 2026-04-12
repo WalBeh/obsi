@@ -96,9 +96,18 @@ func (m StatusBarModel) View() string {
 
 	// Throttle indicator
 	throttleStr := ""
-	if m.throttle != collector.ThrottleNone {
+	switch {
+	case m.throttle == collector.ThrottleMax:
+		// Pulse effect: alternate between bright yellow and dim every second
+		label := "⏸ PAUSED"
+		if time.Now().Second()%2 == 0 {
+			throttleStr = " │ " + styleHealthYellow.Bold(true).Render(label)
+		} else {
+			throttleStr = " │ " + styleDim.Render(label)
+		}
+	case m.throttle != collector.ThrottleNone:
 		throttleStr = " │ " + styleHealthYellow.Render("⚡ "+collector.ThrottleName(m.throttle))
-	} else if m.heapWarning {
+	case m.heapWarning:
 		throttleStr = " │ " + styleHealthRed.Render("⚠ heap>85% t:throttle")
 	}
 

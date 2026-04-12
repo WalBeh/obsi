@@ -34,23 +34,34 @@ Password resolution order: `--password` flag > `OBSI_PASSWORD` env var > OS keyr
 | Key | Tab | What it shows |
 |-----|-----|---------------|
 | `1` | Overview | Cluster settings, health checks, node summary, table health |
-| `2` | Nodes | Per-node metrics with sparklines, disk IO, watermark bars |
+| `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration and statement preview |
 | `4` | Tables | Table list with shard distribution, settings, size stats |
+| `5` | Shards | Shard allocation problems, recovery progress, relocations |
+| `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results |
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
-| `1-4` | Switch tabs |
+| `1-6` | Switch tabs |
 | `tab` / `shift+tab` | Next/prev tab |
 | `j/k` or `↑/↓` | Navigate |
 | `s` | Cycle sort column |
 | `/` | Search/filter |
 | `esc` | Clear search |
+| `t` | Cycle throttle (normal/mild/heavy) |
 | `ctrl+r` | Force refresh current tab |
 | `r` | Reconnect to cluster |
 | `q` | Quit |
+
+## Doctor
+
+Check connectivity and permissions before launching:
+
+```bash
+obsi https://admin:pass@cluster:4200 --doctor
+```
 
 ## Configuration
 
@@ -87,6 +98,7 @@ interval = "1m0s"
 - CrateDB Cloud hostname shortening (`crate-data-hot-<uuid>-0` -> `data-hot-0`)
 - Zone-aware topology display
 - IO throughput and IOPS derived from cumulative counters
+- Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 
 ## License
 

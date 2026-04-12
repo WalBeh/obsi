@@ -578,8 +578,8 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 			mx, av, p := historyStats(hist)
 			writeIOPSStats = fmt.Sprintf("%s/%s/%s", formatIOPS(av), formatIOPS(p), formatIOPS(mx))
 		}
-		lines = append(lines, fmt.Sprintf("    IOPS read    %27s %s", styleDim.Render(readIOPSSpark), styleDim.Render(readIOPSStats)))
-		lines = append(lines, fmt.Sprintf("    IOPS write   %27s %s", styleDim.Render(writeIOPSSpark), styleDim.Render(writeIOPSStats)))
+		lines = append(lines, fmt.Sprintf("    IOPS read    %24s %s %s", "", styleDim.Render(readIOPSSpark), styleDim.Render(readIOPSStats)))
+		lines = append(lines, fmt.Sprintf("    IOPS write   %24s %s %s", "", styleDim.Render(writeIOPSSpark), styleDim.Render(writeIOPSStats)))
 	} else {
 		lines = append(lines, fmt.Sprintf("    Disk read    %9s/s %s %s",
 			formatRate(n.ReadThroughput),

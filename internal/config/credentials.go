@@ -31,6 +31,12 @@ func ResolvePassword(cfg *ConnectionConfig) (string, error) {
 	return "", nil
 }
 
+// ResolvePasswordFor checks the OS keyring for a stored password for the given endpoint/username.
+func ResolvePasswordFor(endpoint, username string) (string, error) {
+	key := keyringKey(endpoint, username)
+	return keyring.Get(keyringService, key)
+}
+
 // StorePassword stores a password in the OS keyring.
 func StorePassword(endpoint, username, password string) error {
 	key := keyringKey(endpoint, username)

@@ -28,7 +28,9 @@ func Execute() {
 		password   string
 		configPath string
 		skipVerify bool
-		doctor     bool
+		doctor       bool
+		profile      string
+		listProfiles bool
 	)
 
 	flag.StringVar(&endpoint, "endpoint", "", "CrateDB URL, e.g. https://user:pass@host:4200")
@@ -37,14 +39,26 @@ func Execute() {
 	flag.StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
 	flag.BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification (for port-forwarding)")
 	flag.BoolVar(&doctor, "doctor", false, "Check connectivity, permissions, and exit")
+	flag.StringVar(&profile, "profile", "", "Named cluster profile from config")
+	flag.BoolVar(&listProfiles, "list-profiles", false, "List saved profiles and exit")
 
 	// Reorder os.Args so flags can appear anywhere (before or after positional URL)
 	reorderArgs()
 	flag.Parse()
 
-	// Support positional argument: obsi https://admin:pass@host:4200
-	if flag.NArg() > 0 && endpoint == "" {
-		endpoint = flag.Arg(0)
+	// Support positional arguments:
+	//   obsi https://admin:pass@host:4200       → URL
+	//   obsi prod                                → profile name (no scheme = profile)
+	//   obsi prod --doctor                       → profile + flag
+	if flag.NArg() > 0 {
+		arg := flag.Arg(0)
+		if strings.Contains(arg, "://") {
+			if endpoint == "" {
+				endpoint = arg
+			}
+		} else if profile == "" {
+			profile = arg
+		}
 	}
 
 	// Check which flags were explicitly provided
@@ -66,6 +80,57 @@ func Execute() {
 		os.Exit(1)
 	}
 
+	// List profiles and exit
+	if listProfiles {
+		if len(cfg.Profiles) == 0 {
+			fmt.Println("No profiles saved.")
+			fmt.Println("Create one: obsi https://user:pass@host:4200 --profile <name>")
+		} else {
+			fmt.Printf("Profiles in %s:\n\n", configPath)
+			for name, p := range cfg.Profiles {
+				marker := "  "
+				if name == cfg.LastProfile {
+					marker = "* "
+				}
+				keyStatus := "no password in keyring"
+				if pw, err := config.ResolvePasswordFor(p.Endpoint, p.Username); err == nil && pw != "" {
+					keyStatus = "password in keyring"
+				}
+				fmt.Printf("  %s%-12s  %s@%s  (%s)\n", marker, name, p.Username, p.Endpoint, keyStatus)
+			}
+			fmt.Println()
+			fmt.Println("  * = last used")
+		}
+		return
+	}
+
+	// Resolve profile: explicit --profile, positional name, or last_profile from config
+	if profile == "" && endpoint == "" && cfg.LastProfile != "" {
+		profile = cfg.LastProfile
+	}
+
+	// Load profile connection settings if a profile is specified
+	if profile != "" && cfg.Profiles != nil {
+		if p, ok := cfg.Profiles[profile]; ok {
+			if endpoint == "" {
+				cfg.Connection.Endpoint = p.Endpoint
+			}
+			if !usernameSet && username == "" {
+				cfg.Connection.Username = p.Username
+			}
+		} else if endpoint == "" {
+			fmt.Fprintf(os.Stderr, "Profile %q not found in config.\n", profile)
+			if len(cfg.Profiles) > 0 {
+				fmt.Fprintf(os.Stderr, "Available profiles:")
+				for name := range cfg.Profiles {
+					fmt.Fprintf(os.Stderr, " %s", name)
+				}
+				fmt.Fprintln(os.Stderr)
+			}
+			os.Exit(1)
+		}
+	}
+
 	// Parse endpoint URL — extract embedded credentials if present
 	if endpoint != "" {
 		parsedEndpoint, parsedUser, parsedPass, hasAuth := parseEndpointURL(endpoint)
@@ -82,6 +147,31 @@ func Execute() {
 	}
 	if usernameSet || username != "" {
 		cfg.Connection.Username = username
+	}
+
+	// Save profile if --profile was given with a URL (first-time setup)
+	if profile != "" && endpoint != "" {
+		if cfg.Profiles == nil {
+			cfg.Profiles = make(map[string]config.ProfileConfig)
+		}
+		cfg.Profiles[profile] = config.ProfileConfig{
+			Endpoint: cfg.Connection.Endpoint,
+			Username: cfg.Connection.Username,
+		}
+		// Store password in keyring so future --profile runs don't need the URL
+		if passwordSet && password != "" {
+			_ = config.StorePassword(cfg.Connection.Endpoint, cfg.Connection.Username, password)
+		}
+		cfg.LastProfile = profile
+		if err := config.Save(configPath, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not save profile: %v\n", err)
+		}
+	} else if profile != "" {
+		// Update last_profile even when loading existing profile
+		if cfg.LastProfile != profile {
+			cfg.LastProfile = profile
+			_ = config.Save(configPath, cfg)
+		}
 	}
 
 	// Resolve password
@@ -155,7 +245,7 @@ func reorderArgs() {
 			if eq := strings.IndexByte(name, '='); eq >= 0 {
 				continue // --flag=value, already consumed
 			}
-			if name != "doctor" && name != "skip-verify" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			if name != "doctor" && name != "skip-verify" && name != "list-profiles" && name != "h" && name != "help" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				i++
 				flags = append(flags, args[i])
 			}

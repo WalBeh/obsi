@@ -17,17 +17,23 @@ go build -o obsi .
 ## Usage
 
 ```bash
-# Connect with URL (credentials embedded)
+# Connect with URL
 obsi https://admin:password@cluster.example.com:4200
+
+# Save as a named profile for future use
+obsi https://admin:password@cluster:4200 --profile prod
+
+# Reconnect using profile (password stored in OS keyring)
+obsi prod
+
+# Flags can appear anywhere
+obsi prod --doctor --skip-verify
 
 # Local dev (empty password auto-detected)
 obsi http://localhost:4200
-
-# With explicit flags
-obsi --endpoint http://localhost:4200 --username crate --password secret
 ```
 
-Password resolution order: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.
+Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.
 
 ## Tabs
 
@@ -63,31 +69,49 @@ Check connectivity and permissions before launching:
 obsi https://admin:pass@cluster:4200 --doctor
 ```
 
+## Profiles
+
+Profiles store cluster connection details so you don't retype URLs.
+
+```bash
+# Save a profile (password goes to OS keyring)
+obsi https://admin:pass@prod-cluster:4200 --profile prod
+
+# List saved profiles
+obsi --list-profiles
+
+# Use a different config file (multi-client setups)
+obsi --config ~/clients/acme.toml --profile prod
+```
+
+With no arguments, `obsi` connects to the last used profile.
+
 ## Configuration
 
-First run creates `~/.config/obsi/config.toml` with defaults:
+Config file is created on first run at `~/.config/obsi/config.toml` (Linux) or `~/Library/Application Support/obsi/config.toml` (macOS).
 
 ```toml
-[connection]
-endpoint = "http://localhost:4200"
+last_profile = "prod"
+
+[profiles.prod]
+endpoint = "https://prod-cluster:4200"
+username = "admin"
+
+[profiles.staging]
+endpoint = "https://staging-cluster:4200"
 username = "crate"
-timeout = "3s"
-query_timeout = "10s"
-heartbeat_interval = "5s"
-node_refresh_interval = "30s"
 
 [collectors.nodes]
-enabled = true
 interval = "5s"
 
 [collectors.queries]
-enabled = true
 interval = "2s"
 
 [collectors.shards]
-enabled = true
-interval = "1m0s"
+interval = "30s"
 ```
+
+Collector/TUI/logging settings are global (shared across profiles).
 
 ## Features
 

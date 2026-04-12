@@ -14,10 +14,11 @@ import (
 
 // Client talks to a single CrateDB endpoint via the HTTP /_sql API.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
-	username   string
-	password   string
+	baseURL     string
+	httpClient  *http.Client
+	username    string
+	password    string
+	baseTimeout time.Duration // configured timeout (before latency adjustment)
 	lastLatency time.Duration // latency of the most recent successful query
 }
 
@@ -35,8 +36,9 @@ func NewClient(baseURL, username, password string, timeout time.Duration, skipVe
 			Timeout:   timeout,
 			Transport: transport,
 		},
-		username: username,
-		password: password,
+		username:    username,
+		password:    password,
+		baseTimeout: timeout,
 	}
 }
 
@@ -77,7 +79,11 @@ func (c *Client) Query(ctx context.Context, stmt string, args ...interface{}) (*
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cratedb error (status %d) from %s: %s", resp.StatusCode, c.baseURL, string(respBody))
+		return nil, &CrateDBError{
+			StatusCode: resp.StatusCode,
+			Endpoint:   c.baseURL,
+			Body:       string(respBody),
+		}
 	}
 
 	var sqlResp SQLResponse

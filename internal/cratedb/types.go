@@ -1,6 +1,22 @@
 package cratedb
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// CrateDBError represents an error response from the CrateDB SQL endpoint.
+// This is distinct from connection/timeout errors — the server processed
+// the request and returned an error, so failover to another node won't help.
+type CrateDBError struct {
+	StatusCode int
+	Endpoint   string
+	Body       string
+}
+
+func (e *CrateDBError) Error() string {
+	return fmt.Sprintf("cratedb error (status %d) from %s: %s", e.StatusCode, e.Endpoint, e.Body)
+}
 
 // SQLRequest is the JSON body sent to POST /_sql.
 type SQLRequest struct {

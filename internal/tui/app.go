@@ -150,15 +150,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case StoreTickMsg:
-		snap := a.store.Snapshot()
-		a.overview = a.overview.Refresh(snap)
-		a.nodes = a.nodes.Refresh(snap)
-		a.queries = a.queries.Refresh(snap)
-		a.tables = a.tables.Refresh(snap)
-		a.shards = a.shards.Refresh(snap)
+		throttle := a.collectors.Throttle()
+		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle))
+		switch a.activeTab {
+		case TabOverview:
+			a.overview = a.overview.Refresh(snap)
+		case TabNodes:
+			a.nodes = a.nodes.Refresh(snap)
+		case TabQueries:
+			a.queries = a.queries.Refresh(snap)
+		case TabTables:
+			a.tables = a.tables.Refresh(snap)
+		case TabShards:
+			a.shards = a.shards.Refresh(snap)
+		}
 		a.statusBar = a.statusBar.Refresh(
 			a.registry.Status(),
-			a.collectors.Throttle(),
+			throttle,
 			a.collectors.SuggestThrottle(),
 		)
 		return a, a.doStoreTick()
@@ -261,6 +269,21 @@ func (a *App) isTabInputMode() bool {
 func (a *App) setActiveTab(tab Tab) {
 	a.activeTab = tab
 	a.collectors.SetFastPath("shards", tab == TabShards)
+	// Refresh the newly active tab immediately so it has current data
+	throttle := a.collectors.Throttle()
+	snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle))
+	switch tab {
+	case TabOverview:
+		a.overview = a.overview.Refresh(snap)
+	case TabNodes:
+		a.nodes = a.nodes.Refresh(snap)
+	case TabQueries:
+		a.queries = a.queries.Refresh(snap)
+	case TabTables:
+		a.tables = a.tables.Refresh(snap)
+	case TabShards:
+		a.shards = a.shards.Refresh(snap)
+	}
 }
 
 func (a *App) doStoreTick() tea.Cmd {

@@ -316,16 +316,24 @@ func (s *Store) UpdateShardsPartial(nonStarted []cratedb.ShardInfo) {
 	s.lastUpdated["shards"] = time.Now()
 }
 
-// MarkStale marks a collector's data as stale.
-func (s *Store) MarkStale(collectorName string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Set last updated to zero time to force staleness
-	s.lastUpdated[collectorName] = time.Time{}
+// AnyNodeHeapAbove returns true if any node has heap usage above the given percentage.
+func (s *Store) AnyNodeHeapAbove(pct float64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, n := range s.nodes {
+		if n.Gone || n.HeapMax == 0 {
+			continue
+		}
+		if float64(n.HeapUsed)/float64(n.HeapMax)*100 > pct {
+			return true
+		}
+	}
+	return false
 }
 
 // Snapshot returns a read-only copy of the store.
-func (s *Store) Snapshot() StoreSnapshot {
+// throttleMultiplier adjusts staleness thresholds to match the effective poll interval.
+func (s *Store) Snapshot(throttleMultiplier int) StoreSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -377,10 +385,14 @@ func (s *Store) Snapshot() StoreSnapshot {
 		snap.NodeWriteTPHistory[id] = buf.Slice()
 	}
 
+	if throttleMultiplier < 1 {
+		throttleMultiplier = 1
+	}
 	now := time.Now()
 	for name, staleAfter := range s.staleAfter {
+		effectiveStaleAfter := staleAfter * time.Duration(throttleMultiplier)
 		lastUpdate, ok := s.lastUpdated[name]
-		snap.Staleness[name] = !ok || lastUpdate.IsZero() || now.Sub(lastUpdate) > staleAfter
+		snap.Staleness[name] = !ok || lastUpdate.IsZero() || now.Sub(lastUpdate) > effectiveStaleAfter
 	}
 	for name, t := range s.lastUpdated {
 		snap.LastUpdated[name] = t

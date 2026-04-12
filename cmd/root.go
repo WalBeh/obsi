@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
@@ -248,7 +249,7 @@ func setupLogging(cfg config.LoggingConfig) {
 			handler = slog.NewTextHandler(f, opts)
 		}
 	} else {
-		handler = slog.NewTextHandler(os.NewFile(0, os.DevNull), opts)
+		handler = slog.NewTextHandler(io.Discard, opts)
 	}
 
 	slog.SetDefault(slog.New(handler))

@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -11,8 +12,10 @@ import (
 )
 
 type ShardsCollector struct {
-	interval     time.Duration
-	hasUnhealthy bool
+	interval            time.Duration
+	hasUnhealthy        bool
+	hasExplanationsCol  bool // false until first successful query with explanations
+	triedExplanations   bool // true after first allocations attempt
 }
 
 func NewShardsCollector(cfg config.CollectorConfig) *ShardsCollector {
@@ -48,6 +51,10 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 
 	shards := parseShardRows(resp.Rows)
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Check for non-STARTED shards and conditionally query allocations
 	hasNonStarted := false
 	for _, s := range shards {
@@ -62,6 +69,10 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		c.collectAllocations(ctx, reg, st)
 	} else {
 		st.UpdateAllocations(nil)
+	}
+
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
 	// Build table list from information_schema (source of truth for all tables)
@@ -193,19 +204,52 @@ func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Regi
 }
 
 // collectAllocations queries sys.allocations for non-STARTED shards.
-// Fails gracefully on older CrateDB versions that lack sys.allocations.
+// Fails gracefully on older CrateDB versions that lack sys.allocations
+// or the explanations column.
 func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.Registry, st *store.Store) {
-	resp, err := reg.Query(ctx, `SELECT
-		table_schema,
-		table_name,
-		partition_ident,
-		shard_id,
-		"primary",
-		current_state,
-		node_id,
-		explanations
-	FROM sys.allocations
-	WHERE current_state != 'STARTED'`)
+	useExplanations := !c.triedExplanations || c.hasExplanationsCol
+
+	var resp *cratedb.SQLResponse
+	var err error
+	if useExplanations {
+		resp, err = reg.Query(ctx, `SELECT
+			table_schema,
+			table_name,
+			partition_ident,
+			shard_id,
+			"primary",
+			current_state,
+			node_id,
+			explanations
+		FROM sys.allocations
+		WHERE current_state != 'STARTED'`)
+		if err != nil && strings.Contains(err.Error(), "ColumnUnknownException") {
+			slog.Info("sys.allocations has no explanations column, using fallback query")
+			c.triedExplanations = true
+			c.hasExplanationsCol = false
+			useExplanations = false
+		} else {
+			c.triedExplanations = true
+			if err == nil {
+				c.hasExplanationsCol = true
+			}
+		}
+	}
+
+	if !useExplanations && err != nil {
+		// Retry without explanations column
+		resp, err = reg.Query(ctx, `SELECT
+			table_schema,
+			table_name,
+			partition_ident,
+			shard_id,
+			"primary",
+			current_state,
+			node_id
+		FROM sys.allocations
+		WHERE current_state != 'STARTED'`)
+	}
+
 	if err != nil {
 		slog.Warn("sys.allocations query failed (may require CrateDB 4.2+)", "error", err)
 		return
@@ -214,18 +258,19 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 	allocs := make([]cratedb.AllocationInfo, 0, len(resp.Rows))
 	for _, row := range resp.Rows {
 		explanation := ""
-		// explanations can be an array of strings or a single string
-		switch v := row[7].(type) {
-		case string:
-			explanation = v
-		case []interface{}:
-			// Join multiple explanations, deduplicate later in TUI
-			for i, e := range v {
-				if s, ok := e.(string); ok {
-					if i > 0 {
-						explanation += "; "
+		if useExplanations && len(row) > 7 {
+			// explanations can be an array of strings or a single string
+			switch v := row[7].(type) {
+			case string:
+				explanation = v
+			case []interface{}:
+				for i, e := range v {
+					if s, ok := e.(string); ok {
+						if i > 0 {
+							explanation += "; "
+						}
+						explanation += s
 					}
-					explanation += s
 				}
 			}
 		}

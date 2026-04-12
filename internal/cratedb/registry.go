@@ -2,6 +2,7 @@ package cratedb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -145,15 +146,15 @@ func (r *Registry) Refresh(ctx context.Context) error {
 		process['cpu']['percent'] AS cpu_percent,
 		os['cpu']['system'] AS cpu_system,
 		os['cpu']['user'] AS cpu_user,
-		heap['used'] AS heap_used,
-		heap['max'] AS heap_max,
-		heap['free'] AS heap_free,
-		fs['total']['size'] AS fs_total,
-		fs['total']['used'] AS fs_used,
-		fs['total']['available'] AS fs_avail,
-		mem['used'] AS mem_used,
-		mem['free'] AS mem_free,
-		mem['used'] + mem['free'] AS mem_total,
+		GREATEST(heap['used'], 0) AS heap_used,
+		GREATEST(heap['max'], 0) AS heap_max,
+		GREATEST(heap['free'], 0) AS heap_free,
+		GREATEST(fs['total']['size'], 0) AS fs_total,
+		GREATEST(fs['total']['used'], 0) AS fs_used,
+		GREATEST(fs['total']['available'], 0) AS fs_avail,
+		GREATEST(mem['used'], 0) AS mem_used,
+		GREATEST(mem['free'], 0) AS mem_free,
+		GREATEST(mem['used'] + mem['free'], 0) AS mem_total,
 		load['1'] AS load1,
 		load['5'] AS load5,
 		load['15'] AS load15,
@@ -222,6 +223,8 @@ func (r *Registry) Stop() {
 }
 
 // Query tries the primary endpoint first; on timeout, fans out to healthy direct nodes.
+// CrateDB application errors (4xx/5xx) are returned immediately without failover,
+// since they indicate a query-level problem that won't resolve on a different node.
 func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) (*SQLResponse, error) {
 	// Try primary first
 	resp, err := r.primary.Query(ctx, stmt, args...)
@@ -231,6 +234,13 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 		r.recordLatency(r.primary.lastLatency)
 		r.mu.Unlock()
 		return resp, nil
+	}
+
+	// Don't failover for CrateDB application errors — the server responded,
+	// another node will return the same error.
+	var crateErr *CrateDBError
+	if errors.As(err, &crateErr) {
+		return nil, err
 	}
 
 	slog.Debug("primary endpoint failed, trying direct nodes", "error", err)
@@ -271,12 +281,25 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 	return nil, fmt.Errorf("all nodes failed, last error: %w", lastErr)
 }
 
-// recordLatency adds a sample to the circular buffer. Caller must hold r.mu.
+// recordLatency adds a sample to the circular buffer and adjusts the
+// primary client's timeout if latency is high. Caller must hold r.mu.
 func (r *Registry) recordLatency(d time.Duration) {
 	r.latencySamples[r.latencyIdx] = d
 	r.latencyIdx = (r.latencyIdx + 1) % len(r.latencySamples)
 	if r.latencyIdx == 0 {
 		r.latencyFull = true
+	}
+
+	// Adaptive timeout: base timeout + observed max latency.
+	// On a stressed cluster with 1s+ latency, a 10s base timeout leaves
+	// only 9s for actual query execution, which is often not enough.
+	stats := r.computeLatencyStats()
+	if stats.Max > 0 {
+		adjusted := r.primary.baseTimeout + stats.Max
+		if adjusted != r.primary.httpClient.Timeout {
+			r.primary.httpClient.Timeout = adjusted
+			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", stats.Max, "effective", adjusted)
+		}
 	}
 }
 

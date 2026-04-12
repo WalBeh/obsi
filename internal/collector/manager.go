@@ -84,20 +84,15 @@ func ThrottleName(level ThrottleLevel) string {
 	return throttleNames[level]
 }
 
+// ThrottleMultiplier returns the interval multiplier for a throttle level.
+func ThrottleMultiplier(level ThrottleLevel) int {
+	return throttleMultipliers[level]
+}
+
 // SuggestThrottle checks node heap pressure and suggests throttling.
 // Returns true if any node has heap > 85%.
 func (m *Manager) SuggestThrottle() bool {
-	snap := m.store.Snapshot()
-	for _, n := range snap.Nodes {
-		if n.Gone || n.HeapMax == 0 {
-			continue
-		}
-		heapPct := float64(n.HeapUsed) / float64(n.HeapMax) * 100
-		if heapPct > 85 {
-			return true
-		}
-	}
-	return false
+	return m.store.AnyNodeHeapAbove(85)
 }
 
 // SetFastPath enables or disables the fast-path ticker for a named collector.
@@ -140,7 +135,6 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	// Collect once immediately
 	if err := c.Collect(ctx, m.registry, m.store); err != nil {
 		slog.Warn("collector initial run failed", "collector", c.Name(), "error", err)
-		m.store.MarkStale(c.Name())
 	}
 
 	baseInterval := c.Interval()
@@ -192,7 +186,8 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 
 			if err := c.Collect(ctx, m.registry, m.store); err != nil {
 				slog.Warn("collector failed", "collector", c.Name(), "error", err)
-				m.store.MarkStale(c.Name())
+				// Don't mark stale — keep showing last successful data.
+			// Time-based staleness in Snapshot() handles aging out.
 			}
 		case <-fastCh:
 			if err := fpc.CollectFastPath(ctx, m.registry, m.store); err != nil {

@@ -21,20 +21,22 @@ func (c *NodesCollector) Name() string           { return "nodes" }
 func (c *NodesCollector) Interval() time.Duration { return c.interval }
 
 func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
+	// GREATEST(..., 0) clamps byte-size columns: during restore, CrateDB can
+	// return negative values that crash its own ByteSizeValue formatter.
 	resp, err := reg.Query(ctx, `SELECT
 		id, name, hostname, rest_url,
 		process['cpu']['percent'] AS cpu_percent,
 		os['cpu']['system'] AS cpu_system,
 		os['cpu']['user'] AS cpu_user,
-		heap['used'] AS heap_used,
-		heap['max'] AS heap_max,
-		heap['free'] AS heap_free,
-		fs['total']['size'] AS fs_total,
-		fs['total']['used'] AS fs_used,
-		fs['total']['available'] AS fs_avail,
-		mem['used'] AS mem_used,
-		mem['free'] AS mem_free,
-		mem['used'] + mem['free'] AS mem_total,
+		GREATEST(heap['used'], 0) AS heap_used,
+		GREATEST(heap['max'], 0) AS heap_max,
+		GREATEST(heap['free'], 0) AS heap_free,
+		GREATEST(fs['total']['size'], 0) AS fs_total,
+		GREATEST(fs['total']['used'], 0) AS fs_used,
+		GREATEST(fs['total']['available'], 0) AS fs_avail,
+		GREATEST(mem['used'], 0) AS mem_used,
+		GREATEST(mem['free'], 0) AS mem_free,
+		GREATEST(mem['used'] + mem['free'], 0) AS mem_total,
 		load['1'] AS load1,
 		load['5'] AS load5,
 		load['15'] AS load15,

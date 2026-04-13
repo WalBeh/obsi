@@ -33,14 +33,14 @@ func (c *QueriesCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 	queries := make([]cratedb.ActiveQuery, 0, len(resp.Rows))
 	for _, row := range resp.Rows {
 		q := cratedb.ActiveQuery{
-			ID:       toString(row[0]),
-			Node:     toString(row[1]),
-			Stmt:     toString(row[3]),
-			Username: toString(row[4]),
+			ID:       cratedb.ToString(row[0]),
+			Node:     cratedb.ToString(row[1]),
+			Stmt:     cratedb.ToString(row[3]),
+			Username: cratedb.ToString(row[4]),
 		}
 
 		// CrateDB returns timestamps as milliseconds since epoch
-		if ts := toFloat64(row[2]); ts > 0 {
+		if ts := cratedb.ToFloat64(row[2]); ts > 0 {
 			q.Started = time.UnixMilli(int64(ts))
 		}
 

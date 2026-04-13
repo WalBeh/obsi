@@ -31,10 +31,10 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	checks := make([]cratedb.ClusterCheck, 0, len(checksResp.Rows))
 	for _, row := range checksResp.Rows {
 		check := cratedb.ClusterCheck{
-			ID:          int(toFloat64(row[0])),
-			Severity:    int(toFloat64(row[1])),
-			Description: toString(row[2]),
-			Passed:      toBool(row[3]),
+			ID:          int(cratedb.ToFloat64(row[0])),
+			Severity:    int(cratedb.ToFloat64(row[1])),
+			Description: cratedb.ToString(row[2]),
+			Passed:      cratedb.ToBool(row[3]),
 		}
 		checks = append(checks, check)
 	}
@@ -48,12 +48,12 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	health := make([]cratedb.TableHealth, 0, len(healthResp.Rows))
 	for _, row := range healthResp.Rows {
 		h := cratedb.TableHealth{
-			TableSchema:     toString(row[0]),
-			TableName:       toString(row[1]),
-			Health:          toString(row[2]),
-			MissingShards:   int64(toFloat64(row[3])),
-			UnderReplicated: int64(toFloat64(row[4])),
-			Partition:       toString(row[5]),
+			TableSchema:     cratedb.ToString(row[0]),
+			TableName:       cratedb.ToString(row[1]),
+			Health:          cratedb.ToString(row[2]),
+			MissingShards:   int64(cratedb.ToFloat64(row[3])),
+			UnderReplicated: int64(cratedb.ToFloat64(row[4])),
+			Partition:       cratedb.ToString(row[5]),
 		}
 		health = append(health, h)
 	}
@@ -62,26 +62,3 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	return nil
 }
 
-func toFloat64(v interface{}) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int64:
-		return float64(n)
-	}
-	return 0
-}
-
-func toString(v interface{}) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-func toBool(v interface{}) bool {
-	if b, ok := v.(bool); ok {
-		return b
-	}
-	return false
-}

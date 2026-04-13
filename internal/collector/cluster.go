@@ -43,14 +43,14 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 
 	row := resp.Rows[0]
 	settings := cratedb.ClusterSettings{
-		MaxShardsPerNode:           int(toFloat64(row[0])),
-		AllocationEnable:           toString(row[1]),
-		NodeConcurrentRecoveries:   int(toFloat64(row[2])),
-		ClusterConcurrentRebalance: int(toFloat64(row[3])),
-		RecoveryMaxBytesPerSec:     toString(row[4]),
-		DiskWatermarkLow:           toString(row[5]),
-		DiskWatermarkHigh:          toString(row[6]),
-		DiskWatermarkFlood:         toString(row[7]),
+		MaxShardsPerNode:           int(cratedb.ToFloat64(row[0])),
+		AllocationEnable:           cratedb.ToString(row[1]),
+		NodeConcurrentRecoveries:   int(cratedb.ToFloat64(row[2])),
+		ClusterConcurrentRebalance: int(cratedb.ToFloat64(row[3])),
+		RecoveryMaxBytesPerSec:     cratedb.ToString(row[4]),
+		DiskWatermarkLow:           cratedb.ToString(row[5]),
+		DiskWatermarkHigh:          cratedb.ToString(row[6]),
+		DiskWatermarkFlood:         cratedb.ToString(row[7]),
 	}
 
 	st.UpdateClusterSettings(settings)
@@ -61,11 +61,11 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 		if err == nil && len(summitResp.Rows) > 0 {
 			r := summitResp.Rows[0]
 			st.UpdateSummit(cratedb.Summit{
-				Mountain:    toString(r[0]),
-				Height:      int(toFloat64(r[1])),
-				Region:      toString(r[2]),
-				Country:     toString(r[3]),
-				FirstAscent: int(toFloat64(r[4])),
+				Mountain:    cratedb.ToString(r[0]),
+				Height:      int(cratedb.ToFloat64(r[1])),
+				Region:      cratedb.ToString(r[2]),
+				Country:     cratedb.ToString(r[3]),
+				FirstAscent: int(cratedb.ToFloat64(r[4])),
 			})
 			c.lastSummitFetch = time.Now()
 		}

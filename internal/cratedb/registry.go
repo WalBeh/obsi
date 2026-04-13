@@ -542,32 +542,32 @@ func parseNodeRow(row []interface{}) NodeInfo {
 	if v, ok := row[3].(string); ok {
 		info.RestURL = v
 	}
-	info.CPUPercent = toInt16(row[4])
-	info.CPUSystem = toInt16(row[5])
-	info.CPUUser = toInt16(row[6])
-	info.HeapUsed = toInt64(row[7])
-	info.HeapMax = toInt64(row[8])
-	info.HeapFree = toInt64(row[9])
-	info.FSTotal = toInt64(row[10])
-	info.FSUsed = toInt64(row[11])
-	info.FSAvail = toInt64(row[12])
-	info.MemUsed = toInt64(row[13])
-	info.MemFree = toInt64(row[14])
-	info.MemTotal = toInt64(row[15])
-	info.Load[0] = toFloat64(row[16])
-	info.Load[1] = toFloat64(row[17])
-	info.Load[2] = toFloat64(row[18])
+	info.CPUPercent = ToInt16(row[4])
+	info.CPUSystem = ToInt16(row[5])
+	info.CPUUser = ToInt16(row[6])
+	info.HeapUsed = ToInt64(row[7])
+	info.HeapMax = ToInt64(row[8])
+	info.HeapFree = ToInt64(row[9])
+	info.FSTotal = ToInt64(row[10])
+	info.FSUsed = ToInt64(row[11])
+	info.FSAvail = ToInt64(row[12])
+	info.MemUsed = ToInt64(row[13])
+	info.MemFree = ToInt64(row[14])
+	info.MemTotal = ToInt64(row[15])
+	info.Load[0] = ToFloat64(row[16])
+	info.Load[1] = ToFloat64(row[17])
+	info.Load[2] = ToFloat64(row[18])
 	if v, ok := row[19].(string); ok {
 		info.Version = v
 	}
-	info.FSReads = toInt64(row[20])
-	info.FSWrites = toInt64(row[21])
-	info.FSBytesRead = toInt64(row[22])
-	info.FSBytesWritten = toInt64(row[23])
+	info.FSReads = ToInt64(row[20])
+	info.FSWrites = ToInt64(row[21])
+	info.FSBytesRead = ToInt64(row[22])
+	info.FSBytesWritten = ToInt64(row[23])
 	if v, ok := row[24].(bool); ok {
 		info.IsMaster = v
 	}
-	info.NumCPUs = int(toFloat64(row[25]))
+	info.NumCPUs = int(ToFloat64(row[25]))
 	if v, ok := row[26].(string); ok {
 		info.JVMVersion = v
 	}
@@ -583,32 +583,3 @@ func parseNodeRow(row []interface{}) NodeInfo {
 	return info
 }
 
-func toInt16(v interface{}) int16 {
-	switch n := v.(type) {
-	case float64:
-		return int16(n)
-	case int64:
-		return int16(n)
-	}
-	return 0
-}
-
-func toInt64(v interface{}) int64 {
-	switch n := v.(type) {
-	case float64:
-		return int64(n)
-	case int64:
-		return n
-	}
-	return 0
-}
-
-func toFloat64(v interface{}) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int64:
-		return float64(n)
-	}
-	return 0
-}

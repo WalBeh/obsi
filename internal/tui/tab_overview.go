@@ -18,10 +18,11 @@ type OverviewModel struct {
 	lines  []string // cached rendered lines
 	width  int
 	height int
+	keyMap KeyMap
 }
 
 func NewOverviewModel(width, height int) OverviewModel {
-	return OverviewModel{width: width, height: height}
+	return OverviewModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
@@ -47,7 +48,7 @@ func (m OverviewModel) SetSize(width, height int) OverviewModel {
 }
 
 func (m OverviewModel) HandleKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 	switch {
 	case key.Matches(msg, km.Up):
 		if m.scroll > 0 {

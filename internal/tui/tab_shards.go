@@ -38,6 +38,8 @@ type ShardsModel struct {
 	width     int
 	height    int
 
+	keyMap    KeyMap
+
 	// Derived data recomputed on each Refresh
 	countStarted      int
 	countInitializing int
@@ -47,7 +49,7 @@ type ShardsModel struct {
 }
 
 func NewShardsModel(width, height int) ShardsModel {
-	return ShardsModel{width: width, height: height}
+	return ShardsModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
@@ -182,7 +184,7 @@ func (m *ShardsModel) rebuildSorted() {
 }
 
 func (m ShardsModel) HandleKey(msg tea.KeyMsg) (ShardsModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 
 	if m.searching {
 		switch {

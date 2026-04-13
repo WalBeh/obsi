@@ -37,12 +37,13 @@ type NodesModel struct {
 	sortDesc  bool
 	searching bool
 	search    string
+	keyMap    KeyMap
 	width     int
 	height    int
 }
 
 func NewNodesModel(width, height int) NodesModel {
-	return NodesModel{width: width, height: height}
+	return NodesModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m NodesModel) Refresh(snap store.StoreSnapshot) NodesModel {
@@ -155,7 +156,7 @@ func (m *NodesModel) rebuildSorted() {
 }
 
 func (m NodesModel) HandleKey(msg tea.KeyMsg) (NodesModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 
 	if m.searching {
 		switch {
@@ -610,12 +611,7 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 				if p.Queue > 0 {
 					queueStyle = styleHealthYellow
 				}
-				rejStr := fmt.Sprintf("%8d", p.Rejected)
-				if p.Rejected > 0 {
-					rejStr = styleDim.Render(rejStr) // counter, not alarming by itself
-				} else {
-					rejStr = styleDim.Render(rejStr)
-				}
+				rejStr := styleDim.Render(fmt.Sprintf("%8d", p.Rejected))
 				lines = append(lines, fmt.Sprintf("    %-18s %5d  %s  %s  %9d",
 					name,
 					p.Active,

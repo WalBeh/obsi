@@ -197,30 +197,28 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 	defer s.mu.Unlock()
 
 	now := time.Now()
-	elapsed := now.Sub(s.prevIOTime).Seconds()
+	s.computeIORates(nodes, now)
+	s.computeRejectionDeltas(nodes)
+	nodes = s.trackDisappearances(nodes, now)
 
-	// Compute IO rates from counter deltas
+	s.nodes = nodes
+	s.lastUpdated["nodes"] = now
+
+	s.pushHistory(nodes)
+}
+
+// computeIORates derives per-second IO rates from cumulative counter deltas.
+// Caller must hold s.mu.
+func (s *Store) computeIORates(nodes []NodeSnapshot, now time.Time) {
+	elapsed := now.Sub(s.prevIOTime).Seconds()
 	for i := range nodes {
 		n := &nodes[i]
 		if elapsed > 0 {
 			if prev, ok := s.prevIOSample[n.ID]; ok {
-				n.ReadIOPS = float64(n.FSReads-prev.Reads) / elapsed
-				n.WriteIOPS = float64(n.FSWrites-prev.Writes) / elapsed
-				n.ReadThroughput = float64(n.FSBytesRead-prev.BytesRead) / elapsed
-				n.WriteThroughput = float64(n.FSBytesWritten-prev.BytesWritten) / elapsed
-				// Guard against counter resets (node restart)
-				if n.ReadIOPS < 0 {
-					n.ReadIOPS = 0
-				}
-				if n.WriteIOPS < 0 {
-					n.WriteIOPS = 0
-				}
-				if n.ReadThroughput < 0 {
-					n.ReadThroughput = 0
-				}
-				if n.WriteThroughput < 0 {
-					n.WriteThroughput = 0
-				}
+				n.ReadIOPS = max(float64(n.FSReads-prev.Reads)/elapsed, 0)
+				n.WriteIOPS = max(float64(n.FSWrites-prev.Writes)/elapsed, 0)
+				n.ReadThroughput = max(float64(n.FSBytesRead-prev.BytesRead)/elapsed, 0)
+				n.WriteThroughput = max(float64(n.FSBytesWritten-prev.BytesWritten)/elapsed, 0)
 			}
 		}
 		s.prevIOSample[n.ID] = ioSample{
@@ -231,8 +229,11 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 		}
 	}
 	s.prevIOTime = now
+}
 
-	// Compute thread pool rejection deltas
+// computeRejectionDeltas computes new thread pool rejections since the last poll.
+// Caller must hold s.mu.
+func (s *Store) computeRejectionDeltas(nodes []NodeSnapshot) {
 	trackedPools := map[string]bool{"write": true, "search": true, "generic": true}
 	for i := range nodes {
 		n := &nodes[i]
@@ -256,38 +257,41 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 		n.ThreadPoolNewRejections = newRej
 		s.prevRejected[n.ID] = curr
 	}
+}
 
-	// Track node disappearances
-	currentIDs := make(map[string]bool)
+// trackDisappearances marks nodes that have left the cluster and appends them
+// to the slice. Nodes gone longer than nodeDisappearanceTimeout are removed
+// from tracking. Caller must hold s.mu.
+func (s *Store) trackDisappearances(nodes []NodeSnapshot, now time.Time) []NodeSnapshot {
+	currentIDs := make(map[string]bool, len(nodes))
 	for i := range nodes {
 		nodes[i].LastSeen = now
 		currentIDs[nodes[i].ID] = true
 		s.knownNodes[nodes[i].ID] = nodes[i]
 	}
 
-	// Append disappeared nodes (previously known but not in current response)
 	for id, prev := range s.knownNodes {
-		if !currentIDs[id] {
+		if currentIDs[id] {
+			continue
+		}
+		if now.Sub(prev.LastSeen) > nodeDisappearanceTimeout {
+			delete(s.knownNodes, id)
+		} else {
 			gone := prev
 			gone.Gone = true
-			// Keep the LastSeen from when it was last actually seen
 			nodes = append(nodes, gone)
 		}
 	}
 
-	// Remove nodes gone for more than 5 minutes from tracking
-	for id, prev := range s.knownNodes {
-		if !currentIDs[id] && now.Sub(prev.LastSeen) > nodeDisappearanceTimeout {
-			delete(s.knownNodes, id)
-		}
-	}
+	return nodes
+}
 
-	s.nodes = nodes
-	s.lastUpdated["nodes"] = now
-
+// pushHistory records current metrics into per-node ring buffers for sparklines.
+// Caller must hold s.mu.
+func (s *Store) pushHistory(nodes []NodeSnapshot) {
 	for _, n := range nodes {
 		if n.Gone {
-			continue // don't push stale metrics into history
+			continue
 		}
 		h, ok := s.nodeHistories[n.ID]
 		if !ok {

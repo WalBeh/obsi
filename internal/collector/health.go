@@ -51,8 +51,8 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 			TableSchema:     cratedb.ToString(row[0]),
 			TableName:       cratedb.ToString(row[1]),
 			Health:          cratedb.ToString(row[2]),
-			MissingShards:   int64(cratedb.ToFloat64(row[3])),
-			UnderReplicated: int64(cratedb.ToFloat64(row[4])),
+			MissingShards:   cratedb.ToInt64(row[3]),
+			UnderReplicated: cratedb.ToInt64(row[4]),
 			Partition:       cratedb.ToString(row[5]),
 		}
 		health = append(health, h)

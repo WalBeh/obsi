@@ -37,6 +37,22 @@ func (lt *LatencyTracker) Record(d time.Duration) {
 	}
 }
 
+// Max returns the maximum latency in the buffer via linear scan.
+// O(N) with no allocation — suitable for the per-query hot path.
+func (lt *LatencyTracker) Max() time.Duration {
+	n := lt.idx
+	if lt.full {
+		n = len(lt.samples)
+	}
+	var m time.Duration
+	for i := range n {
+		if lt.samples[i] > m {
+			m = lt.samples[i]
+		}
+	}
+	return m
+}
+
 // Stats returns avg/p90/max from collected samples.
 func (lt *LatencyTracker) Stats() LatencyStats {
 	n := lt.idx

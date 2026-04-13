@@ -298,12 +298,12 @@ func (r *Registry) recordLatency(d time.Duration) {
 	// Adaptive timeout: base timeout + observed max latency.
 	// On a stressed cluster with 1s+ latency, a 10s base timeout leaves
 	// only 9s for actual query execution, which is often not enough.
-	stats := r.latency.Stats()
-	if stats.Max > 0 {
-		adjusted := r.primary.baseTimeout + stats.Max
+	maxLatency := r.latency.Max()
+	if maxLatency > 0 {
+		adjusted := r.primary.baseTimeout + maxLatency
 		if adjusted != r.primary.httpClient.Timeout {
 			r.primary.httpClient.Timeout = adjusted
-			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", stats.Max, "effective", adjusted)
+			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", maxLatency, "effective", adjusted)
 		}
 	}
 }

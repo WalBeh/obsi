@@ -16,6 +16,9 @@ const (
 	stalenessMultiplier = 3
 )
 
+// trackedThreadPools are the thread pools monitored for rejection deltas.
+var trackedThreadPools = map[string]bool{"write": true, "search": true, "generic": true}
+
 // NodeSnapshot is a point-in-time capture of a node's metrics.
 type NodeSnapshot struct {
 	cratedb.NodeInfo
@@ -234,14 +237,13 @@ func (s *Store) computeIORates(nodes []NodeSnapshot, now time.Time) {
 // computeRejectionDeltas computes new thread pool rejections since the last poll.
 // Caller must hold s.mu.
 func (s *Store) computeRejectionDeltas(nodes []NodeSnapshot) {
-	trackedPools := map[string]bool{"write": true, "search": true, "generic": true}
 	for i := range nodes {
 		n := &nodes[i]
 		var newRej int64
 		prev := s.prevRejected[n.ID]
 		curr := make(map[string]int64)
 		for _, p := range n.ThreadPools {
-			if !trackedPools[p.Name] {
+			if !trackedThreadPools[p.Name] {
 				continue
 			}
 			curr[p.Name] = p.Rejected
@@ -276,6 +278,9 @@ func (s *Store) trackDisappearances(nodes []NodeSnapshot, now time.Time) []NodeS
 		}
 		if now.Sub(prev.LastSeen) > nodeDisappearanceTimeout {
 			delete(s.knownNodes, id)
+			delete(s.nodeHistories, id)
+			delete(s.prevIOSample, id)
+			delete(s.prevRejected, id)
 		} else {
 			gone := prev
 			gone.Gone = true

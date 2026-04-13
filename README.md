@@ -56,7 +56,8 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `s` | Cycle sort column |
 | `/` | Search/filter |
 | `esc` | Clear search |
-| `t` | Cycle throttle (normal/mild/heavy) |
+| `t` | Cycle throttle (normal → mild 2× → heavy 5× → sleep) |
+| `L` | Query log — audit all automated queries with timing stats |
 | `ctrl+r` | Force refresh current tab |
 | `r` | Reconnect to cluster |
 | `q` | Quit |
@@ -123,6 +124,8 @@ Collector/TUI/logging settings are global (shared across profiles).
 - Zone-aware topology display
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
+- Query log overlay (`L`) — audit every automated query with execution stats
+- Throttle levels including sleep mode — pauses all collectors, heartbeat only
 
 ## License
 

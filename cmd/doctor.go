@@ -23,7 +23,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	_, registry, err := resolveConnection(ctx, cmd, args)
+	_, registry, _, err := resolveConnection(ctx, cmd, args, false)
 	if err != nil {
 		return err
 	}

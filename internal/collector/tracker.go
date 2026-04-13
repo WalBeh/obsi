@@ -61,8 +61,9 @@ type QueryTracker struct {
 
 // NewQueryTracker creates a tracker pre-populated with all known query labels.
 // Collector intervals are sourced from cfg so the overlay reflects the user's
-// actual configuration, not hardcoded defaults.
-func NewQueryTracker(cfg map[string]config.CollectorConfig) *QueryTracker {
+// actual configuration, not hardcoded defaults. connCfg supplies the registry's
+// heartbeat and node refresh intervals.
+func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.ConnectionConfig) *QueryTracker {
 	t := &QueryTracker{
 		stats: make(map[string]*QueryStat),
 	}
@@ -86,9 +87,9 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig) *QueryTracker {
 		{QueryTables, "shards", ci("shards")},
 		{QueryViewCount, "shards", ci("shards")},
 		{QueryAllocations, "shards", ci("shards")},
-		{QueryHeartbeat, "registry", FastPathInterval}, // approximates default HeartbeatInterval
+		{QueryHeartbeat, "registry", connCfg.HeartbeatInterval.Duration},
 		{QueryBootstrap, "registry", 0},
-		{QueryNodeDiscovery, "registry", 0},
+		{QueryNodeDiscovery, "registry", connCfg.NodeRefreshInterval.Duration},
 	}
 
 	for _, def := range defs {

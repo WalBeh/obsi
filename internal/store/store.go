@@ -41,6 +41,56 @@ type ioSample struct {
 	BytesWritten int64
 }
 
+// nodeHistory holds all time-series ring buffers for a single node.
+type nodeHistory struct {
+	CPU      *RingBuf[float64]
+	Heap     *RingBuf[float64]
+	Load     *RingBuf[float64]
+	LoadSat  *RingBuf[float64]
+	ReadIOPS  *RingBuf[float64]
+	WriteIOPS *RingBuf[float64]
+	ReadTP    *RingBuf[float64] // read throughput bytes/s
+	WriteTP   *RingBuf[float64] // write throughput bytes/s
+}
+
+func newNodeHistory(size int) *nodeHistory {
+	return &nodeHistory{
+		CPU:       NewRingBuf[float64](size),
+		Heap:      NewRingBuf[float64](size),
+		Load:      NewRingBuf[float64](size),
+		LoadSat:   NewRingBuf[float64](size),
+		ReadIOPS:  NewRingBuf[float64](size),
+		WriteIOPS: NewRingBuf[float64](size),
+		ReadTP:    NewRingBuf[float64](size),
+		WriteTP:   NewRingBuf[float64](size),
+	}
+}
+
+// NodeHistorySnapshot is a read-only copy of a node's time-series data.
+type NodeHistorySnapshot struct {
+	CPU      []float64
+	Heap     []float64
+	Load     []float64
+	LoadSat  []float64
+	ReadIOPS  []float64
+	WriteIOPS []float64
+	ReadTP    []float64
+	WriteTP   []float64
+}
+
+func (h *nodeHistory) snapshot() NodeHistorySnapshot {
+	return NodeHistorySnapshot{
+		CPU:       h.CPU.Slice(),
+		Heap:      h.Heap.Slice(),
+		Load:      h.Load.Slice(),
+		LoadSat:   h.LoadSat.Slice(),
+		ReadIOPS:  h.ReadIOPS.Slice(),
+		WriteIOPS: h.WriteIOPS.Slice(),
+		ReadTP:    h.ReadTP.Slice(),
+		WriteTP:   h.WriteTP.Slice(),
+	}
+}
+
 // Store is the central data store bridging collectors and the TUI.
 // All writes come from collectors; all reads come from the TUI via Snapshot().
 type Store struct {
@@ -69,14 +119,7 @@ type Store struct {
 	prevRejected map[string]map[string]int64
 
 	// Time-series ring buffers (keyed by node ID)
-	nodeCPUHistory         map[string]*RingBuf[float64]
-	nodeHeapHistory        map[string]*RingBuf[float64]
-	nodeLoadHistory        map[string]*RingBuf[float64]
-	nodeLoadSatHistory     map[string]*RingBuf[float64]
-	nodeReadIOPSHistory    map[string]*RingBuf[float64]
-	nodeWriteIOPSHistory   map[string]*RingBuf[float64]
-	nodeReadTPHistory      map[string]*RingBuf[float64] // read throughput bytes/s
-	nodeWriteTPHistory     map[string]*RingBuf[float64] // write throughput bytes/s
+	nodeHistories map[string]*nodeHistory
 
 	sparklineSize int
 
@@ -99,14 +142,8 @@ type StoreSnapshot struct {
 	Shards        []cratedb.ShardInfo
 	Allocations   []cratedb.AllocationInfo
 
-	NodeCPUHistory         map[string][]float64
-	NodeHeapHistory        map[string][]float64
-	NodeLoadHistory        map[string][]float64
-	NodeLoadSatHistory     map[string][]float64
-	NodeReadIOPSHistory    map[string][]float64
-	NodeWriteIOPSHistory   map[string][]float64
-	NodeReadTPHistory      map[string][]float64
-	NodeWriteTPHistory     map[string][]float64
+	// NodeHistory maps node ID to its time-series snapshots.
+	NodeHistory map[string]NodeHistorySnapshot
 
 	Staleness   map[string]bool      // collector name -> is stale
 	LastUpdated map[string]time.Time // collector name -> last success
@@ -120,20 +157,13 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 	}
 
 	return &Store{
-		knownNodes:            make(map[string]NodeSnapshot),
-		prevIOSample:          make(map[string]ioSample),
-		prevRejected:          make(map[string]map[string]int64),
-		nodeCPUHistory:        make(map[string]*RingBuf[float64]),
-		nodeHeapHistory:       make(map[string]*RingBuf[float64]),
-		nodeLoadHistory:       make(map[string]*RingBuf[float64]),
-		nodeLoadSatHistory:    make(map[string]*RingBuf[float64]),
-		nodeReadIOPSHistory:   make(map[string]*RingBuf[float64]),
-		nodeWriteIOPSHistory:  make(map[string]*RingBuf[float64]),
-		nodeReadTPHistory:     make(map[string]*RingBuf[float64]),
-		nodeWriteTPHistory:    make(map[string]*RingBuf[float64]),
-		sparklineSize:   sparklineSize,
-		lastUpdated:     make(map[string]time.Time),
-		staleAfter:      staleAfter,
+		knownNodes:    make(map[string]NodeSnapshot),
+		prevIOSample:  make(map[string]ioSample),
+		prevRejected:  make(map[string]map[string]int64),
+		nodeHistories: make(map[string]*nodeHistory),
+		sparklineSize: sparklineSize,
+		lastUpdated:   make(map[string]time.Time),
+		staleAfter:    staleAfter,
 	}
 }
 
@@ -259,28 +289,23 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 		if n.Gone {
 			continue // don't push stale metrics into history
 		}
-		if _, ok := s.nodeCPUHistory[n.ID]; !ok {
-			s.nodeCPUHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeHeapHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeLoadHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeLoadSatHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeReadIOPSHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeWriteIOPSHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeReadTPHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
-			s.nodeWriteTPHistory[n.ID] = NewRingBuf[float64](s.sparklineSize)
+		h, ok := s.nodeHistories[n.ID]
+		if !ok {
+			h = newNodeHistory(s.sparklineSize)
+			s.nodeHistories[n.ID] = h
 		}
-		s.nodeCPUHistory[n.ID].Push(float64(n.CPUPercent))
+		h.CPU.Push(float64(n.CPUPercent))
 		if n.HeapMax > 0 {
-			s.nodeHeapHistory[n.ID].Push(float64(n.HeapUsed) / float64(n.HeapMax) * 100)
+			h.Heap.Push(float64(n.HeapUsed) / float64(n.HeapMax) * 100)
 		}
-		s.nodeLoadHistory[n.ID].Push(n.Load[0])
+		h.Load.Push(n.Load[0])
 		if n.NumCPUs > 0 {
-			s.nodeLoadSatHistory[n.ID].Push(n.Load[0] / float64(n.NumCPUs) * 100)
+			h.LoadSat.Push(n.Load[0] / float64(n.NumCPUs) * 100)
 		}
-		s.nodeReadIOPSHistory[n.ID].Push(n.ReadIOPS)
-		s.nodeWriteIOPSHistory[n.ID].Push(n.WriteIOPS)
-		s.nodeReadTPHistory[n.ID].Push(n.ReadThroughput)
-		s.nodeWriteTPHistory[n.ID].Push(n.WriteThroughput)
+		h.ReadIOPS.Push(n.ReadIOPS)
+		h.WriteIOPS.Push(n.WriteIOPS)
+		h.ReadTP.Push(n.ReadThroughput)
+		h.WriteTP.Push(n.WriteThroughput)
 	}
 }
 
@@ -390,37 +415,9 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	}
 	if hint.IncludeNodes {
 		snap.Nodes = copySlice(s.nodes)
-		snap.NodeCPUHistory = make(map[string][]float64, len(s.nodeCPUHistory))
-		snap.NodeHeapHistory = make(map[string][]float64, len(s.nodeHeapHistory))
-		snap.NodeLoadHistory = make(map[string][]float64, len(s.nodeLoadHistory))
-		snap.NodeLoadSatHistory = make(map[string][]float64, len(s.nodeLoadSatHistory))
-		snap.NodeReadIOPSHistory = make(map[string][]float64, len(s.nodeReadIOPSHistory))
-		snap.NodeWriteIOPSHistory = make(map[string][]float64, len(s.nodeWriteIOPSHistory))
-		snap.NodeReadTPHistory = make(map[string][]float64, len(s.nodeReadTPHistory))
-		snap.NodeWriteTPHistory = make(map[string][]float64, len(s.nodeWriteTPHistory))
-		for id, buf := range s.nodeCPUHistory {
-			snap.NodeCPUHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeHeapHistory {
-			snap.NodeHeapHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeLoadHistory {
-			snap.NodeLoadHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeLoadSatHistory {
-			snap.NodeLoadSatHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeReadIOPSHistory {
-			snap.NodeReadIOPSHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeWriteIOPSHistory {
-			snap.NodeWriteIOPSHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeReadTPHistory {
-			snap.NodeReadTPHistory[id] = buf.Slice()
-		}
-		for id, buf := range s.nodeWriteTPHistory {
-			snap.NodeWriteTPHistory[id] = buf.Slice()
+		snap.NodeHistory = make(map[string]NodeHistorySnapshot, len(s.nodeHistories))
+		for id, h := range s.nodeHistories {
+			snap.NodeHistory[id] = h.snapshot()
 		}
 	}
 	if hint.IncludeQueries {

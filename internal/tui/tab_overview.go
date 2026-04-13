@@ -237,8 +237,8 @@ func (m OverviewModel) renderNodeSummary() string {
 
 		// Sparklines
 		cpuSpark := ""
-		if hist, ok := m.snap.NodeCPUHistory[n.ID]; ok && len(hist) > 1 {
-			cpuSpark = " " + styleDim.Render(sparkline(hist, 15))
+		if nh, ok := m.snap.NodeHistory[n.ID]; ok && len(nh.CPU) > 1 {
+			cpuSpark = " " + styleDim.Render(sparkline(nh.CPU, 15))
 		}
 
 		var row string

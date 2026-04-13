@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
-	"github.com/waltergrande/cratedb-observer/internal/store"
+	"github.com/WalBeh/obsi/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/store"
 )
 
 // Collector defines the interface every data collector implements.

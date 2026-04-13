@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
-	"github.com/waltergrande/cratedb-observer/internal/testutil"
+	"github.com/WalBeh/obsi/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/testutil"
 )
 
 func TestMain(m *testing.M) {

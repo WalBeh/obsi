@@ -1,6 +1,6 @@
 package main
 
-import "github.com/waltergrande/cratedb-observer/cmd"
+import "github.com/WalBeh/obsi/cmd"
 
 func main() {
 	cmd.Execute()

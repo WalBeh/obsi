@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/cratedb"
 )
 
 // parseWatermarkPct extracts a percentage value from watermark strings like "85%" or "500mb".

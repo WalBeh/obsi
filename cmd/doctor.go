@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/cratedb"
 )
 
 var doctorCmd = &cobra.Command{

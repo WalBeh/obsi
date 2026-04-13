@@ -7,9 +7,9 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/waltergrande/cratedb-observer/internal/collector"
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
-	"github.com/waltergrande/cratedb-observer/internal/store"
+	"github.com/WalBeh/obsi/internal/collector"
+	"github.com/WalBeh/obsi/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/store"
 )
 
 // Tab represents the active tab.

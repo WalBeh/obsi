@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/waltergrande/cratedb-observer/internal/collector"
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/collector"
+	"github.com/WalBeh/obsi/internal/cratedb"
 )
 
 func fmtMs(d time.Duration) string {

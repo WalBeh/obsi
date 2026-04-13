@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/waltergrande/cratedb-observer/internal/config"
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
-	"github.com/waltergrande/cratedb-observer/internal/store"
+	"github.com/WalBeh/obsi/internal/config"
+	"github.com/WalBeh/obsi/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/store"
 )
 
 // ThrottleLevel controls how aggressively obsi polls the cluster.

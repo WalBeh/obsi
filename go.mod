@@ -1,4 +1,4 @@
-module github.com/waltergrande/cratedb-observer
+module github.com/WalBeh/obsi
 
 go 1.26.2
 

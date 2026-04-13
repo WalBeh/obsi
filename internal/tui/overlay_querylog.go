@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/waltergrande/cratedb-observer/internal/collector"
+	"github.com/WalBeh/obsi/internal/collector"
 )
 
 var (

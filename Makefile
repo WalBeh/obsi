@@ -9,7 +9,7 @@ TARGETS := \
 	$(OUTDIR)/$(APP)-darwin-amd64 \
 	$(OUTDIR)/$(APP)-darwin-arm64
 
-.PHONY: build all clean $(APP) $(TARGETS)
+.PHONY: build all clean test integration-test $(APP) $(TARGETS)
 
 build: $(APP)
 
@@ -29,6 +29,12 @@ $(OUTDIR)/$(APP)-darwin-amd64:
 
 $(OUTDIR)/$(APP)-darwin-arm64:
 	GOOS=darwin GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ .
+
+test:
+	go test ./internal/...
+
+integration-test:
+	CRATEDB_TEST_ENDPOINT=http://localhost:4200 go test -tags=integration ./internal/... -count=1
 
 clean:
 	rm -rf $(OUTDIR) $(APP)

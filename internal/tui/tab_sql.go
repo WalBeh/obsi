@@ -8,7 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/cratedb"
 )
 
 const (

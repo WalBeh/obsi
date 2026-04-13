@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/waltergrande/cratedb-observer/internal/config"
+	"github.com/WalBeh/obsi/internal/config"
 )
 
 var profilesCmd = &cobra.Command{

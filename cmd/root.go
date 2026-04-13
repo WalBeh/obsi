@@ -15,11 +15,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/waltergrande/cratedb-observer/internal/collector"
-	"github.com/waltergrande/cratedb-observer/internal/config"
-	"github.com/waltergrande/cratedb-observer/internal/cratedb"
-	"github.com/waltergrande/cratedb-observer/internal/store"
-	"github.com/waltergrande/cratedb-observer/internal/tui"
+	"github.com/WalBeh/obsi/internal/collector"
+	"github.com/WalBeh/obsi/internal/config"
+	"github.com/WalBeh/obsi/internal/cratedb"
+	"github.com/WalBeh/obsi/internal/store"
+	"github.com/WalBeh/obsi/internal/tui"
 )
 
 var (

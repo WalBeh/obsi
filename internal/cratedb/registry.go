@@ -165,36 +165,11 @@ func (r *Registry) Reconnect(ctx context.Context) {
 }
 
 // Refresh re-discovers nodes via sys.nodes from any reachable endpoint.
+// Only fetches the columns needed for node discovery and failover —
+// full node metrics are collected by the nodes collector.
 func (r *Registry) Refresh(ctx context.Context) error {
 	start := time.Now()
-	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url,
-		process['cpu']['percent'] AS cpu_percent,
-		os['cpu']['system'] AS cpu_system,
-		os['cpu']['user'] AS cpu_user,
-		GREATEST(heap['used'], 0) AS heap_used,
-		GREATEST(heap['max'], 0) AS heap_max,
-		GREATEST(heap['free'], 0) AS heap_free,
-		GREATEST(fs['total']['size'], 0) AS fs_total,
-		GREATEST(fs['total']['used'], 0) AS fs_used,
-		GREATEST(fs['total']['available'], 0) AS fs_avail,
-		GREATEST(mem['used'], 0) AS mem_used,
-		GREATEST(mem['free'], 0) AS mem_free,
-		GREATEST(mem['used'] + mem['free'], 0) AS mem_total,
-		load['1'] AS load1,
-		load['5'] AS load5,
-		load['15'] AS load15,
-		version['number'] AS version,
-		fs['total']['reads'] AS fs_reads,
-		fs['total']['writes'] AS fs_writes,
-		fs['total']['bytes_read'] AS fs_bytes_read,
-		fs['total']['bytes_written'] AS fs_bytes_written,
-		id = (SELECT master_node FROM sys.cluster) AS is_master,
-		os_info['available_processors'] AS num_cpus,
-		os_info['jvm']['version'] AS jvm_version,
-		os_info['jvm']['vm_name'] AS jvm_name,
-		attributes['zone'] AS zone,
-		attributes['node_name'] AS node_role
-	FROM sys.nodes`)
+	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url FROM sys.nodes`)
 	dur := time.Since(start)
 	if err != nil {
 		r.recordQuery(QueryLabelNodeDiscovery, dur, 0, err)
@@ -207,20 +182,26 @@ func (r *Registry) Refresh(ctx context.Context) error {
 
 	seen := make(map[string]bool)
 	for _, row := range resp.Rows {
-		info := parseNodeRow(row)
-		seen[info.ID] = true
+		id := ToString(row[0])
+		name := ToString(row[1])
+		hostname := ToString(row[2])
+		restURL := ToString(row[3])
+		seen[id] = true
 
-		if entry, ok := r.nodes[info.ID]; ok {
-			entry.Info = info
+		if entry, ok := r.nodes[id]; ok {
+			// Update name/hostname in case they changed (unlikely but safe)
+			entry.Info.ID = id
+			entry.Info.Name = name
+			entry.Info.Hostname = hostname
+			entry.Info.RestURL = restURL
 		} else {
-			restURL := info.RestURL
 			if restURL == "" {
-				restURL = info.Hostname + ":4200"
+				restURL = hostname + ":4200"
 			}
 			client := NewClient("http://"+restURL, r.username, r.password, r.queryTimeout, r.skipVerify)
-			r.nodes[info.ID] = &nodeEntry{
-				Info:   info,
-				Health: NodeHealth{NodeID: info.ID, Reachable: true, LastSeen: time.Now()},
+			r.nodes[id] = &nodeEntry{
+				Info:   NodeInfo{ID: id, Name: name, Hostname: hostname, RestURL: restURL},
+				Health: NodeHealth{NodeID: id, Reachable: true, LastSeen: time.Now()},
 				Client: client,
 			}
 		}
@@ -527,59 +508,4 @@ func (r *Registry) queryAny(ctx context.Context, stmt string, args ...interface{
 	return nil, fmt.Errorf("no reachable endpoint for query: %w", err)
 }
 
-// parseNodeRow parses a single row from the sys.nodes query.
-func parseNodeRow(row []interface{}) NodeInfo {
-	info := NodeInfo{}
-	if v, ok := row[0].(string); ok {
-		info.ID = v
-	}
-	if v, ok := row[1].(string); ok {
-		info.Name = v
-	}
-	if v, ok := row[2].(string); ok {
-		info.Hostname = v
-	}
-	if v, ok := row[3].(string); ok {
-		info.RestURL = v
-	}
-	info.CPUPercent = ToInt16(row[4])
-	info.CPUSystem = ToInt16(row[5])
-	info.CPUUser = ToInt16(row[6])
-	info.HeapUsed = ToInt64(row[7])
-	info.HeapMax = ToInt64(row[8])
-	info.HeapFree = ToInt64(row[9])
-	info.FSTotal = ToInt64(row[10])
-	info.FSUsed = ToInt64(row[11])
-	info.FSAvail = ToInt64(row[12])
-	info.MemUsed = ToInt64(row[13])
-	info.MemFree = ToInt64(row[14])
-	info.MemTotal = ToInt64(row[15])
-	info.Load[0] = ToFloat64(row[16])
-	info.Load[1] = ToFloat64(row[17])
-	info.Load[2] = ToFloat64(row[18])
-	if v, ok := row[19].(string); ok {
-		info.Version = v
-	}
-	info.FSReads = ToInt64(row[20])
-	info.FSWrites = ToInt64(row[21])
-	info.FSBytesRead = ToInt64(row[22])
-	info.FSBytesWritten = ToInt64(row[23])
-	if v, ok := row[24].(bool); ok {
-		info.IsMaster = v
-	}
-	info.NumCPUs = int(ToFloat64(row[25]))
-	if v, ok := row[26].(string); ok {
-		info.JVMVersion = v
-	}
-	if v, ok := row[27].(string); ok {
-		info.JVMName = v
-	}
-	if v, ok := row[28].(string); ok {
-		info.Zone = v
-	}
-	if v, ok := row[29].(string); ok {
-		info.NodeRole = v
-	}
-	return info
-}
 

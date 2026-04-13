@@ -56,7 +56,7 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 	st.UpdateClusterSettings(settings)
 
 	// Random summit — only fetch every 5 minutes (ORDER BY random() is a full scan)
-	if time.Since(c.lastSummitFetch) > 5*time.Minute {
+	if time.Since(c.lastSummitFetch) > SummitRefreshInterval {
 		summitResp, err := trackedQuery(ctx, c.tracker, QuerySummit, reg, `SELECT mountain, height, region, country, first_ascent FROM sys.summits ORDER BY random() LIMIT 1`)
 		if err == nil && len(summitResp.Rows) > 0 {
 			r := summitResp.Rows[0]

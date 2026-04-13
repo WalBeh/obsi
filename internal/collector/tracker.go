@@ -76,17 +76,17 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig) *QueryTracker {
 
 	defs := []queryDef{
 		{QueryClusterSettings, "cluster", ci("cluster")},
-		{QuerySummit, "cluster", 5 * time.Minute}, // hardcoded throttle in collector
+		{QuerySummit, "cluster", SummitRefreshInterval},
 		{QueryClusterChecks, "health", ci("health")},
 		{QueryTableHealth, "health", ci("health")},
 		{QueryNodes, "nodes", ci("nodes")},
 		{QueryActiveJobs, "queries", ci("queries")},
 		{QueryShards, "shards", ci("shards")},
-		{QueryShardsFastPath, "shards", 5 * time.Second}, // fixed fast-path interval
+		{QueryShardsFastPath, "shards", FastPathInterval},
 		{QueryTables, "shards", ci("shards")},
 		{QueryViewCount, "shards", ci("shards")},
 		{QueryAllocations, "shards", ci("shards")},
-		{QueryHeartbeat, "registry", 5 * time.Second}, // from HeartbeatInterval default
+		{QueryHeartbeat, "registry", FastPathInterval}, // approximates default HeartbeatInterval
 		{QueryBootstrap, "registry", 0},
 		{QueryNodeDiscovery, "registry", 0},
 	}

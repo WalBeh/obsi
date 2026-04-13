@@ -47,6 +47,17 @@ const (
 	QueryLabelNodeDiscovery = "registry.node_discovery"
 )
 
+const (
+	// latencyBufferSize is the number of recent query latency samples kept for percentile computation.
+	latencyBufferSize = 100
+
+	// heartbeatBackoffThreshold is the number of consecutive failures before backing off pings.
+	heartbeatBackoffThreshold = 3
+
+	// heartbeatBackoffModulo controls how often a backed-off node is pinged (every Nth cycle).
+	heartbeatBackoffModulo = 6
+)
+
 // QueryRecorder is an optional interface for recording query execution stats.
 // Implemented by collector.QueryTracker; kept as an interface to avoid import cycles.
 type QueryRecorder interface {
@@ -95,7 +106,7 @@ func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout,
 		skipVerify:          skipVerify,
 		heartbeatInterval:   heartbeatInterval,
 		nodeRefreshInterval: nodeRefreshInterval,
-		latencySamples:      make([]time.Duration, 100), // last 100 queries
+		latencySamples:      make([]time.Duration, latencyBufferSize),
 	}
 }
 
@@ -425,9 +436,9 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 	for _, entry := range entries {
 		// Back off on consistently unreachable nodes:
 		// after 3 fails, only ping every 6th heartbeat cycle (~30s at 5s interval)
-		if entry.Health.ConsecutiveFails >= 3 {
+		if entry.Health.ConsecutiveFails >= heartbeatBackoffThreshold {
 			entry.Health.BackoffCounter++
-			if entry.Health.BackoffCounter%6 != 0 {
+			if entry.Health.BackoffCounter%heartbeatBackoffModulo != 0 {
 				continue
 			}
 		}

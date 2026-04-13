@@ -8,6 +8,14 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
+const (
+	// nodeDisappearanceTimeout is how long a gone node is tracked before being removed.
+	nodeDisappearanceTimeout = 5 * time.Minute
+
+	// stalenessMultiplier defines how many poll intervals without an update before data is considered stale.
+	stalenessMultiplier = 3
+)
+
 // NodeSnapshot is a point-in-time capture of a node's metrics.
 type NodeSnapshot struct {
 	cratedb.NodeInfo
@@ -108,8 +116,7 @@ type StoreSnapshot struct {
 func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store {
 	staleAfter := make(map[string]time.Duration)
 	for name, cc := range collectors {
-		// Consider data stale after 3x the poll interval
-		staleAfter[name] = cc.Interval.Duration * 3
+		staleAfter[name] = cc.Interval.Duration * stalenessMultiplier
 	}
 
 	return &Store{
@@ -240,7 +247,7 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 
 	// Remove nodes gone for more than 5 minutes from tracking
 	for id, prev := range s.knownNodes {
-		if !currentIDs[id] && now.Sub(prev.LastSeen) > 5*time.Minute {
+		if !currentIDs[id] && now.Sub(prev.LastSeen) > nodeDisappearanceTimeout {
 			delete(s.knownNodes, id)
 		}
 	}

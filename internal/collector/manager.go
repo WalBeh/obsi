@@ -239,20 +239,24 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	}
 }
 
-// DefaultCollectors returns all enabled collectors based on configuration.
+// DefaultCollectors returns all enabled collectors in a deterministic order.
 func DefaultCollectors(cfg map[string]config.CollectorConfig, tracker *QueryTracker) []Collector {
-	all := map[string]Collector{
-		"cluster": NewClusterCollector(cfg["cluster"], tracker),
-		"health":  NewHealthCollector(cfg["health"], tracker),
-		"nodes":   NewNodesCollector(cfg["nodes"], tracker),
-		"queries": NewQueriesCollector(cfg["queries"], tracker),
-		"shards":  NewShardsCollector(cfg["shards"], tracker),
+	type entry struct {
+		name string
+		make func() Collector
+	}
+	ordered := []entry{
+		{"cluster", func() Collector { return NewClusterCollector(cfg["cluster"], tracker) }},
+		{"health", func() Collector { return NewHealthCollector(cfg["health"], tracker) }},
+		{"nodes", func() Collector { return NewNodesCollector(cfg["nodes"], tracker) }},
+		{"queries", func() Collector { return NewQueriesCollector(cfg["queries"], tracker) }},
+		{"shards", func() Collector { return NewShardsCollector(cfg["shards"], tracker) }},
 	}
 
 	var enabled []Collector
-	for name, c := range all {
-		if cc, ok := cfg[name]; ok && cc.Enabled {
-			enabled = append(enabled, c)
+	for _, e := range ordered {
+		if cc, ok := cfg[e.name]; ok && cc.Enabled {
+			enabled = append(enabled, e.make())
 		}
 	}
 	return enabled

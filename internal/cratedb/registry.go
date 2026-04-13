@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"sort"
 	"sync"
 	"time"
 )
@@ -25,14 +24,6 @@ type RegistryStatus struct {
 	Latency         LatencyStats // query latency stats for the active endpoint
 }
 
-// LatencyStats holds computed latency percentiles.
-type LatencyStats struct {
-	Avg time.Duration
-	P90 time.Duration
-	Max time.Duration
-	N   int // number of samples
-}
-
 type nodeEntry struct {
 	Info   NodeInfo
 	Health NodeHealth
@@ -45,6 +36,17 @@ const (
 	QueryLabelHeartbeat     = "registry.heartbeat"
 	QueryLabelBootstrap     = "registry.bootstrap"
 	QueryLabelNodeDiscovery = "registry.node_discovery"
+)
+
+const (
+	// latencyBufferSize is the number of recent query latency samples kept for percentile computation.
+	latencyBufferSize = 100
+
+	// heartbeatBackoffThreshold is the number of consecutive failures before backing off pings.
+	heartbeatBackoffThreshold = 3
+
+	// heartbeatBackoffModulo controls how often a backed-off node is pinged (every Nth cycle).
+	heartbeatBackoffModulo = 6
 )
 
 // QueryRecorder is an optional interface for recording query execution stats.
@@ -75,9 +77,7 @@ type Registry struct {
 	heartbeatInterval   time.Duration
 	nodeRefreshInterval time.Duration
 
-	latencySamples []time.Duration // circular buffer of recent query latencies
-	latencyIdx     int             // next write position
-	latencyFull    bool            // buffer has wrapped at least once
+	latency *LatencyTracker
 
 	cancel   context.CancelFunc
 	recorder QueryRecorder // optional query stats recorder
@@ -95,7 +95,7 @@ func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout,
 		skipVerify:          skipVerify,
 		heartbeatInterval:   heartbeatInterval,
 		nodeRefreshInterval: nodeRefreshInterval,
-		latencySamples:      make([]time.Duration, 100), // last 100 queries
+		latency:             NewLatencyTracker(latencyBufferSize),
 	}
 }
 
@@ -165,36 +165,11 @@ func (r *Registry) Reconnect(ctx context.Context) {
 }
 
 // Refresh re-discovers nodes via sys.nodes from any reachable endpoint.
+// Only fetches the columns needed for node discovery and failover —
+// full node metrics are collected by the nodes collector.
 func (r *Registry) Refresh(ctx context.Context) error {
 	start := time.Now()
-	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url,
-		process['cpu']['percent'] AS cpu_percent,
-		os['cpu']['system'] AS cpu_system,
-		os['cpu']['user'] AS cpu_user,
-		GREATEST(heap['used'], 0) AS heap_used,
-		GREATEST(heap['max'], 0) AS heap_max,
-		GREATEST(heap['free'], 0) AS heap_free,
-		GREATEST(fs['total']['size'], 0) AS fs_total,
-		GREATEST(fs['total']['used'], 0) AS fs_used,
-		GREATEST(fs['total']['available'], 0) AS fs_avail,
-		GREATEST(mem['used'], 0) AS mem_used,
-		GREATEST(mem['free'], 0) AS mem_free,
-		GREATEST(mem['used'] + mem['free'], 0) AS mem_total,
-		load['1'] AS load1,
-		load['5'] AS load5,
-		load['15'] AS load15,
-		version['number'] AS version,
-		fs['total']['reads'] AS fs_reads,
-		fs['total']['writes'] AS fs_writes,
-		fs['total']['bytes_read'] AS fs_bytes_read,
-		fs['total']['bytes_written'] AS fs_bytes_written,
-		id = (SELECT master_node FROM sys.cluster) AS is_master,
-		os_info['available_processors'] AS num_cpus,
-		os_info['jvm']['version'] AS jvm_version,
-		os_info['jvm']['vm_name'] AS jvm_name,
-		attributes['zone'] AS zone,
-		attributes['node_name'] AS node_role
-	FROM sys.nodes`)
+	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url FROM sys.nodes`)
 	dur := time.Since(start)
 	if err != nil {
 		r.recordQuery(QueryLabelNodeDiscovery, dur, 0, err)
@@ -207,20 +182,26 @@ func (r *Registry) Refresh(ctx context.Context) error {
 
 	seen := make(map[string]bool)
 	for _, row := range resp.Rows {
-		info := parseNodeRow(row)
-		seen[info.ID] = true
+		id := ToString(row[0])
+		name := ToString(row[1])
+		hostname := ToString(row[2])
+		restURL := ToString(row[3])
+		seen[id] = true
 
-		if entry, ok := r.nodes[info.ID]; ok {
-			entry.Info = info
+		if entry, ok := r.nodes[id]; ok {
+			// Update name/hostname in case they changed (unlikely but safe)
+			entry.Info.ID = id
+			entry.Info.Name = name
+			entry.Info.Hostname = hostname
+			entry.Info.RestURL = restURL
 		} else {
-			restURL := info.RestURL
 			if restURL == "" {
-				restURL = info.Hostname + ":4200"
+				restURL = hostname + ":4200"
 			}
 			client := NewClient("http://"+restURL, r.username, r.password, r.queryTimeout, r.skipVerify)
-			r.nodes[info.ID] = &nodeEntry{
-				Info:   info,
-				Health: NodeHealth{NodeID: info.ID, Reachable: true, LastSeen: time.Now()},
+			r.nodes[id] = &nodeEntry{
+				Info:   NodeInfo{ID: id, Name: name, Hostname: hostname, RestURL: restURL},
+				Health: NodeHealth{NodeID: id, Reachable: true, LastSeen: time.Now()},
 				Client: client,
 			}
 		}
@@ -312,54 +293,18 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 // recordLatency adds a sample to the circular buffer and adjusts the
 // primary client's timeout if latency is high. Caller must hold r.mu.
 func (r *Registry) recordLatency(d time.Duration) {
-	r.latencySamples[r.latencyIdx] = d
-	r.latencyIdx = (r.latencyIdx + 1) % len(r.latencySamples)
-	if r.latencyIdx == 0 {
-		r.latencyFull = true
-	}
+	r.latency.Record(d)
 
 	// Adaptive timeout: base timeout + observed max latency.
 	// On a stressed cluster with 1s+ latency, a 10s base timeout leaves
 	// only 9s for actual query execution, which is often not enough.
-	stats := r.computeLatencyStats()
-	if stats.Max > 0 {
-		adjusted := r.primary.baseTimeout + stats.Max
+	maxLatency := r.latency.Max()
+	if maxLatency > 0 {
+		adjusted := r.primary.baseTimeout + maxLatency
 		if adjusted != r.primary.httpClient.Timeout {
 			r.primary.httpClient.Timeout = adjusted
-			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", stats.Max, "effective", adjusted)
+			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", maxLatency, "effective", adjusted)
 		}
-	}
-}
-
-// computeLatencyStats returns avg/p90/max from collected samples. Caller must hold r.mu.
-func (r *Registry) computeLatencyStats() LatencyStats {
-	n := r.latencyIdx
-	if r.latencyFull {
-		n = len(r.latencySamples)
-	}
-	if n == 0 {
-		return LatencyStats{}
-	}
-
-	sorted := make([]time.Duration, n)
-	if r.latencyFull {
-		copy(sorted, r.latencySamples)
-	} else {
-		copy(sorted, r.latencySamples[:n])
-	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	var sum time.Duration
-	for _, d := range sorted {
-		sum += d
-	}
-
-	p90Idx := (n - 1) * 90 / 100
-	return LatencyStats{
-		Avg: sum / time.Duration(n),
-		P90: sorted[p90Idx],
-		Max: sorted[n-1],
-		N:   n,
 	}
 }
 
@@ -385,7 +330,7 @@ func (r *Registry) Status() RegistryStatus {
 
 	status.DirectReachable = status.HealthyNodes > 0
 	status.Connected = r.primaryOK || status.DirectReachable
-	status.Latency = r.computeLatencyStats()
+	status.Latency = r.latency.Stats()
 	return status
 }
 
@@ -444,9 +389,9 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 	for _, entry := range entries {
 		// Back off on consistently unreachable nodes:
 		// after 3 fails, only ping every 6th heartbeat cycle (~30s at 5s interval)
-		if entry.Health.ConsecutiveFails >= 3 {
+		if entry.Health.ConsecutiveFails >= heartbeatBackoffThreshold {
 			entry.Health.BackoffCounter++
-			if entry.Health.BackoffCounter%6 != 0 {
+			if entry.Health.BackoffCounter%heartbeatBackoffModulo != 0 {
 				continue
 			}
 		}
@@ -527,88 +472,4 @@ func (r *Registry) queryAny(ctx context.Context, stmt string, args ...interface{
 	return nil, fmt.Errorf("no reachable endpoint for query: %w", err)
 }
 
-// parseNodeRow parses a single row from the sys.nodes query.
-func parseNodeRow(row []interface{}) NodeInfo {
-	info := NodeInfo{}
-	if v, ok := row[0].(string); ok {
-		info.ID = v
-	}
-	if v, ok := row[1].(string); ok {
-		info.Name = v
-	}
-	if v, ok := row[2].(string); ok {
-		info.Hostname = v
-	}
-	if v, ok := row[3].(string); ok {
-		info.RestURL = v
-	}
-	info.CPUPercent = toInt16(row[4])
-	info.CPUSystem = toInt16(row[5])
-	info.CPUUser = toInt16(row[6])
-	info.HeapUsed = toInt64(row[7])
-	info.HeapMax = toInt64(row[8])
-	info.HeapFree = toInt64(row[9])
-	info.FSTotal = toInt64(row[10])
-	info.FSUsed = toInt64(row[11])
-	info.FSAvail = toInt64(row[12])
-	info.MemUsed = toInt64(row[13])
-	info.MemFree = toInt64(row[14])
-	info.MemTotal = toInt64(row[15])
-	info.Load[0] = toFloat64(row[16])
-	info.Load[1] = toFloat64(row[17])
-	info.Load[2] = toFloat64(row[18])
-	if v, ok := row[19].(string); ok {
-		info.Version = v
-	}
-	info.FSReads = toInt64(row[20])
-	info.FSWrites = toInt64(row[21])
-	info.FSBytesRead = toInt64(row[22])
-	info.FSBytesWritten = toInt64(row[23])
-	if v, ok := row[24].(bool); ok {
-		info.IsMaster = v
-	}
-	info.NumCPUs = int(toFloat64(row[25]))
-	if v, ok := row[26].(string); ok {
-		info.JVMVersion = v
-	}
-	if v, ok := row[27].(string); ok {
-		info.JVMName = v
-	}
-	if v, ok := row[28].(string); ok {
-		info.Zone = v
-	}
-	if v, ok := row[29].(string); ok {
-		info.NodeRole = v
-	}
-	return info
-}
 
-func toInt16(v interface{}) int16 {
-	switch n := v.(type) {
-	case float64:
-		return int16(n)
-	case int64:
-		return int16(n)
-	}
-	return 0
-}
-
-func toInt64(v interface{}) int64 {
-	switch n := v.(type) {
-	case float64:
-		return int64(n)
-	case int64:
-		return n
-	}
-	return 0
-}
-
-func toFloat64(v interface{}) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case int64:
-		return float64(n)
-	}
-	return 0
-}

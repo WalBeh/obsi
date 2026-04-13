@@ -37,12 +37,13 @@ type NodesModel struct {
 	sortDesc  bool
 	searching bool
 	search    string
+	keyMap    KeyMap
 	width     int
 	height    int
 }
 
 func NewNodesModel(width, height int) NodesModel {
-	return NodesModel{width: width, height: height}
+	return NodesModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m NodesModel) Refresh(snap store.StoreSnapshot) NodesModel {
@@ -155,7 +156,7 @@ func (m *NodesModel) rebuildSorted() {
 }
 
 func (m NodesModel) HandleKey(msg tea.KeyMsg) (NodesModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 
 	if m.searching {
 		switch {
@@ -475,11 +476,14 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	lines = append(lines, styleDim.Render(infoLine))
 	lines = append(lines, "")
 
+	// Look up node history once for all sparklines
+	nh, hasHistory := m.snap.NodeHistory[n.ID]
+
 	// Process CPU bar + sparkline
 	cpuLabel := fmt.Sprintf("%3s%%", formatCPU(n.CPUPercent))
 	cpuSpark := ""
-	if hist, ok := m.snap.NodeCPUHistory[n.ID]; ok && len(hist) > 1 {
-		cpuSpark = " " + sparkline(hist, 30)
+	if hasHistory && len(nh.CPU) > 1 {
+		cpuSpark = " " + sparkline(nh.CPU, 30)
 	}
 	lines = append(lines, fmt.Sprintf("    Process CPU  %s %s %s", metricBar(float64(n.CPUPercent), barWidth), cpuLabel, styleDim.Render(cpuSpark)))
 
@@ -487,15 +491,15 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	satLabel := fmt.Sprintf("%.0f%%", loadSat)
 	satDetail := fmt.Sprintf("(%.2f / %d CPUs)", n.Load[0], n.NumCPUs)
 	satSpark := ""
-	if hist, ok := m.snap.NodeLoadSatHistory[n.ID]; ok && len(hist) > 1 {
-		satSpark = " " + sparkline(hist, 30)
+	if hasHistory && len(nh.LoadSat) > 1 {
+		satSpark = " " + sparkline(nh.LoadSat, 30)
 	}
 	lines = append(lines, fmt.Sprintf("    Load / CPUs  %s %4s %s %s", metricBar(loadSat, barWidth), satLabel, styleDim.Render(satDetail), styleDim.Render(satSpark)))
 
 	// Load average
 	loadSpark := ""
-	if hist, ok := m.snap.NodeLoadHistory[n.ID]; ok && len(hist) > 1 {
-		loadSpark = " " + sparkline(hist, 30)
+	if hasHistory && len(nh.Load) > 1 {
+		loadSpark = " " + sparkline(nh.Load, 30)
 	}
 	lines = append(lines, fmt.Sprintf("    Load avg     1m: %.2f   5m: %.2f   15m: %.2f %s",
 		n.Load[0], n.Load[1], n.Load[2], styleDim.Render(loadSpark)))
@@ -504,8 +508,8 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	heapLabel := fmt.Sprintf("%.1f%%", heapPct)
 	heapDetail := fmt.Sprintf("(%s / %s)", formatBytes(n.HeapUsed), formatBytes(n.HeapMax))
 	heapSpark := ""
-	if hist, ok := m.snap.NodeHeapHistory[n.ID]; ok && len(hist) > 1 {
-		heapSpark = " " + sparkline(hist, 30)
+	if hasHistory && len(nh.Heap) > 1 {
+		heapSpark = " " + sparkline(nh.Heap, 30)
 	}
 	lines = append(lines, fmt.Sprintf("    Heap         %s %5s %s %s", metricBar(heapPct, barWidth), heapLabel, styleDim.Render(heapDetail), styleDim.Render(heapSpark)))
 
@@ -529,16 +533,14 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 
 	// Check if IOPS counters are available (some platforms don't expose them)
 	hasReadIOPS, hasWriteIOPS := false, false
-	if hist, ok := m.snap.NodeReadIOPSHistory[n.ID]; ok {
-		for _, v := range hist {
+	if hasHistory {
+		for _, v := range nh.ReadIOPS {
 			if v > 0 {
 				hasReadIOPS = true
 				break
 			}
 		}
-	}
-	if hist, ok := m.snap.NodeWriteIOPSHistory[n.ID]; ok {
-		for _, v := range hist {
+		for _, v := range nh.WriteIOPS {
 			if v > 0 {
 				hasWriteIOPS = true
 				break
@@ -548,15 +550,15 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	hasIOPS := hasReadIOPS || hasWriteIOPS
 
 	readTPSpark, readTPStats := "", ""
-	if hist, ok := m.snap.NodeReadTPHistory[n.ID]; ok && len(hist) > 1 {
-		readTPSpark = sparkline(hist, 20)
-		mx, av, p := historyStats(hist)
+	if hasHistory && len(nh.ReadTP) > 1 {
+		readTPSpark = sparkline(nh.ReadTP, 20)
+		mx, av, p := historyStats(nh.ReadTP)
 		readTPStats = fmt.Sprintf("%s/%s/%s", formatRate(av), formatRate(p), formatRate(mx))
 	}
 	writeTPSpark, writeTPStats := "", ""
-	if hist, ok := m.snap.NodeWriteTPHistory[n.ID]; ok && len(hist) > 1 {
-		writeTPSpark = sparkline(hist, 20)
-		mx, av, p := historyStats(hist)
+	if hasHistory && len(nh.WriteTP) > 1 {
+		writeTPSpark = sparkline(nh.WriteTP, 20)
+		mx, av, p := historyStats(nh.WriteTP)
 		writeTPStats = fmt.Sprintf("%s/%s/%s", formatRate(av), formatRate(p), formatRate(mx))
 	}
 
@@ -569,15 +571,15 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 			styleDim.Render(writeTPSpark), styleDim.Render(writeTPStats)))
 
 		readIOPSSpark, readIOPSStats := "", ""
-		if hist, ok := m.snap.NodeReadIOPSHistory[n.ID]; ok && len(hist) > 1 {
-			readIOPSSpark = sparkline(hist, 20)
-			mx, av, p := historyStats(hist)
+		if hasHistory && len(nh.ReadIOPS) > 1 {
+			readIOPSSpark = sparkline(nh.ReadIOPS, 20)
+			mx, av, p := historyStats(nh.ReadIOPS)
 			readIOPSStats = fmt.Sprintf("%s/%s/%s", formatIOPS(av), formatIOPS(p), formatIOPS(mx))
 		}
 		writeIOPSSpark, writeIOPSStats := "", ""
-		if hist, ok := m.snap.NodeWriteIOPSHistory[n.ID]; ok && len(hist) > 1 {
-			writeIOPSSpark = sparkline(hist, 20)
-			mx, av, p := historyStats(hist)
+		if hasHistory && len(nh.WriteIOPS) > 1 {
+			writeIOPSSpark = sparkline(nh.WriteIOPS, 20)
+			mx, av, p := historyStats(nh.WriteIOPS)
 			writeIOPSStats = fmt.Sprintf("%s/%s/%s", formatIOPS(av), formatIOPS(p), formatIOPS(mx))
 		}
 		lines = append(lines, fmt.Sprintf("    IOPS read    %9s %s %s",
@@ -609,12 +611,7 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 				if p.Queue > 0 {
 					queueStyle = styleHealthYellow
 				}
-				rejStr := fmt.Sprintf("%8d", p.Rejected)
-				if p.Rejected > 0 {
-					rejStr = styleDim.Render(rejStr) // counter, not alarming by itself
-				} else {
-					rejStr = styleDim.Render(rejStr)
-				}
+				rejStr := styleDim.Render(fmt.Sprintf("%8d", p.Rejected))
 				lines = append(lines, fmt.Sprintf("    %-18s %5d  %s  %s  %9d",
 					name,
 					p.Active,

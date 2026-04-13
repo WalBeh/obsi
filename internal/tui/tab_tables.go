@@ -39,10 +39,11 @@ type TablesModel struct {
 	height      int
 	tableHealth    map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
 	filterUnhealthy bool
+	keyMap          KeyMap
 }
 
 func NewTablesModel(width, height int) TablesModel {
-	return TablesModel{width: width, height: height, sortDesc: false}
+	return TablesModel{width: width, height: height, sortDesc: false, keyMap: DefaultKeyMap()}
 }
 
 func (m TablesModel) Refresh(snap store.StoreSnapshot) TablesModel {
@@ -163,7 +164,7 @@ func (m *TablesModel) rebuildSorted() {
 }
 
 func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 
 	// Search mode: capture typed characters
 	if m.searching {

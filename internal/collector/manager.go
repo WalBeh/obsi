@@ -22,6 +22,20 @@ const (
 	throttleLevels                      // sentinel: total number of levels
 )
 
+const (
+	// FastPathInterval is the tick rate for high-frequency lightweight collection.
+	FastPathInterval = 5 * time.Second
+
+	// ThrottleMaxPollInterval is how often paused collectors re-check throttle state.
+	ThrottleMaxPollInterval = 2 * time.Second
+
+	// heapPressureThreshold is the heap usage percentage above which throttling is suggested.
+	heapPressureThreshold = 85.0
+
+	// SummitRefreshInterval is how often the random summit is fetched (ORDER BY random() is expensive).
+	SummitRefreshInterval = 5 * time.Minute
+)
+
 var throttleNames = []string{"normal", "mild (2x)", "heavy (5x)", "max (paused)"}
 var throttleMultipliers = []int{1, 2, 5, 0} // 0 = paused
 
@@ -99,9 +113,9 @@ func ThrottleMultiplier(level ThrottleLevel) int {
 }
 
 // SuggestThrottle checks node heap pressure and suggests throttling.
-// Returns true if any node has heap > 85%.
+// Returns true if any node has heap above the threshold.
 func (m *Manager) SuggestThrottle() bool {
-	return m.store.AnyNodeHeapAbove(85)
+	return m.store.AnyNodeHeapAbove(heapPressureThreshold)
 }
 
 // SetFastPath enables or disables the fast-path ticker for a named collector.
@@ -157,7 +171,7 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	var fastCh <-chan time.Time
 	var fastTicker *time.Ticker
 	if hasFastPath {
-		fastTicker = time.NewTicker(5 * time.Second)
+		fastTicker = time.NewTicker(FastPathInterval)
 		fastTicker.Stop() // start stopped
 		defer fastTicker.Stop()
 	}
@@ -177,7 +191,7 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 				fastCh = nil
 				fastPathActive = false
 			}
-			timer := time.NewTimer(2 * time.Second)
+			timer := time.NewTimer(ThrottleMaxPollInterval)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -195,7 +209,7 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 			shouldBeActive := m.fastPathEnabled[c.Name()] && level < ThrottleHeavy
 			m.fastPathMu.RUnlock()
 			if shouldBeActive && !fastPathActive {
-				fastTicker.Reset(5 * time.Second)
+				fastTicker.Reset(FastPathInterval)
 				fastCh = fastTicker.C
 				fastPathActive = true
 			} else if !shouldBeActive && fastPathActive {
@@ -225,20 +239,24 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 	}
 }
 
-// DefaultCollectors returns all enabled collectors based on configuration.
+// DefaultCollectors returns all enabled collectors in a deterministic order.
 func DefaultCollectors(cfg map[string]config.CollectorConfig, tracker *QueryTracker) []Collector {
-	all := map[string]Collector{
-		"cluster": NewClusterCollector(cfg["cluster"], tracker),
-		"health":  NewHealthCollector(cfg["health"], tracker),
-		"nodes":   NewNodesCollector(cfg["nodes"], tracker),
-		"queries": NewQueriesCollector(cfg["queries"], tracker),
-		"shards":  NewShardsCollector(cfg["shards"], tracker),
+	type entry struct {
+		name string
+		make func() Collector
+	}
+	ordered := []entry{
+		{"cluster", func() Collector { return NewClusterCollector(cfg["cluster"], tracker) }},
+		{"health", func() Collector { return NewHealthCollector(cfg["health"], tracker) }},
+		{"nodes", func() Collector { return NewNodesCollector(cfg["nodes"], tracker) }},
+		{"queries", func() Collector { return NewQueriesCollector(cfg["queries"], tracker) }},
+		{"shards", func() Collector { return NewShardsCollector(cfg["shards"], tracker) }},
 	}
 
 	var enabled []Collector
-	for name, c := range all {
-		if cc, ok := cfg[name]; ok && cc.Enabled {
-			enabled = append(enabled, c)
+	for _, e := range ordered {
+		if cc, ok := cfg[e.name]; ok && cc.Enabled {
+			enabled = append(enabled, e.make())
 		}
 	}
 	return enabled

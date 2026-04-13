@@ -18,10 +18,11 @@ type OverviewModel struct {
 	lines  []string // cached rendered lines
 	width  int
 	height int
+	keyMap KeyMap
 }
 
 func NewOverviewModel(width, height int) OverviewModel {
-	return OverviewModel{width: width, height: height}
+	return OverviewModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
@@ -47,7 +48,7 @@ func (m OverviewModel) SetSize(width, height int) OverviewModel {
 }
 
 func (m OverviewModel) HandleKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 	switch {
 	case key.Matches(msg, km.Up):
 		if m.scroll > 0 {
@@ -237,8 +238,8 @@ func (m OverviewModel) renderNodeSummary() string {
 
 		// Sparklines
 		cpuSpark := ""
-		if hist, ok := m.snap.NodeCPUHistory[n.ID]; ok && len(hist) > 1 {
-			cpuSpark = " " + styleDim.Render(sparkline(hist, 15))
+		if nh, ok := m.snap.NodeHistory[n.ID]; ok && len(nh.CPU) > 1 {
+			cpuSpark = " " + styleDim.Render(sparkline(nh.CPU, 15))
 		}
 
 		var row string

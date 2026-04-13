@@ -16,10 +16,11 @@ type QueriesModel struct {
 	selected int
 	width    int
 	height   int
+	keyMap   KeyMap
 }
 
 func NewQueriesModel(width, height int) QueriesModel {
-	return QueriesModel{width: width, height: height}
+	return QueriesModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
@@ -37,7 +38,7 @@ func (m QueriesModel) SetSize(width, height int) QueriesModel {
 }
 
 func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 	switch {
 	case key.Matches(msg, km.Up):
 		if m.selected > 0 {

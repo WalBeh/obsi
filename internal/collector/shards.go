@@ -99,7 +99,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	if viewResp, err := trackedQuery(ctx, c.tracker, QueryViewCount, reg, `SELECT count(*) FROM information_schema.tables
 		WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
 		AND table_type = 'VIEW'`); err == nil && len(viewResp.Rows) > 0 {
-		viewCount = int(toFloat64(viewResp.Rows[0][0]))
+		viewCount = int(cratedb.ToFloat64(viewResp.Rows[0][0]))
 	}
 
 	// Aggregate shard data by table key
@@ -113,17 +113,17 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	// Build final table list: information_schema as base, enriched with shard data
 	tables := make([]cratedb.TableInfo, 0, len(infoResp.Rows))
 	for _, row := range infoResp.Rows {
-		schema := toString(row[0])
-		name := toString(row[1])
+		schema := cratedb.ToString(row[0])
+		name := cratedb.ToString(row[1])
 		key := schema + "." + name
 
 		ts := cratedb.TableSettings{
-			NumberOfShards:   int(toFloat64(row[2])),
-			NumberOfReplicas: toString(row[3]),
-			ClusteredBy:      toString(row[4]),
-			ColumnPolicy:     toString(row[6]),
-			RefreshInterval:  int(toFloat64(row[7])),
-			Codec:            toString(row[8]),
+			NumberOfShards:   int(cratedb.ToFloat64(row[2])),
+			NumberOfReplicas: cratedb.ToString(row[3]),
+			ClusteredBy:      cratedb.ToString(row[4]),
+			ColumnPolicy:     cratedb.ToString(row[6]),
+			RefreshInterval:  int(cratedb.ToFloat64(row[7])),
+			Codec:            cratedb.ToString(row[8]),
 		}
 		if arr, ok := row[5].([]interface{}); ok {
 			for _, v := range arr {
@@ -277,13 +277,13 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 		}
 
 		alloc := cratedb.AllocationInfo{
-			TableSchema:    toString(row[0]),
-			TableName:      toString(row[1]),
-			PartitionIdent: toString(row[2]),
-			ShardID:        int(toFloat64(row[3])),
-			Primary:        toBool(row[4]),
-			CurrentState:   toString(row[5]),
-			NodeID:         toString(row[6]),
+			TableSchema:    cratedb.ToString(row[0]),
+			TableName:      cratedb.ToString(row[1]),
+			PartitionIdent: cratedb.ToString(row[2]),
+			ShardID:        int(cratedb.ToFloat64(row[3])),
+			Primary:        cratedb.ToBool(row[4]),
+			CurrentState:   cratedb.ToString(row[5]),
+			NodeID:         cratedb.ToString(row[6]),
 			Explanation:    explanation,
 		}
 		allocs = append(allocs, alloc)
@@ -296,21 +296,21 @@ func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
 	shards := make([]cratedb.ShardInfo, 0, len(rows))
 	for _, row := range rows {
 		shard := cratedb.ShardInfo{
-			ID:              int(toFloat64(row[0])),
-			SchemaName:      toString(row[1]),
-			TableName:       toString(row[2]),
-			PartitionIdent:  toString(row[3]),
-			NumDocs:         int64(toFloat64(row[4])),
-			Primary:         toBool(row[5]),
-			State:           toString(row[6]),
-			RoutingState:    toString(row[7]),
-			Relocating:      toBool(row[8]),
-			Size:            int64(toFloat64(row[9])),
-			NodeID:          toString(row[10]),
-			NodeName:        toString(row[11]),
-			RecoveryStage:   toString(row[12]),
-			RecoveryPercent: toFloat64(row[13]),
-			RelocatingNode:  toString(row[14]),
+			ID:              int(cratedb.ToFloat64(row[0])),
+			SchemaName:      cratedb.ToString(row[1]),
+			TableName:       cratedb.ToString(row[2]),
+			PartitionIdent:  cratedb.ToString(row[3]),
+			NumDocs:         cratedb.ToInt64(row[4]),
+			Primary:         cratedb.ToBool(row[5]),
+			State:           cratedb.ToString(row[6]),
+			RoutingState:    cratedb.ToString(row[7]),
+			Relocating:      cratedb.ToBool(row[8]),
+			Size:            cratedb.ToInt64(row[9]),
+			NodeID:          cratedb.ToString(row[10]),
+			NodeName:        cratedb.ToString(row[11]),
+			RecoveryStage:   cratedb.ToString(row[12]),
+			RecoveryPercent: cratedb.ToFloat64(row[13]),
+			RelocatingNode:  cratedb.ToString(row[14]),
 		}
 		shards = append(shards, shard)
 	}

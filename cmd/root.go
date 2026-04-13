@@ -74,44 +74,21 @@ func resolvePositionalArg(args []string) {
 }
 
 // resolveConnection loads config, resolves profile/endpoint/credentials, connects,
-// and returns the registry. Shared by root and doctor commands.
-func resolveConnection(ctx context.Context, cmd *cobra.Command, args []string) (*config.Config, *cratedb.Registry, error) {
+// and returns the registry. If trackQueries is true, a QueryTracker is created
+// and attached before Bootstrap so the initial queries are recorded.
+func resolveConnection(ctx context.Context, cmd *cobra.Command, args []string, trackQueries bool) (*config.Config, *cratedb.Registry, *collector.QueryTracker, error) {
 	resolvePositionalArg(args)
 
 	passwordSet := cmd.Flags().Lookup("password").Changed
 	usernameSet := cmd.Flags().Lookup("username").Changed
 
-	// Load config
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error loading config: %w", err)
+		return nil, nil, nil, fmt.Errorf("error loading config: %w", err)
 	}
 
-	// Resolve profile: explicit --profile, positional name, or last_profile from config
-	if profile == "" && endpoint == "" && cfg.LastProfile != "" {
-		profile = cfg.LastProfile
-	}
-
-	// Load profile connection settings if a profile is specified
-	if profile != "" && cfg.Profiles != nil {
-		if p, ok := cfg.Profiles[profile]; ok {
-			if endpoint == "" {
-				cfg.Connection.Endpoint = p.Endpoint
-			}
-			if !usernameSet && username == "" {
-				cfg.Connection.Username = p.Username
-			}
-		} else if endpoint == "" {
-			msg := fmt.Sprintf("profile %q not found in config", profile)
-			if len(cfg.Profiles) > 0 {
-				names := make([]string, 0, len(cfg.Profiles))
-				for name := range cfg.Profiles {
-					names = append(names, name)
-				}
-				msg += fmt.Sprintf("\navailable profiles: %s", strings.Join(names, ", "))
-			}
-			return nil, nil, fmt.Errorf("%s", msg)
-		}
+	if err := resolveProfile(cfg, usernameSet); err != nil {
+		return nil, nil, nil, err
 	}
 
 	// Parse endpoint URL — extract embedded credentials if present
@@ -132,8 +109,81 @@ func resolveConnection(ctx context.Context, cmd *cobra.Command, args []string) (
 		cfg.Connection.Username = username
 	}
 
-	// Save profile if --profile was given with a URL (first-time setup)
-	if profile != "" && endpoint != "" {
+	saveProfile(cfg, passwordSet)
+
+	// Resolve password
+	var pw string
+	if passwordSet {
+		pw = password
+	} else {
+		pw, err = config.ResolvePassword(&cfg.Connection)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("error resolving password: %w", err)
+		}
+	}
+
+	setupLogging(cfg.Logging)
+
+	// Create tracker before connecting so Bootstrap queries are recorded
+	var tracker *collector.QueryTracker
+	var recorder cratedb.QueryRecorder
+	if trackQueries {
+		tracker = collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
+		recorder = tracker
+	}
+
+	registry, err := tryConnect(ctx, cfg, pw, passwordSet, skipVerify, recorder)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("error connecting to CrateDB: %w", err)
+	}
+
+	return cfg, registry, tracker, nil
+}
+
+// resolveProfile applies profile settings to the config. Falls back to
+// last_profile from config when neither --profile nor endpoint is given.
+func resolveProfile(cfg *config.Config, usernameSet bool) error {
+	if profile == "" && endpoint == "" && cfg.LastProfile != "" {
+		profile = cfg.LastProfile
+	}
+
+	if profile == "" || cfg.Profiles == nil {
+		return nil
+	}
+
+	p, ok := cfg.Profiles[profile]
+	if !ok {
+		if endpoint != "" {
+			return nil // new profile will be created during save
+		}
+		msg := fmt.Sprintf("profile %q not found in config", profile)
+		if len(cfg.Profiles) > 0 {
+			names := make([]string, 0, len(cfg.Profiles))
+			for name := range cfg.Profiles {
+				names = append(names, name)
+			}
+			msg += fmt.Sprintf("\navailable profiles: %s", strings.Join(names, ", "))
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	if endpoint == "" {
+		cfg.Connection.Endpoint = p.Endpoint
+	}
+	if !usernameSet && username == "" {
+		cfg.Connection.Username = p.Username
+	}
+	return nil
+}
+
+// saveProfile persists profile and last_profile to config when appropriate.
+func saveProfile(cfg *config.Config, passwordSet bool) {
+	if profile == "" {
+		return
+	}
+
+	if endpoint != "" {
+		// First-time setup: save a new profile from the given URL
 		if cfg.Profiles == nil {
 			cfg.Profiles = make(map[string]config.ProfileConfig)
 		}
@@ -148,41 +198,17 @@ func resolveConnection(ctx context.Context, cmd *cobra.Command, args []string) (
 		if err := config.Save(configPath, cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not save profile: %v\n", err)
 		}
-	} else if profile != "" {
-		if cfg.LastProfile != profile {
-			cfg.LastProfile = profile
-			_ = config.Save(configPath, cfg)
-		}
+	} else if cfg.LastProfile != profile {
+		cfg.LastProfile = profile
+		_ = config.Save(configPath, cfg)
 	}
-
-	// Resolve password
-	var pw string
-	if passwordSet {
-		pw = password
-	} else {
-		pw, err = config.ResolvePassword(&cfg.Connection)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error resolving password: %w", err)
-		}
-	}
-
-	// Setup logging
-	setupLogging(cfg.Logging)
-
-	// Try connecting
-	registry, err := tryConnect(ctx, cfg, pw, passwordSet, skipVerify)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error connecting to CrateDB: %w", err)
-	}
-
-	return cfg, registry, nil
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	cfg, registry, err := resolveConnection(ctx, cmd, args)
+	cfg, registry, tracker, err := resolveConnection(ctx, cmd, args, true)
 	if err != nil {
 		return err
 	}
@@ -192,10 +218,6 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	// Create store
 	st := store.New(cfg.TUI.SparklineHistory, cfg.Collectors)
-
-	// Create query tracker and attach to registry
-	tracker := collector.NewQueryTracker(cfg.Collectors)
-	registry.SetRecorder(tracker)
 
 	// Create and start collectors
 	collectors := collector.DefaultCollectors(cfg.Collectors, tracker)
@@ -278,9 +300,9 @@ func parseEndpointURL(raw string) (endpoint, username, password string, hasAuth 
 	return u.String(), username, password, hasAuth
 }
 
-func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExplicit, skipVerify bool) (*cratedb.Registry, error) {
+func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExplicit, skipVerify bool, recorder cratedb.QueryRecorder) (*cratedb.Registry, error) {
 	makeRegistry := func(password string) *cratedb.Registry {
-		return cratedb.NewRegistry(
+		reg := cratedb.NewRegistry(
 			cfg.Connection.Endpoint,
 			cfg.Connection.Username,
 			password,
@@ -290,6 +312,10 @@ func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExpl
 			cfg.Connection.NodeRefreshInterval.Duration,
 			skipVerify,
 		)
+		if recorder != nil {
+			reg.SetRecorder(recorder)
+		}
+		return reg
 	}
 
 	// If password was explicitly provided (flag, env, keyring), just try it

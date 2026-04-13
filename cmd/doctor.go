@@ -23,7 +23,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	_, registry, err := resolveConnection(ctx, cmd, args)
+	_, registry, _, err := resolveConnection(ctx, cmd, args, false)
 	if err != nil {
 		return err
 	}
@@ -45,12 +45,12 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 		fmt.Println("\nCannot proceed without basic connectivity.")
 		os.Exit(1)
 	} else if len(resp.Rows) > 0 {
-		clusterName = toString(resp.Rows[0][0])
+		clusterName = cratedb.ToString(resp.Rows[0][0])
 	}
 
 	if resp, err := registry.Query(ctx, "SELECT count(*), max(version['number']) FROM sys.nodes"); err == nil && len(resp.Rows) > 0 {
-		nodeCount = int(toFloat64(resp.Rows[0][0]))
-		version = toString(resp.Rows[0][1])
+		nodeCount = int(cratedb.ToFloat64(resp.Rows[0][0]))
+		version = cratedb.ToString(resp.Rows[0][1])
 	}
 	printCheck(true, "Connection", fmt.Sprintf("%s (%d nodes, cluster: %s)", version, nodeCount, clusterName))
 
@@ -97,8 +97,8 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 		printCheck(false, "information_schema.tables", err.Error())
 	} else {
 		for _, row := range resp.Rows {
-			tt := toString(row[0])
-			cnt := int(toFloat64(row[1]))
+			tt := cratedb.ToString(row[0])
+			cnt := int(cratedb.ToFloat64(row[1]))
 			totalTables += cnt
 			switch tt {
 			case "VIEW":
@@ -114,7 +114,7 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 	fmt.Println()
 	var currentUser string
 	if resp, err := registry.Query(ctx, "SELECT CURRENT_USER"); err == nil && len(resp.Rows) > 0 {
-		currentUser = toString(resp.Rows[0][0])
+		currentUser = cratedb.ToString(resp.Rows[0][0])
 	}
 
 	isSuperuser := currentUser == "crate"
@@ -131,10 +131,10 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 		} else if len(resp.Rows) > 0 {
 			var grants, denies []string
 			for _, row := range resp.Rows {
-				class := toString(row[0])
-				ptype := toString(row[1])
-				state := toString(row[2])
-				ident := toString(row[3])
+				class := cratedb.ToString(row[0])
+				ptype := cratedb.ToString(row[1])
+				state := cratedb.ToString(row[2])
+				ident := cratedb.ToString(row[3])
 
 				target := class
 				if ident != "" {
@@ -185,7 +185,7 @@ func checkTable(ctx context.Context, registry *cratedb.Registry, name, query, pu
 
 	detail := "ok"
 	if len(resp.Rows) > 0 {
-		count := int(toFloat64(resp.Rows[0][0]))
+		count := int(cratedb.ToFloat64(resp.Rows[0][0]))
 		if count == 0 {
 			detail = fmt.Sprintf("0 rows — %s", purpose)
 			printWarn(name, detail)
@@ -208,22 +208,3 @@ func printWarn(name, detail string) {
 	fmt.Printf("  \033[33m!\033[0m %-28s %s\n", name, detail)
 }
 
-func toString(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-func toFloat64(v interface{}) float64 {
-	if v == nil {
-		return 0
-	}
-	if f, ok := v.(float64); ok {
-		return f
-	}
-	return 0
-}

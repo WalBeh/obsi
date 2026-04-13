@@ -55,6 +55,7 @@ type SQLModel struct {
 
 	width  int
 	height int
+	keyMap KeyMap
 }
 
 func NewSQLModel(width, height int, registry *cratedb.Registry, ctx context.Context) SQLModel {
@@ -65,6 +66,7 @@ func NewSQLModel(width, height int, registry *cratedb.Registry, ctx context.Cont
 		historyIdx: -1,
 		width:      width,
 		height:     height,
+		keyMap:     DefaultKeyMap(),
 	}
 }
 
@@ -106,7 +108,7 @@ func (m SQLModel) IsEditing() bool {
 }
 
 func (m SQLModel) HandleKey(msg tea.KeyMsg) (SQLModel, tea.Cmd) {
-	km := DefaultKeyMap()
+	km := m.keyMap
 
 	if m.editing {
 		switch {

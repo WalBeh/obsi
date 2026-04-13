@@ -61,6 +61,11 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		ctx:         ctx,
 		keyMap:      DefaultKeyMap(),
 		refreshRate: refreshRate,
+		overview:    NewOverviewModel(0, 0),
+		nodes:       NewNodesModel(0, 0),
+		queries:     NewQueriesModel(0, 0),
+		tables:      NewTablesModel(0, 0),
+		shards:      NewShardsModel(0, 0),
 		sql:         NewSQLModel(0, 0, reg, ctx),
 	}
 }

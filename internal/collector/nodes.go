@@ -2,6 +2,8 @@ package collector
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -10,8 +12,10 @@ import (
 )
 
 type NodesCollector struct {
-	interval time.Duration
-	tracker  *QueryTracker
+	interval       time.Duration
+	tracker        *QueryTracker
+	hasThreadPools bool // false until first successful query with thread_pools
+	triedThreadPools bool // true after first attempt
 }
 
 func NewNodesCollector(cfg config.CollectorConfig, tracker *QueryTracker) *NodesCollector {
@@ -21,40 +25,67 @@ func NewNodesCollector(cfg config.CollectorConfig, tracker *QueryTracker) *Nodes
 func (c *NodesCollector) Name() string           { return "nodes" }
 func (c *NodesCollector) Interval() time.Duration { return c.interval }
 
+// nodesBaseQuery is the core SELECT for sys.nodes (without thread_pools).
+// Note: attributes is selected as a whole object because subscript access
+// (e.g. attributes['zone']) throws ColumnUnknownException when the key
+// doesn't exist on clusters that haven't configured those node attributes.
+const nodesBaseQuery = `SELECT
+	id, name, hostname, rest_url,
+	process['cpu']['percent'] AS cpu_percent,
+	os['cpu']['system'] AS cpu_system,
+	os['cpu']['user'] AS cpu_user,
+	GREATEST(heap['used'], 0) AS heap_used,
+	GREATEST(heap['max'], 0) AS heap_max,
+	GREATEST(heap['free'], 0) AS heap_free,
+	GREATEST(fs['total']['size'], 0) AS fs_total,
+	GREATEST(fs['total']['used'], 0) AS fs_used,
+	GREATEST(fs['total']['available'], 0) AS fs_avail,
+	GREATEST(mem['used'], 0) AS mem_used,
+	GREATEST(mem['free'], 0) AS mem_free,
+	GREATEST(mem['used'] + mem['free'], 0) AS mem_total,
+	load['1'] AS load1,
+	load['5'] AS load5,
+	load['15'] AS load15,
+	version['number'] AS version,
+	fs['total']['reads'] AS fs_reads,
+	fs['total']['writes'] AS fs_writes,
+	fs['total']['bytes_read'] AS fs_bytes_read,
+	fs['total']['bytes_written'] AS fs_bytes_written,
+	id = (SELECT master_node FROM sys.cluster) AS is_master,
+	os_info['available_processors'] AS num_cpus,
+	os_info['jvm']['version'] AS jvm_version,
+	os_info['jvm']['vm_name'] AS jvm_name,
+	attributes`
+
 func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
 	// GREATEST(..., 0) clamps byte-size columns: during restore, CrateDB can
 	// return negative values that crash its own ByteSizeValue formatter.
-	resp, err := trackedQuery(ctx, c.tracker, QueryNodes, reg, `SELECT
-		id, name, hostname, rest_url,
-		process['cpu']['percent'] AS cpu_percent,
-		os['cpu']['system'] AS cpu_system,
-		os['cpu']['user'] AS cpu_user,
-		GREATEST(heap['used'], 0) AS heap_used,
-		GREATEST(heap['max'], 0) AS heap_max,
-		GREATEST(heap['free'], 0) AS heap_free,
-		GREATEST(fs['total']['size'], 0) AS fs_total,
-		GREATEST(fs['total']['used'], 0) AS fs_used,
-		GREATEST(fs['total']['available'], 0) AS fs_avail,
-		GREATEST(mem['used'], 0) AS mem_used,
-		GREATEST(mem['free'], 0) AS mem_free,
-		GREATEST(mem['used'] + mem['free'], 0) AS mem_total,
-		load['1'] AS load1,
-		load['5'] AS load5,
-		load['15'] AS load15,
-		version['number'] AS version,
-		fs['total']['reads'] AS fs_reads,
-		fs['total']['writes'] AS fs_writes,
-		fs['total']['bytes_read'] AS fs_bytes_read,
-		fs['total']['bytes_written'] AS fs_bytes_written,
-		id = (SELECT master_node FROM sys.cluster) AS is_master,
-		os_info['available_processors'] AS num_cpus,
-		os_info['jvm']['version'] AS jvm_version,
-		os_info['jvm']['vm_name'] AS jvm_name,
-		attributes['zone'] AS zone,
-		attributes['node_name'] AS node_role,
-		thread_pools
-	FROM sys.nodes
-	ORDER BY name`)
+
+	useThreadPools := !c.triedThreadPools || c.hasThreadPools
+
+	var resp *cratedb.SQLResponse
+	var err error
+	if useThreadPools {
+		resp, err = trackedQuery(ctx, c.tracker, QueryNodes, reg,
+			nodesBaseQuery+", thread_pools\nFROM sys.nodes\nORDER BY name")
+		if err != nil && strings.Contains(err.Error(), "ColumnUnknownException") {
+			slog.Info("sys.nodes has no thread_pools column, using fallback query")
+			c.triedThreadPools = true
+			c.hasThreadPools = false
+			useThreadPools = false
+			err = nil
+		} else {
+			c.triedThreadPools = true
+			if err == nil {
+				c.hasThreadPools = true
+			}
+		}
+	}
+
+	if !useThreadPools && resp == nil {
+		resp, err = trackedQuery(ctx, c.tracker, QueryNodes, reg,
+			nodesBaseQuery+"\nFROM sys.nodes\nORDER BY name")
+	}
 	if err != nil {
 		return err
 	}
@@ -68,6 +99,13 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 
 	nodes := make([]store.NodeSnapshot, 0, len(resp.Rows))
 	for _, row := range resp.Rows {
+		// Extract zone and node_name from the attributes object (col 28)
+		var zone, nodeRole string
+		if attrs, ok := row[28].(map[string]interface{}); ok {
+			zone = cratedb.ToString(attrs["zone"])
+			nodeRole = cratedb.ToString(attrs["node_name"])
+		}
+
 		info := cratedb.NodeInfo{
 			ID:         cratedb.ToString(row[0]),
 			Name:       cratedb.ToString(row[1]),
@@ -95,9 +133,11 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 			NumCPUs:        int(cratedb.ToFloat64(row[25])),
 			JVMVersion:     cratedb.ToString(row[26]),
 			JVMName:        cratedb.ToString(row[27]),
-			Zone:           cratedb.ToString(row[28]),
-			NodeRole:       cratedb.ToString(row[29]),
-			ThreadPools:    parseThreadPools(row[30]),
+			Zone:           zone,
+			NodeRole:       nodeRole,
+		}
+		if useThreadPools && len(row) > 29 {
+			info.ThreadPools = parseThreadPools(row[29])
 		}
 
 		snap := store.NodeSnapshot{NodeInfo: info}

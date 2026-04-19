@@ -175,8 +175,11 @@ type TableSettings struct {
 	ClusteredBy      string
 	PartitionedBy    []string
 	ColumnPolicy     string
-	RefreshInterval  int    // ms
-	Codec            string
+	RefreshInterval          int    // ms
+	Codec                    string
+	TranslogFlushThreshold   int64  // bytes
+	TranslogSyncInterval     int    // ms
+	TranslogDurability       string
 }
 
 // TableInfo is an aggregated view of a table with shard distribution.

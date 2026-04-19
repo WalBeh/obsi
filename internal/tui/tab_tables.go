@@ -426,6 +426,28 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 			highlights = append(highlights, fmt.Sprintf("codec: %s", ts.Codec))
 		}
 
+		// Translog settings — show "default" when all defaults, otherwise list non-defaults
+		const (
+			defaultTranslogFlushThreshold int64  = 512 << 20 // 512 MiB
+			defaultTranslogSyncInterval   int    = 5000      // ms
+			defaultTranslogDurability     string = "REQUEST"
+		)
+		var tlParts []string
+		if ts.TranslogFlushThreshold != 0 && ts.TranslogFlushThreshold != defaultTranslogFlushThreshold {
+			tlParts = append(tlParts, fmt.Sprintf("flush: %s", formatBytes(ts.TranslogFlushThreshold)))
+		}
+		if ts.TranslogSyncInterval != 0 && ts.TranslogSyncInterval != defaultTranslogSyncInterval {
+			tlParts = append(tlParts, fmt.Sprintf("sync: %dms", ts.TranslogSyncInterval))
+		}
+		if ts.TranslogDurability != "" && ts.TranslogDurability != defaultTranslogDurability {
+			tlParts = append(tlParts, fmt.Sprintf("durability: %s", ts.TranslogDurability))
+		}
+		if len(tlParts) == 0 {
+			highlights = append(highlights, "translog: default")
+		} else {
+			highlights = append(highlights, "translog "+strings.Join(tlParts, " │ "))
+		}
+
 		if len(highlights) > 0 {
 			lines = append(lines, "    "+strings.Join(highlights, " │ "))
 		}

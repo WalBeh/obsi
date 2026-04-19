@@ -82,7 +82,10 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		number_of_shards, number_of_replicas,
 		clustered_by, partitioned_by, column_policy,
 		settings['refresh_interval'] AS refresh_interval,
-		settings['codec'] AS codec
+		settings['codec'] AS codec,
+		settings['translog']['flush_threshold_size'] AS translog_flush_threshold_size,
+		settings['translog']['sync_interval'] AS translog_sync_interval,
+		settings['translog']['durability'] AS translog_durability
 	FROM information_schema.tables
 	WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
 	AND table_type = 'BASE TABLE'
@@ -118,12 +121,15 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		key := schema + "." + name
 
 		ts := cratedb.TableSettings{
-			NumberOfShards:   int(cratedb.ToFloat64(row[2])),
-			NumberOfReplicas: cratedb.ToString(row[3]),
-			ClusteredBy:      cratedb.ToString(row[4]),
-			ColumnPolicy:     cratedb.ToString(row[6]),
-			RefreshInterval:  int(cratedb.ToFloat64(row[7])),
-			Codec:            cratedb.ToString(row[8]),
+			NumberOfShards:         int(cratedb.ToFloat64(row[2])),
+			NumberOfReplicas:       cratedb.ToString(row[3]),
+			ClusteredBy:            cratedb.ToString(row[4]),
+			ColumnPolicy:           cratedb.ToString(row[6]),
+			RefreshInterval:        int(cratedb.ToFloat64(row[7])),
+			Codec:                  cratedb.ToString(row[8]),
+			TranslogFlushThreshold: int64(cratedb.ToFloat64(row[9])),
+			TranslogSyncInterval:   int(cratedb.ToFloat64(row[10])),
+			TranslogDurability:     cratedb.ToString(row[11]),
 		}
 		if arr, ok := row[5].([]interface{}); ok {
 			for _, v := range arr {

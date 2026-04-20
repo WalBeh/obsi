@@ -99,10 +99,10 @@ func (m QueriesModel) View() string {
 		return m.renderKillModal()
 	}
 
+	stale := m.snap.Staleness["queries"]
 	title := styleTitle.Render("Active Queries")
-
-	if m.snap.Staleness["queries"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	if len(m.snap.ActiveQueries) == 0 {
@@ -177,7 +177,11 @@ func (m QueriesModel) View() string {
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 func (m QueriesModel) killResultStyle() lipgloss.Style {

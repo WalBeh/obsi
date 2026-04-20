@@ -224,6 +224,11 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	mgr := collector.NewManager(registry, st, tracker, collectors...)
 	mgr.Start(ctx)
 
+	// On connection recovery, trigger a gentle refresh of all collectors
+	registry.OnRecovery(func() {
+		mgr.TriggerAll(ctx)
+	})
+
 	// Create and run TUI
 	app := tui.NewApp(st, registry, mgr, ctx, cfg.TUI.RefreshRate.Duration)
 	p := tea.NewProgram(app, tea.WithAltScreen())

@@ -79,8 +79,9 @@ type Registry struct {
 
 	latency *LatencyTracker
 
-	cancel   context.CancelFunc
-	recorder QueryRecorder // optional query stats recorder
+	cancel     context.CancelFunc
+	recorder   QueryRecorder // optional query stats recorder
+	onRecovery func()        // called when connection recovers after being down
 }
 
 // NewRegistry creates a new node registry.
@@ -102,6 +103,12 @@ func NewRegistry(endpoint, username, password string, pingTimeout, queryTimeout,
 // SetRecorder attaches a query stats recorder to the registry.
 func (r *Registry) SetRecorder(rec QueryRecorder) {
 	r.recorder = rec
+}
+
+// OnRecovery registers a callback invoked when the primary endpoint recovers
+// after being down. Used to trigger collector refreshes on reconnect.
+func (r *Registry) OnRecovery(fn func()) {
+	r.onRecovery = fn
 }
 
 // Bootstrap connects to CrateDB and discovers all nodes.
@@ -158,6 +165,9 @@ func (r *Registry) Reconnect(ctx context.Context) {
 		if err == nil {
 			slog.Info("primary endpoint reconnected")
 			_ = r.Refresh(ctx)
+			if r.onRecovery != nil {
+				r.onRecovery()
+			}
 		} else {
 			slog.Warn("reconnect failed", "error", err)
 		}
@@ -295,15 +305,21 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 func (r *Registry) recordLatency(d time.Duration) {
 	r.latency.Record(d)
 
-	// Adaptive timeout: base timeout + observed max latency.
+	// Adaptive timeout: base timeout + observed max latency, capped at 2x base.
 	// On a stressed cluster with 1s+ latency, a 10s base timeout leaves
 	// only 9s for actual query execution, which is often not enough.
+	// The cap prevents unbounded growth that would make the app unresponsive
+	// when the cluster is struggling.
 	maxLatency := r.latency.Max()
 	if maxLatency > 0 {
 		adjusted := r.primary.baseTimeout + maxLatency
+		cap := r.primary.baseTimeout * 2
+		if adjusted > cap {
+			adjusted = cap
+		}
 		if adjusted != r.primary.httpClient.Timeout {
 			r.primary.httpClient.Timeout = adjusted
-			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", maxLatency, "effective", adjusted)
+			slog.Debug("adaptive timeout adjusted", "base", r.primary.baseTimeout, "max_latency", maxLatency, "effective", adjusted, "cap", cap)
 		}
 	}
 }
@@ -375,6 +391,9 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 			slog.Info("primary endpoint recovered")
 			// Re-discover nodes on recovery
 			_ = r.Refresh(ctx)
+			if r.onRecovery != nil {
+				r.onRecovery()
+			}
 		}
 	}()
 
@@ -459,11 +478,18 @@ func (r *Registry) queryAny(ctx context.Context, stmt string, args ...interface{
 		return resp, nil
 	}
 
+	// Snapshot node clients under lock, then release before making HTTP calls.
+	// Holding RLock during slow HTTP calls causes priority inversion: a waiting
+	// writer (heartbeat) blocks new readers (TUI's Status()), freezing the UI.
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
+	clients := make([]*Client, 0, len(r.nodes))
 	for _, e := range r.nodes {
-		resp, err := e.Client.Query(ctx, stmt, args...)
+		clients = append(clients, e.Client)
+	}
+	r.mu.RUnlock()
+
+	for _, c := range clients {
+		resp, err := c.Query(ctx, stmt, args...)
 		if err == nil {
 			return resp, nil
 		}

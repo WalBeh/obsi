@@ -104,10 +104,10 @@ func (m OverviewModel) View() string {
 }
 
 func (m OverviewModel) renderChecks() string {
+	stale := m.snap.Staleness["health"]
 	title := sectionTitle("Cluster Health Checks")
-
-	if m.snap.Staleness["health"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	if len(m.snap.ClusterChecks) == 0 {
@@ -149,14 +149,18 @@ func (m OverviewModel) renderChecks() string {
 		lines = append(lines, failed...)
 	}
 
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 func (m OverviewModel) renderNodeSummary() string {
+	stale := m.snap.Staleness["nodes"]
 	title := sectionTitle("Node Summary")
-
-	if m.snap.Staleness["nodes"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	if len(m.snap.Nodes) == 0 {
@@ -269,14 +273,18 @@ func (m OverviewModel) renderNodeSummary() string {
 		rows = append(rows, row)
 	}
 
-	return strings.Join(rows, "\n")
+	result := strings.Join(rows, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 func (m OverviewModel) renderTableHealth() string {
+	stale := m.snap.Staleness["health"]
 	title := sectionTitle("Table Health")
-
-	if m.snap.Staleness["health"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	// Count by health status
@@ -309,7 +317,11 @@ func (m OverviewModel) renderTableHealth() string {
 		lines = append(lines, detail)
 	}
 
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 func (m OverviewModel) renderClusterSettings() string {

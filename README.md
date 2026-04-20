@@ -56,9 +56,12 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `s` | Cycle sort column |
 | `/` | Search/filter |
 | `esc` | Clear search |
+| `K` | Kill selected query (Queries tab) |
 | `t` | Cycle throttle (normal/mild/heavy) |
 | `ctrl+r` | Force refresh current tab |
 | `r` | Reconnect to cluster |
+| `L` | Toggle query log |
+| `?` | Help |
 | `q` | Quit |
 
 ## Doctor

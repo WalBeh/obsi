@@ -81,7 +81,18 @@ var (
 			Foreground(colorRed).
 			Bold(true)
 
+	colorOverlayBg = lipgloss.Color("#111111")
+
 	stylePrimary = lipgloss.NewStyle().
+			Foreground(colorYellow)
+
+	styleModalBorder = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(colorYellow).
+				Padding(1, 2)
+
+	styleModalTitle = lipgloss.NewStyle().
+			Bold(true).
 			Foreground(colorYellow)
 )
 
@@ -113,6 +124,14 @@ func metricBar(pct float64, barWidth int) string {
 
 	bar := barStyle.Render(repeat('█', filled)) + styleDim.Render(repeat('░', barWidth-filled))
 	return fmt.Sprintf("[%s]", bar)
+}
+
+// truncateString truncates s to max characters, adding "..." if truncated.
+func truncateString(s string, max int) string {
+	if len(s) > max {
+		return s[:max-3] + "..."
+	}
+	return s
 }
 
 func repeat(ch rune, n int) string {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -158,6 +159,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.sql = a.sql.HandleResult(msg)
 		return a, nil
 
+	case KillQueryMsg:
+		reg := a.registry
+		ctx := a.ctx
+		id := msg.ID
+		return a, func() tea.Msg {
+			_, err := reg.Query(ctx, "KILL ?", id)
+			if err != nil {
+				return KillQueryResultMsg{ID: id, Error: err.Error()}
+			}
+			return KillQueryResultMsg{ID: id}
+		}
+
+	case KillQueryResultMsg:
+		if msg.Error != "" {
+			a.queries.killResult = fmt.Sprintf("Kill failed: %s", msg.Error)
+			a.queries.killIsError = true
+		} else {
+			a.queries.killResult = fmt.Sprintf("Killed query %s", msg.ID)
+			a.queries.killIsError = false
+			a.collectors.TriggerCollector(a.ctx, "queries")
+		}
+		a.queries.killResultAt = time.Now()
+		return a, nil
+
 	case StoreTickMsg:
 		throttle := a.collectors.Throttle()
 		hint := a.snapshotHint()
@@ -174,11 +199,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case TabShards:
 			a.shards = a.shards.Refresh(snap)
 		}
+		shardStat := a.collectors.QueryTracker().GetStat(collector.QueryShards)
 		a.statusBar = a.statusBar.Refresh(
 			a.registry.Status(),
 			throttle,
 			a.collectors.SuggestThrottle(),
 			a.store.ClusterHealth(),
+			a.store.ShardCount(),
+			shardStat.LastDur,
 		)
 		if a.showQueryLog {
 			a.queryLog.Refresh(a.collectors.QueryTracker(), throttle)
@@ -275,6 +303,8 @@ func (a *App) isTabInputMode() bool {
 	switch a.activeTab {
 	case TabNodes:
 		return a.nodes.searching
+	case TabQueries:
+		return a.queries.killTarget != nil
 	case TabTables:
 		return a.tables.searching
 	case TabShards:

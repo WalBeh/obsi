@@ -7,16 +7,33 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
+const killResultDisplayDuration = 3 * time.Second
+
+type KillQueryMsg struct {
+	ID string
+}
+
+type KillQueryResultMsg struct {
+	ID    string
+	Error string
+}
+
 // QueriesModel shows active queries.
 type QueriesModel struct {
-	snap     store.StoreSnapshot
-	selected int
-	width    int
-	height   int
-	keyMap   KeyMap
+	snap         store.StoreSnapshot
+	selected     int
+	width        int
+	height       int
+	keyMap       KeyMap
+	killTarget   *cratedb.ActiveQuery
+	killResult   string
+	killIsError  bool
+	killResultAt time.Time
 }
 
 func NewQueriesModel(width, height int) QueriesModel {
@@ -25,6 +42,9 @@ func NewQueriesModel(width, height int) QueriesModel {
 
 func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
 	m.snap = snap
+	if m.killResult != "" && time.Since(m.killResultAt) > killResultDisplayDuration {
+		m.killResult = ""
+	}
 	if m.selected >= len(snap.ActiveQueries) && len(snap.ActiveQueries) > 0 {
 		m.selected = len(snap.ActiveQueries) - 1
 	}
@@ -39,6 +59,22 @@ func (m QueriesModel) SetSize(width, height int) QueriesModel {
 
 func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	km := m.keyMap
+
+	// Modal active — only accept confirmation keys
+	if m.killTarget != nil {
+		switch msg.String() {
+		case "y", "enter":
+			target := m.killTarget
+			m.killTarget = nil
+			return m, func() tea.Msg {
+				return KillQueryMsg{ID: target.ID}
+			}
+		case "n", "esc":
+			m.killTarget = nil
+		}
+		return m, nil
+	}
+
 	switch {
 	case key.Matches(msg, km.Up):
 		if m.selected > 0 {
@@ -48,11 +84,21 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 		if m.selected < len(m.snap.ActiveQueries)-1 {
 			m.selected++
 		}
+	case key.Matches(msg, km.Kill):
+		if m.selected < len(m.snap.ActiveQueries) {
+			q := m.snap.ActiveQueries[m.selected]
+			m.killTarget = &q
+		}
 	}
 	return m, nil
 }
 
 func (m QueriesModel) View() string {
+	// Short-circuit: render modal over dimmed background without building body
+	if m.killTarget != nil {
+		return m.renderKillModal()
+	}
+
 	title := styleTitle.Render("Active Queries")
 
 	if m.snap.Staleness["queries"] {
@@ -60,10 +106,19 @@ func (m QueriesModel) View() string {
 	}
 
 	if len(m.snap.ActiveQueries) == 0 {
-		return title + "\n  No active queries"
+		body := title + "\n  No active queries"
+		if m.killResult != "" {
+			body = "  " + m.killResultStyle().Render(m.killResult) + "\n" + body
+		}
+		return body
 	}
 
 	var lines []string
+
+	if m.killResult != "" {
+		lines = append(lines, "  "+m.killResultStyle().Render(m.killResult))
+	}
+
 	lines = append(lines, title)
 	lines = append(lines, fmt.Sprintf("  %d active queries", len(m.snap.ActiveQueries)))
 	lines = append(lines, "")
@@ -83,15 +138,12 @@ func (m QueriesModel) View() string {
 		duration := now.Sub(q.Started)
 		durStr := formatDuration(duration)
 
-		// Truncate statement for list view
 		stmt := strings.ReplaceAll(q.Stmt, "\n", " ")
 		maxStmtLen := m.width - 42
 		if maxStmtLen < 20 {
 			maxStmtLen = 20
 		}
-		if len(stmt) > maxStmtLen {
-			stmt = stmt[:maxStmtLen-3] + "..."
-		}
+		stmt = truncateString(stmt, maxStmtLen)
 
 		durStyle := styleValue
 		if duration > 30*time.Second {
@@ -126,6 +178,40 @@ func (m QueriesModel) View() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m QueriesModel) killResultStyle() lipgloss.Style {
+	if m.killIsError {
+		return styleHealthRed
+	}
+	return styleHealthGreen
+}
+
+// renderKillModal renders the kill confirmation modal centered over a dimmed background.
+func (m QueriesModel) renderKillModal() string {
+	modalWidth := m.width * 65 / 100
+	if modalWidth < 40 {
+		modalWidth = 40
+	}
+	// Inner content width = modal width minus border (2) and padding (4)
+	innerWidth := modalWidth - 6
+	if innerWidth < 20 {
+		innerWidth = 20
+	}
+
+	q := m.killTarget
+	stmt := truncateString(strings.ReplaceAll(q.Stmt, "\n", " "), innerWidth)
+
+	title := styleModalTitle.Render("Kill this query?")
+	id := fmt.Sprintf("ID:   %s", q.ID)
+	stmtLine := fmt.Sprintf("Stmt: %s", stmt)
+	footer := styleDim.Render("[y]es  [n]o")
+
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", id, stmtLine, "", footer)
+	modal := styleModalBorder.Width(innerWidth).Render(content)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal,
+		lipgloss.WithWhitespaceBackground(colorOverlayBg))
 }
 
 func formatDuration(d time.Duration) string {

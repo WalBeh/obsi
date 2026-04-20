@@ -20,10 +20,11 @@ const (
 	SortBySize
 	SortByShards
 	SortByRecords
+	SortByTranslog
 	sortFieldCount // sentinel for cycling
 )
 
-var sortFieldNames = [sortFieldCount]string{"name", "size", "shards", "records"}
+var sortFieldNames = [sortFieldCount]string{"name", "size", "shards", "records", "translog"}
 
 // TablesModel shows tables with shard distribution per node.
 type TablesModel struct {
@@ -153,6 +154,8 @@ func (m *TablesModel) rebuildSorted() {
 			less = tables[ia].TotalShards < tables[ib].TotalShards
 		case SortByRecords:
 			less = tables[ia].TotalRecords < tables[ib].TotalRecords
+		case SortByTranslog:
+			less = tables[ia].TranslogUncommittedSize < tables[ib].TranslogUncommittedSize
 		default:
 			less = ia < ib
 		}
@@ -308,9 +311,10 @@ func (m TablesModel) View() string {
 	replicaHdr := "REPLICA"
 	recordsHdr := m.sortHeader("RECORDS", SortByRecords, 10)
 	sizeHdr := m.sortHeader("SIZE", SortBySize, 12)
+	translogHdr := m.sortHeader("TRANSLOG", SortByTranslog, 10)
 
-	header := styleHeader.Render(fmt.Sprintf("  %-3s %-30s %7s %7s %10s %10s %10s",
-		"", nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK"))
+	header := styleHeader.Render(fmt.Sprintf("  %-3s %-30s %7s %7s %10s %10s %10s %10s",
+		"", nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr))
 	lines = append(lines, header)
 
 	if len(m.sorted) == 0 {
@@ -354,10 +358,16 @@ func (m TablesModel) View() string {
 			tableName = fmt.Sprintf("%-30s", tableName)
 		}
 
-		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s",
+		translogCol := ""
+		if t.TranslogUncommittedSize > 0 {
+			translogCol = formatBytes(t.TranslogUncommittedSize)
+		}
+
+		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s %10s",
 			marker, tableName,
 			t.PrimaryShards, t.ReplicaShards,
-			formatRecords(t.TotalRecords), formatBytes(t.TotalSize), formatBytes(t.TotalDiskSize))
+			formatRecords(t.TotalRecords), formatBytes(t.TotalSize), formatBytes(t.TotalDiskSize),
+			translogCol)
 		lines = append(lines, row)
 	}
 
@@ -426,8 +436,48 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 			highlights = append(highlights, fmt.Sprintf("codec: %s", ts.Codec))
 		}
 
+		// Translog settings — show "default" when all defaults, otherwise list non-defaults
+		const (
+			defaultTranslogSyncInterval   int    = 5000      // ms
+			defaultTranslogDurability     string = "REQUEST"
+		)
+		defaultTranslogFlushThreshold := cratedb.DefaultTranslogFlushThreshold
+		var tlParts []string
+		if ts.TranslogFlushThreshold != 0 && ts.TranslogFlushThreshold != defaultTranslogFlushThreshold {
+			tlParts = append(tlParts, fmt.Sprintf("flush: %s", formatBytes(ts.TranslogFlushThreshold)))
+		}
+		if ts.TranslogSyncInterval != 0 && ts.TranslogSyncInterval != defaultTranslogSyncInterval {
+			tlParts = append(tlParts, fmt.Sprintf("sync: %dms", ts.TranslogSyncInterval))
+		}
+		if ts.TranslogDurability != "" && ts.TranslogDurability != defaultTranslogDurability {
+			tlParts = append(tlParts, fmt.Sprintf("durability: %s", ts.TranslogDurability))
+		}
+		if len(tlParts) == 0 {
+			highlights = append(highlights, "translog: default")
+		} else {
+			highlights = append(highlights, "translog "+strings.Join(tlParts, " │ "))
+		}
+
 		if len(highlights) > 0 {
 			lines = append(lines, "    "+strings.Join(highlights, " │ "))
+		}
+
+		// Translog uncommitted stats
+		if t.TranslogUncommittedSize > 0 {
+			tlLine := fmt.Sprintf("    Translog     uncommitted: %s (%d ops)",
+				formatBytes(t.TranslogUncommittedSize), t.TranslogUncommittedOps)
+
+			if t.ShardsOverTranslogThreshold > 0 {
+				worstInfo := fmt.Sprintf("shard %d on %s: %s",
+					t.WorstTranslogShardID, t.WorstTranslogNodeName,
+					formatBytes(t.WorstTranslogSize))
+				if t.ShardsOverTranslogThreshold > 1 {
+					worstInfo += fmt.Sprintf(" (+%d)", t.ShardsOverTranslogThreshold-1)
+				}
+				lines = append(lines, styleHealthYellow.Render(tlLine+" │ ⚠ "+worstInfo))
+			} else {
+				lines = append(lines, tlLine)
+			}
 		}
 	}
 

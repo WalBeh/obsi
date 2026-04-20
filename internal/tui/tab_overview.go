@@ -421,12 +421,45 @@ func (m OverviewModel) renderClusterSettings() string {
 		shardStyle = styleHealthYellowBold
 	}
 
+	// Per-node shard counts for hotspot detection
+	nodeShardsMap := make(map[string]int)
+	for _, s := range m.snap.Shards {
+		nodeShardsMap[s.NodeName]++
+	}
+	var hotspotNode string
+	var hotspotCount int
+	var hotspotOver int
+	threshold := cs.MaxShardsPerNode * 80 / 100
+	if threshold > 0 {
+		for name, count := range nodeShardsMap {
+			if count >= threshold {
+				if count > hotspotCount {
+					if hotspotNode != "" {
+						hotspotOver++
+					}
+					hotspotNode = name
+					hotspotCount = count
+				} else {
+					hotspotOver++
+				}
+			}
+		}
+	}
+	hotspotSuffix := ""
+	if hotspotNode != "" {
+		hotspotSuffix = fmt.Sprintf(" ⚠ %s: %d", hotspotNode, hotspotCount)
+		if hotspotOver > 0 {
+			hotspotSuffix += fmt.Sprintf(" +%d >80%%", hotspotOver)
+		}
+		hotspotSuffix = " " + styleHealthYellowBold.Render(hotspotSuffix)
+	}
+
 	allocVal := m.editor.renderValue(slotAlloc, allocStyle.Render(cs.AllocationEnable))
 	rebalanceVal := m.editor.renderValue(slotRebalance, rebalanceStyle.Render(cs.RebalanceEnable))
 	maxShardsVal := m.editor.renderValue(slotMaxShards, fmt.Sprintf("%d", cs.MaxShardsPerNode))
-	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s/%d (%s/node)",
+	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s/%d (%s/node)%s",
 		allocVal, rebalanceVal,
-		shardStyle.Render(fmt.Sprintf("%d", totalShards)), maxClusterShards, maxShardsVal))
+		shardStyle.Render(fmt.Sprintf("%d", totalShards)), maxClusterShards, maxShardsVal, hotspotSuffix))
 	// Picker dropdown for allocation/rebalance
 	for _, idx := range []int{slotAlloc, slotRebalance} {
 		if picker := m.editor.renderPicker(idx, "              "); picker != "" {

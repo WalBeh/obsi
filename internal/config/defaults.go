@@ -38,6 +38,7 @@ func DefaultConfig() *Config {
 		TUI: TUIConfig{
 			RefreshRate:      Duration{500 * time.Millisecond},
 			SparklineHistory: 120,
+			SetGlobalMode:    "persistent",
 		},
 		Logging: LoggingConfig{
 			Level: "warn",

@@ -22,6 +22,7 @@ type KeyMap struct {
 	Reconnect key.Binding
 	QueryLog  key.Binding
 	Kill      key.Binding
+	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
 }
@@ -100,6 +101,10 @@ func DefaultKeyMap() KeyMap {
 		Kill: key.NewBinding(
 			key.WithKeys("K"),
 			key.WithHelp("K", "kill query"),
+		),
+		Edit: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit settings"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

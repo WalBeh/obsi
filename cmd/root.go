@@ -230,7 +230,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	})
 
 	// Create and run TUI
-	app := tui.NewApp(st, registry, mgr, ctx, cfg.TUI.RefreshRate.Duration)
+	app := tui.NewApp(st, registry, mgr, ctx, cfg.TUI)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
 	// Run TUI (blocks until quit)

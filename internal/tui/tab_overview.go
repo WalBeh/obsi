@@ -19,14 +19,16 @@ type OverviewModel struct {
 	width  int
 	height int
 	keyMap KeyMap
+	editor settingsEditor
 }
 
-func NewOverviewModel(width, height int) OverviewModel {
-	return OverviewModel{width: width, height: height, keyMap: DefaultKeyMap()}
+func NewOverviewModel(width, height int, persistent bool) OverviewModel {
+	return OverviewModel{width: width, height: height, keyMap: DefaultKeyMap(), editor: newSettingsEditor(persistent)}
 }
 
 func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 	m.snap = snap
+	m.editor.syncFromSettings(snap.ClusterSettings)
 	// Re-render all sections into lines
 	var sections []string
 	sections = append(sections, m.renderClusterSettings())
@@ -48,6 +50,13 @@ func (m OverviewModel) SetSize(width, height int) OverviewModel {
 }
 
 func (m OverviewModel) HandleKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
+	// Delegate to settings editor first
+	editor, cmd, consumed := m.editor.handleKey(msg)
+	m.editor = editor
+	if consumed {
+		return m, cmd
+	}
+
 	km := m.keyMap
 	switch {
 	case key.Matches(msg, km.Up):
@@ -399,21 +408,45 @@ func (m OverviewModel) renderClusterSettings() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("  Watermarks: %s │ %s │ %s",
-		cs.DiskWatermarkLow, cs.DiskWatermarkHigh, cs.DiskWatermarkFlood))
+
+	// Editable settings — use editor rendering when in edit mode
+	wmLow := m.editor.renderValue(slotWMLow, cs.DiskWatermarkLow)
+	wmHigh := m.editor.renderValue(slotWMHigh, cs.DiskWatermarkHigh)
+	wmFlood := m.editor.renderValue(slotWMFlood, cs.DiskWatermarkFlood)
+	lines = append(lines, fmt.Sprintf("  Watermarks: %s │ %s │ %s", wmLow, wmHigh, wmFlood))
+
 	maxClusterShards := cs.MaxShardsPerNode * nodeCount
 	shardStyle := styleHealthGreen
 	if maxClusterShards > 0 && totalShards >= maxClusterShards*80/100 {
 		shardStyle = styleHealthYellowBold
 	}
-	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s",
-		allocStyle.Render(cs.AllocationEnable),
-		rebalanceStyle.Render(cs.RebalanceEnable),
-		shardStyle.Render(fmt.Sprintf("%d/%d", totalShards, maxClusterShards))))
-	lines = append(lines, fmt.Sprintf("  Recovery: %s/s │ %d/node │ %d/cluster",
-		cs.RecoveryMaxBytesPerSec,
-		cs.NodeConcurrentRecoveries,
-		cs.ClusterConcurrentRebalance))
+
+	allocVal := m.editor.renderValue(slotAlloc, allocStyle.Render(cs.AllocationEnable))
+	rebalanceVal := m.editor.renderValue(slotRebalance, rebalanceStyle.Render(cs.RebalanceEnable))
+	maxShardsVal := m.editor.renderValue(slotMaxShards, fmt.Sprintf("%d", cs.MaxShardsPerNode))
+	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s/%s",
+		allocVal, rebalanceVal,
+		shardStyle.Render(fmt.Sprintf("%d", totalShards)), maxShardsVal))
+	// Picker dropdown for allocation/rebalance
+	for _, idx := range []int{slotAlloc, slotRebalance} {
+		if picker := m.editor.renderPicker(idx, "              "); picker != "" {
+			lines = append(lines, picker)
+		}
+	}
+
+	recoveryBytes := m.editor.renderValue(slotRecoveryBytes, cs.RecoveryMaxBytesPerSec)
+	recoveryNode := m.editor.renderValue(slotRecoveryNode, fmt.Sprintf("%d", cs.NodeConcurrentRecoveries))
+	recoveryCluster := m.editor.renderValue(slotRecoveryClust, fmt.Sprintf("%d", cs.ClusterConcurrentRebalance))
+	lines = append(lines, fmt.Sprintf("  Recovery: %s/s │ %s/node │ %s/cluster",
+		recoveryBytes, recoveryNode, recoveryCluster))
+
+	// Edit mode hint and error
+	if hint := m.editor.renderEditHint(); hint != "" {
+		lines = append(lines, hint)
+	}
+	if errMsg := m.editor.renderError(); errMsg != "" {
+		lines = append(lines, errMsg)
+	}
 
 	return strings.Join(lines, "\n")
 }

@@ -45,6 +45,7 @@ type CollectorConfig struct {
 type TUIConfig struct {
 	RefreshRate      Duration `toml:"refresh_rate"`
 	SparklineHistory int      `toml:"sparkline_history"`
+	SetGlobalMode    string   `toml:"set_global_mode"` // "persistent" (default) or "transient"
 }
 
 // LoggingConfig holds logging settings.
@@ -126,6 +127,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.TUI.SparklineHistory == 0 {
 		cfg.TUI.SparklineHistory = defaults.TUI.SparklineHistory
+	}
+	if cfg.TUI.SetGlobalMode == "" {
+		cfg.TUI.SetGlobalMode = defaults.TUI.SetGlobalMode
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = defaults.Logging.Level

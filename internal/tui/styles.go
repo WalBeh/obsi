@@ -97,6 +97,20 @@ var (
 	styleModalTitle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorYellow)
+
+	styleEditCursor = lipgloss.NewStyle().
+			Reverse(true)
+
+	styleEditInput = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Underline(true)
+
+	stylePickerActive = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(colorPrimary)
+
+	stylePickerItem = lipgloss.NewStyle().
+			Foreground(colorSecondary)
 )
 
 // metricBar renders a horizontal bar like [████████░░░░░░░░░░░░] 48%

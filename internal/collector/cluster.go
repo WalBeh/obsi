@@ -31,7 +31,8 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 		settings['indices']['recovery']['max_bytes_per_sec'] AS recovery_max_bytes,
 		settings['cluster']['routing']['allocation']['disk']['watermark']['low'] AS wm_low,
 		settings['cluster']['routing']['allocation']['disk']['watermark']['high'] AS wm_high,
-		settings['cluster']['routing']['allocation']['disk']['watermark']['flood_stage'] AS wm_flood
+		settings['cluster']['routing']['allocation']['disk']['watermark']['flood_stage'] AS wm_flood,
+		settings['cluster']['routing']['rebalance']['enable'] AS rebalance_enable
 	FROM sys.cluster`)
 	if err != nil {
 		return err
@@ -51,6 +52,7 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 		DiskWatermarkLow:           cratedb.ToString(row[5]),
 		DiskWatermarkHigh:          cratedb.ToString(row[6]),
 		DiskWatermarkFlood:         cratedb.ToString(row[7]),
+		RebalanceEnable:            cratedb.ToString(row[8]),
 	}
 
 	st.UpdateClusterSettings(settings)

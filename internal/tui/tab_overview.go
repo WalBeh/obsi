@@ -326,7 +326,7 @@ func (m OverviewModel) renderTableHealth() string {
 
 func (m OverviewModel) renderClusterSettings() string {
 	cs := m.snap.ClusterSettings
-	if cs.MaxShardsPerNode == 0 && cs.AllocationEnable == "" {
+	if cs.MaxShardsPerNode == 0 && cs.AllocationEnable == "" && cs.RebalanceEnable == "" {
 		return sectionTitle("Cluster Settings") + "\n" + styleStale.Render("  (loading...)")
 	}
 
@@ -335,7 +335,11 @@ func (m OverviewModel) renderClusterSettings() string {
 	// Allocation status — warn if not "all"
 	allocStyle := styleHealthGreen
 	if cs.AllocationEnable != "all" {
-		allocStyle = styleHealthRed
+		allocStyle = styleHealthYellowBold
+	}
+	rebalanceStyle := styleHealthGreen
+	if cs.RebalanceEnable != "all" {
+		rebalanceStyle = styleHealthYellowBold
 	}
 
 	var lines []string
@@ -397,9 +401,15 @@ func (m OverviewModel) renderClusterSettings() string {
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  Watermarks: %s │ %s │ %s",
 		cs.DiskWatermarkLow, cs.DiskWatermarkHigh, cs.DiskWatermarkFlood))
-	lines = append(lines, fmt.Sprintf("  Allocation: %s │ max shards/node: %d",
+	maxClusterShards := cs.MaxShardsPerNode * nodeCount
+	shardStyle := styleHealthGreen
+	if maxClusterShards > 0 && totalShards >= maxClusterShards*80/100 {
+		shardStyle = styleHealthYellowBold
+	}
+	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s",
 		allocStyle.Render(cs.AllocationEnable),
-		cs.MaxShardsPerNode))
+		rebalanceStyle.Render(cs.RebalanceEnable),
+		shardStyle.Render(fmt.Sprintf("%d/%d", totalShards, maxClusterShards))))
 	lines = append(lines, fmt.Sprintf("  Recovery: %s/s │ %d/node │ %d/cluster",
 		cs.RecoveryMaxBytesPerSec,
 		cs.NodeConcurrentRecoveries,

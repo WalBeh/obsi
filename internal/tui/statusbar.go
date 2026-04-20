@@ -113,7 +113,7 @@ func (m StatusBarModel) View() string {
 		// Pulse effect: alternate between bright yellow and dim every second
 		label := "⏸ PAUSED"
 		if time.Now().Second()%2 == 0 {
-			throttleStr = " │ " + styleHealthYellow.Bold(true).Render(label)
+			throttleStr = " │ " + styleHealthYellowBold.Render(label)
 		} else {
 			throttleStr = " │ " + styleDim.Render(label)
 		}

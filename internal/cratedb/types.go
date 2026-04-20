@@ -98,6 +98,7 @@ type ClusterSettings struct {
 	DiskWatermarkLow          string // e.g. "85%"
 	DiskWatermarkHigh         string // e.g. "90%"
 	DiskWatermarkFlood        string // e.g. "95%"
+	RebalanceEnable           string // "all", "primaries", "replicas", "none"
 }
 
 // Summit is a random mountain from sys.summits — CrateDB's Easter egg.

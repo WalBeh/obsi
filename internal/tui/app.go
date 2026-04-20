@@ -199,11 +199,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case TabShards:
 			a.shards = a.shards.Refresh(snap)
 		}
+		shardStat := a.collectors.QueryTracker().GetStat(collector.QueryShards)
 		a.statusBar = a.statusBar.Refresh(
 			a.registry.Status(),
 			throttle,
 			a.collectors.SuggestThrottle(),
 			a.store.ClusterHealth(),
+			a.store.ShardCount(),
+			shardStat.LastDur,
 		)
 		if a.showQueryLog {
 			a.queryLog.Refresh(a.collectors.QueryTracker(), throttle)

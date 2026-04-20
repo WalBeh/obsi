@@ -132,6 +132,16 @@ func (t *QueryTracker) RecordError(label string, err error) {
 	s.ErrCount++
 }
 
+// GetStat returns a copy of the stat for a given label, or zero value if not found.
+func (t *QueryTracker) GetStat(label string) QueryStat {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if s, ok := t.stats[label]; ok {
+		return *s
+	}
+	return QueryStat{}
+}
+
 // Snapshot returns a copy of all stats, safe for reading without locks.
 func (t *QueryTracker) Snapshot() []QueryStat {
 	t.mu.RLock()

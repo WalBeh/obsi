@@ -11,11 +11,14 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
+const largeShardThreshold = 10000
+
 type ShardsCollector struct {
 	interval            time.Duration
 	hasUnhealthy        bool
 	hasExplanationsCol  bool // false until first successful query with explanations
 	triedExplanations   bool // true after first allocations attempt
+	warnedLargeCluster  bool // true after first large-cluster warning
 	tracker             *QueryTracker
 }
 
@@ -43,7 +46,9 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		s.node['name'] AS node_name,
 		s.recovery['stage'] AS recovery_stage,
 		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent,
-		s.relocating_node
+		s.relocating_node,
+		COALESCE(s.translog_stats['uncommitted_size'], 0) AS translog_uncommitted_size,
+		COALESCE(s.translog_stats['uncommitted_operations'], 0) AS translog_uncommitted_ops
 	FROM sys.shards s
 	ORDER BY s.schema_name, s.table_name, s.id`)
 	if err != nil {
@@ -51,6 +56,12 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	}
 
 	shards := parseShardRows(resp.Rows)
+
+	if !c.warnedLargeCluster && len(shards) > largeShardThreshold {
+		c.warnedLargeCluster = true
+		slog.Warn("large cluster detected — consider increasing poll interval or using throttle (t)",
+			"shards", len(shards), "interval", c.interval)
+	}
 
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -113,6 +124,13 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		shardMap[key] = &shardAgg[i]
 	}
 
+	// Group shards by table key for efficient per-table lookups
+	shardsByTable := make(map[string][]cratedb.ShardInfo)
+	for _, s := range shards {
+		key := s.SchemaName + "." + s.TableName
+		shardsByTable[key] = append(shardsByTable[key], s)
+	}
+
 	// Build final table list: information_schema as base, enriched with shard data
 	tables := make([]cratedb.TableInfo, 0, len(infoResp.Rows))
 	for _, row := range infoResp.Rows {
@@ -158,6 +176,22 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 			ti.MaxShardSize = sa.MaxShardSize
 			ti.AvgShardSize = sa.AvgShardSize
 			ti.ShardsPerNode = sa.ShardsPerNode
+			ti.TranslogUncommittedSize = sa.TranslogUncommittedSize
+			ti.TranslogUncommittedOps = sa.TranslogUncommittedOps
+			ti.WorstTranslogSize = sa.WorstTranslogSize
+			ti.WorstTranslogShardID = sa.WorstTranslogShardID
+			ti.WorstTranslogNodeName = sa.WorstTranslogNodeName
+
+			// Count shards exceeding the flush threshold
+			threshold := ts.TranslogFlushThreshold
+			if threshold == 0 {
+				threshold = cratedb.DefaultTranslogFlushThreshold
+			}
+			for _, s := range shardsByTable[key] {
+				if s.TranslogUncommittedSize > threshold {
+					ti.ShardsOverTranslogThreshold++
+				}
+			}
 		}
 
 		tables = append(tables, ti)
@@ -316,7 +350,9 @@ func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
 			NodeName:        cratedb.ToString(row[11]),
 			RecoveryStage:   cratedb.ToString(row[12]),
 			RecoveryPercent: cratedb.ToFloat64(row[13]),
-			RelocatingNode:  cratedb.ToString(row[14]),
+			RelocatingNode:          cratedb.ToString(row[14]),
+			TranslogUncommittedSize: cratedb.ToInt64(row[15]),
+			TranslogUncommittedOps:  cratedb.ToInt64(row[16]),
 		}
 		shards = append(shards, shard)
 	}
@@ -361,6 +397,14 @@ func aggregateTables(shards []cratedb.ShardInfo) []cratedb.TableInfo {
 			}
 		} else {
 			ti.ReplicaShards++
+		}
+
+		ti.TranslogUncommittedSize += s.TranslogUncommittedSize
+		ti.TranslogUncommittedOps += s.TranslogUncommittedOps
+		if s.TranslogUncommittedSize > ti.WorstTranslogSize {
+			ti.WorstTranslogSize = s.TranslogUncommittedSize
+			ti.WorstTranslogShardID = s.ID
+			ti.WorstTranslogNodeName = s.NodeName
 		}
 
 		if s.NodeName != "" {

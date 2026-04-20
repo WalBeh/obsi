@@ -358,6 +358,13 @@ func (s *Store) UpdateShardsPartial(nonStarted []cratedb.ShardInfo) {
 	s.lastUpdated["shards"] = time.Now()
 }
 
+// ShardCount returns the total number of shards in the store.
+func (s *Store) ShardCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.shards)
+}
+
 // ClusterHealth returns the worst table health across the cluster: "RED", "YELLOW", "GREEN", or "" if unknown.
 func (s *Store) ClusterHealth() string {
 	s.mu.RLock()

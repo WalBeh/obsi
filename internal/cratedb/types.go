@@ -151,8 +151,10 @@ type ShardInfo struct {
 	Size           int64
 	NodeID         string
 	NodeName       string
-	RecoveryStage   string
-	RecoveryPercent float64
+	RecoveryStage            string
+	RecoveryPercent          float64
+	TranslogUncommittedSize  int64
+	TranslogUncommittedOps   int64
 }
 
 // AllocationInfo represents a row from sys.allocations for non-STARTED shards.
@@ -167,6 +169,9 @@ type AllocationInfo struct {
 	NodeName       string
 	Explanation    string
 }
+
+// DefaultTranslogFlushThreshold is CrateDB's default translog flush_threshold_size (512 MiB).
+const DefaultTranslogFlushThreshold int64 = 512 << 20
 
 // TableSettings holds table-level configuration from information_schema.tables.
 type TableSettings struct {
@@ -194,8 +199,14 @@ type TableInfo struct {
 	TotalDiskSize  int64 // all shards including replicas
 	Health         string
 	ShardsPerNode  map[string]int // nodeName -> shard count
-	MinShardSize   int64
-	MaxShardSize   int64
-	AvgShardSize   int64
-	Settings       TableSettings
+	MinShardSize                 int64
+	MaxShardSize                 int64
+	AvgShardSize                 int64
+	TranslogUncommittedSize      int64  // sum across all shards
+	TranslogUncommittedOps       int64
+	WorstTranslogSize            int64  // highest single shard
+	WorstTranslogShardID         int
+	WorstTranslogNodeName        string
+	ShardsOverTranslogThreshold  int    // count of shards exceeding flush_threshold_size
+	Settings                     TableSettings
 }

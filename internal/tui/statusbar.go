@@ -22,11 +22,13 @@ func fmtMs(d time.Duration) string {
 
 // StatusBarModel renders the connection status bar.
 type StatusBarModel struct {
-	status        cratedb.RegistryStatus
-	throttle      collector.ThrottleLevel
-	heapWarning   bool
-	clusterHealth string // "GREEN", "YELLOW", "RED", or ""
-	width         int
+	status         cratedb.RegistryStatus
+	throttle       collector.ThrottleLevel
+	heapWarning    bool
+	clusterHealth  string // "GREEN", "YELLOW", "RED", or ""
+	totalShards    int
+	shardQueryDur  time.Duration
+	width          int
 }
 
 // NewStatusBarModel creates a new status bar.
@@ -35,11 +37,13 @@ func NewStatusBarModel(width int) StatusBarModel {
 }
 
 // Refresh updates the status bar with new registry status.
-func (m StatusBarModel) Refresh(status cratedb.RegistryStatus, throttle collector.ThrottleLevel, heapWarning bool, clusterHealth string) StatusBarModel {
+func (m StatusBarModel) Refresh(status cratedb.RegistryStatus, throttle collector.ThrottleLevel, heapWarning bool, clusterHealth string, totalShards int, shardQueryDur time.Duration) StatusBarModel {
 	m.status = status
 	m.throttle = throttle
 	m.heapWarning = heapWarning
 	m.clusterHealth = clusterHealth
+	m.totalShards = totalShards
+	m.shardQueryDur = shardQueryDur
 	return m
 }
 
@@ -94,6 +98,14 @@ func (m StatusBarModel) View() string {
 
 	nodes := fmt.Sprintf(" │ nodes: %d", s.TotalNodes)
 
+	shardsStr := ""
+	if m.totalShards > 0 {
+		shardsStr = fmt.Sprintf(" │ shards: %d", m.totalShards)
+		if m.shardQueryDur > 0 {
+			shardsStr += fmt.Sprintf(" (%s)", fmtMs(m.shardQueryDur))
+		}
+	}
+
 	// Throttle indicator
 	throttleStr := ""
 	switch {
@@ -118,7 +130,7 @@ func (m StatusBarModel) View() string {
 			fmtMs(s.Latency.Avg), fmtMs(s.Latency.P90), fmtMs(s.Latency.Max))
 	}
 
-	left := connIndicator + connPath + cluster + nodes + latencyStr + throttleStr
+	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr
 
 	help := styleDim.Render("t:throttle  r:reconnect  q:quit")
 

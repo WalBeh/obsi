@@ -424,9 +424,9 @@ func (m OverviewModel) renderClusterSettings() string {
 	allocVal := m.editor.renderValue(slotAlloc, allocStyle.Render(cs.AllocationEnable))
 	rebalanceVal := m.editor.renderValue(slotRebalance, rebalanceStyle.Render(cs.RebalanceEnable))
 	maxShardsVal := m.editor.renderValue(slotMaxShards, fmt.Sprintf("%d", cs.MaxShardsPerNode))
-	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s/%s",
+	lines = append(lines, fmt.Sprintf("  Allocation: %s │ Rebalance: %s │ Shards: %s/%d (%s/node)",
 		allocVal, rebalanceVal,
-		shardStyle.Render(fmt.Sprintf("%d", totalShards)), maxShardsVal))
+		shardStyle.Render(fmt.Sprintf("%d", totalShards)), maxClusterShards, maxShardsVal))
 	// Picker dropdown for allocation/rebalance
 	for _, idx := range []int{slotAlloc, slotRebalance} {
 		if picker := m.editor.renderPicker(idx, "              "); picker != "" {

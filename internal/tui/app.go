@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/waltergrande/cratedb-observer/internal/collector"
+	"github.com/waltergrande/cratedb-observer/internal/config"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
@@ -54,15 +55,16 @@ type App struct {
 }
 
 // NewApp creates the root TUI model.
-func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx context.Context, refreshRate time.Duration) *App {
+func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx context.Context, tuiCfg config.TUIConfig) *App {
+	persistent := tuiCfg.SetGlobalMode != "transient"
 	return &App{
 		store:       st,
 		registry:    reg,
 		collectors:  mgr,
 		ctx:         ctx,
 		keyMap:      DefaultKeyMap(),
-		refreshRate: refreshRate,
-		overview:    NewOverviewModel(0, 0),
+		refreshRate: tuiCfg.RefreshRate.Duration,
+		overview:    NewOverviewModel(0, 0, persistent),
 		nodes:       NewNodesModel(0, 0),
 		queries:     NewQueriesModel(0, 0),
 		tables:      NewTablesModel(0, 0),
@@ -170,6 +172,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return KillQueryResultMsg{ID: id}
 		}
+
+	case SetSettingMsg:
+		reg := a.registry
+		ctx := a.ctx
+		persistence := "PERSISTENT"
+		if !msg.Persistent {
+			persistence = "TRANSIENT"
+		}
+		stmt := fmt.Sprintf(`SET GLOBAL %s "%s" = ?`, persistence, msg.SettingPath)
+		slotIdx := msg.SlotIndex
+		return a, func() tea.Msg {
+			_, err := reg.Query(ctx, stmt, msg.Value)
+			if err != nil {
+				return SetSettingResultMsg{SlotIndex: slotIdx, Error: err.Error()}
+			}
+			return SetSettingResultMsg{SlotIndex: slotIdx}
+		}
+
+	case SetSettingResultMsg:
+		a.overview.editor.handleResult(msg)
+		if msg.Error == "" {
+			a.collectors.TriggerCollector(a.ctx, "cluster")
+		}
+		return a, nil
 
 	case KillQueryResultMsg:
 		if msg.Error != "" {
@@ -309,6 +335,8 @@ func (a *App) isTabInputMode() bool {
 		return a.tables.searching
 	case TabShards:
 		return a.shards.searching
+	case TabOverview:
+		return a.overview.editor.isInputMode()
 	case TabSQL:
 		return a.sql.IsEditing()
 	}

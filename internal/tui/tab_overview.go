@@ -391,9 +391,10 @@ func (m OverviewModel) renderClusterSettings() string {
 		lines = append(lines, dataLine)
 	}
 
-	// Node/zone topology
+	// Node/zone topology and version collection
 	nodeCount := 0
 	zones := make(map[string]bool)
+	versions := make(map[string]bool)
 	for _, n := range m.snap.Nodes {
 		if n.Gone {
 			continue
@@ -401,6 +402,9 @@ func (m OverviewModel) renderClusterSettings() string {
 		nodeCount++
 		if n.Zone != "" {
 			zones[n.Zone] = true
+		}
+		if n.Version != "" {
+			versions[n.Version] = true
 		}
 	}
 	if len(zones) > 0 {
@@ -413,6 +417,18 @@ func (m OverviewModel) renderClusterSettings() string {
 			nodeCount, len(zones), strings.Join(zoneList, ", ")))
 	} else {
 		lines = append(lines, fmt.Sprintf("  Topology: %d nodes", nodeCount))
+	}
+	if len(versions) > 0 {
+		vList := make([]string, 0, len(versions))
+		for v := range versions {
+			vList = append(vList, v)
+		}
+		sort.Strings(vList)
+		versionStr := strings.Join(vList, " ")
+		if len(versions) > 1 {
+			versionStr = styleHealthYellowBold.Render(versionStr)
+		}
+		lines = append(lines, fmt.Sprintf("  CrateDB: %s", versionStr))
 	}
 
 	lines = append(lines, "")

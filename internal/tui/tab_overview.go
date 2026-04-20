@@ -368,9 +368,17 @@ func (m OverviewModel) renderClusterSettings() string {
 	viewCount := m.snap.ViewCount
 
 	if totalShards > 0 {
-		dataLine := fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%dp / %dr) │ %d tables",
+		pLabel := fmt.Sprintf("%dp", primaryShards)
+		rLabel := fmt.Sprintf("%dr", replicaShards)
+		if replicaShards == primaryShards {
+			pLabel = styleHealthGreen.Render(pLabel)
+			rLabel = styleHealthGreen.Render(rLabel)
+		} else if replicaShards < primaryShards {
+			rLabel = styleHealthYellowBold.Render(rLabel)
+		}
+		dataLine := fmt.Sprintf("  Data: %s primary / %s total │ %d shards (%s / %s) │ %d tables",
 			formatBytes(primarySize), formatBytes(totalSize),
-			totalShards, primaryShards, replicaShards, tableCount)
+			totalShards, pLabel, rLabel, tableCount)
 		if viewCount > 0 {
 			dataLine += fmt.Sprintf(", %d views", viewCount)
 		}

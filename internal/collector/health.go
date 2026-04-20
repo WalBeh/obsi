@@ -40,7 +40,7 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	}
 
 	// Fetch table health
-	healthResp, err := trackedQuery(ctx, c.tracker, QueryTableHealth, reg, `SELECT table_schema, table_name, health, missing_shards, underreplicated_shards, partition_ident FROM sys.health ORDER BY health, table_schema, table_name`)
+	healthResp, err := trackedQuery(ctx, c.tracker, QueryTableHealth, reg, `SELECT table_schema, table_name, health, missing_shards, underreplicated_shards, partition_ident FROM sys.health WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob') ORDER BY health, table_schema, table_name`)
 	if err != nil {
 		return err
 	}

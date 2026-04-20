@@ -291,7 +291,7 @@ func (m OverviewModel) renderNodeSummary() string {
 
 func (m OverviewModel) renderTableHealth() string {
 	stale := m.snap.Staleness["health"]
-	title := sectionTitle("Table Health")
+	title := sectionTitle("Table/Partition Health")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}

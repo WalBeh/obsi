@@ -256,10 +256,10 @@ func (m ShardsModel) HandleKey(msg tea.KeyMsg) (ShardsModel, tea.Cmd) {
 }
 
 func (m ShardsModel) View() string {
+	stale := m.snap.Staleness["shards"]
 	title := styleTitle.Render("Shard Health")
-
-	if m.snap.Staleness["shards"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	totalShards := len(m.snap.Shards)
@@ -279,7 +279,11 @@ func (m ShardsModel) View() string {
 	if len(m.problemShards) == 0 {
 		lines = append(lines, styleHealthGreen.Render(
 			fmt.Sprintf("  All %d shards healthy", totalShards)))
-		return strings.Join(lines, "\n")
+		result := strings.Join(lines, "\n")
+		if stale {
+			return styleDim.Render(result)
+		}
+		return result
 	}
 
 	// Search input
@@ -385,7 +389,11 @@ func (m ShardsModel) View() string {
 		lines = append(lines, m.renderDetail(m.problemShards[m.sorted[m.selected]]))
 	}
 
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 func (m ShardsModel) renderSummary() string {

@@ -245,10 +245,10 @@ func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
 }
 
 func (m TablesModel) View() string {
+	stale := m.snap.Staleness["shards"]
 	title := styleTitle.Render("Tables & Shards")
-
-	if m.snap.Staleness["shards"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	if len(m.snap.Tables) == 0 {
@@ -319,7 +319,11 @@ func (m TablesModel) View() string {
 
 	if len(m.sorted) == 0 {
 		lines = append(lines, "  No matching tables")
-		return strings.Join(lines, "\n")
+		result := strings.Join(lines, "\n")
+		if stale {
+			return styleDim.Render(result)
+		}
+		return result
 	}
 
 	// Virtual scrolling: only render visible rows
@@ -390,7 +394,11 @@ func (m TablesModel) View() string {
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 func (m TablesModel) sortHeader(label string, field SortField, width int) string {

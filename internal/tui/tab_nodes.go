@@ -228,10 +228,10 @@ func (m NodesModel) HandleKey(msg tea.KeyMsg) (NodesModel, tea.Cmd) {
 }
 
 func (m NodesModel) View() string {
+	stale := m.snap.Staleness["nodes"]
 	title := sectionTitle("Nodes")
-
-	if m.snap.Staleness["nodes"] {
-		return title + "\n" + styleStale.Render("  (stale data)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
 	}
 
 	if len(m.snap.Nodes) == 0 {
@@ -286,7 +286,11 @@ func (m NodesModel) View() string {
 
 	if len(m.sorted) == 0 {
 		lines = append(lines, "  No matching nodes")
-		return strings.Join(lines, "\n")
+		result := strings.Join(lines, "\n")
+		if stale {
+			return styleDim.Render(result)
+		}
+		return result
 	}
 
 	// Virtual scrolling
@@ -386,7 +390,11 @@ func (m NodesModel) View() string {
 		lines = append(lines, m.renderDetail(m.snap.Nodes[m.sorted[m.selected]]))
 	}
 
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 // threadPoolFlag returns a colored pressure indicator for the node list.

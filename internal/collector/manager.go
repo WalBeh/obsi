@@ -148,6 +148,29 @@ func (m *Manager) TriggerCollector(ctx context.Context, name string) {
 	}
 }
 
+// TriggerAll runs every collector once in the background with a short stagger
+// between each to avoid slamming a recovering cluster with concurrent queries.
+func (m *Manager) TriggerAll(ctx context.Context) {
+	if m.Throttle() == ThrottleMax {
+		return
+	}
+	go func() {
+		for i, c := range m.collectors {
+			if i > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+				}
+			}
+			slog.Info("recovery refresh triggered", "collector", c.Name())
+			if err := c.Collect(ctx, m.registry, m.store); err != nil {
+				slog.Warn("recovery refresh failed", "collector", c.Name(), "error", err)
+			}
+		}
+	}()
+}
+
 // Stop cancels all collector goroutines and waits for them to finish.
 func (m *Manager) Stop() {
 	if m.cancel != nil {

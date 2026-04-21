@@ -4,6 +4,10 @@ A lightweight TUI monitoring tool for CrateDB clusters. Single binary, zero depe
 
 ## Install
 
+Download a prebuilt binary from [Releases](https://github.com/WalBeh/obsi/releases) (Linux, macOS, Windows).
+
+Or install via Go:
+
 ```bash
 go install github.com/WalBeh/obsi@latest
 ```
@@ -39,10 +43,10 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 
 | Key | Tab | What it shows |
 |-----|-----|---------------|
-| `1` | Overview | Cluster settings, health checks, node summary, table health |
+| `1` | Overview | Cluster settings (inline editable), health checks, node/zone topology, CrateDB version, table health |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
-| `3` | Queries | Active queries with duration and statement preview |
-| `4` | Tables | Table list with shard distribution, settings, size stats |
+| `3` | Queries | Active queries with duration, node, username, statement preview |
+| `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
 | `5` | Shards | Shard allocation problems, recovery progress, relocations |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results |
 
@@ -53,12 +57,14 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `1-6` | Switch tabs |
 | `tab` / `shift+tab` | Next/prev tab |
 | `j/k` or `↑/↓` | Navigate |
-| `s` | Cycle sort column |
+| `s` | Cycle sort column (Nodes, Tables, Shards) |
 | `/` | Search/filter |
 | `esc` | Clear search |
+| `e` | Edit cluster settings (Overview tab) |
+| `f` | Toggle unhealthy table filter (Tables tab) |
 | `K` | Kill selected query (Queries tab) |
-| `t` | Cycle throttle (normal/mild/heavy) |
-| `ctrl+r` | Force refresh current tab |
+| `t` | Cycle throttle (normal/mild/heavy/paused) |
+| `ctrl+r` / `R` / `F5` | Force refresh current tab |
 | `r` | Reconnect to cluster |
 | `L` | Toggle query log |
 | `?` | Help |
@@ -121,11 +127,16 @@ Collector/TUI/logging settings are global (shared across profiles).
 - Failover-aware connection: works through load balancers, falls back to direct node IPs
 - Node disappearance detection with "last seen" tracking
 - Disk watermark visualization (low/high/flood markers on disk bars)
+- Inline cluster settings editor (allocation, rebalance, recovery, watermarks, max shards)
+- CrateDB version display with mixed-version warning
+- Translog flush monitoring: highlights shards exceeding the flush threshold
+- Table health color-coding (RED/YELLOW/GREEN) with unhealthy-only filter
 - Shard size skew detection
 - CrateDB Cloud hostname shortening (`crate-data-hot-<uuid>-0` -> `data-hot-0`)
 - Zone-aware topology display
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
+- Query latency stats (avg/p90/max) in status bar
 
 ## License
 

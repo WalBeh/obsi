@@ -154,6 +154,7 @@ type ShardInfo struct {
 	NodeName       string
 	RecoveryStage            string
 	RecoveryPercent          float64
+	TranslogSize             int64
 	TranslogUncommittedSize  int64
 	TranslogUncommittedOps   int64
 }
@@ -203,6 +204,7 @@ type TableInfo struct {
 	MinShardSize                 int64
 	MaxShardSize                 int64
 	AvgShardSize                 int64
+	TranslogSize                 int64  // sum of translog size across all shards
 	TranslogUncommittedSize      int64  // sum across all shards
 	TranslogUncommittedOps       int64
 	WorstTranslogSize            int64  // highest single shard

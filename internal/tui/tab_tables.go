@@ -155,7 +155,7 @@ func (m *TablesModel) rebuildSorted() {
 		case SortByRecords:
 			less = tables[ia].TotalRecords < tables[ib].TotalRecords
 		case SortByTranslog:
-			less = tables[ia].TranslogUncommittedSize < tables[ib].TranslogUncommittedSize
+			less = tables[ia].TranslogSize < tables[ib].TranslogSize
 		default:
 			less = ia < ib
 		}
@@ -313,8 +313,8 @@ func (m TablesModel) View() string {
 	sizeHdr := m.sortHeader("SIZE", SortBySize, 12)
 	translogHdr := m.sortHeader("TRANSLOG", SortByTranslog, 10)
 
-	header := styleHeader.Render(fmt.Sprintf("  %-3s %-30s %7s %7s %10s %10s %10s %10s",
-		"", nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr))
+	header := styleHeader.Render(fmt.Sprintf("  %-30s %7s %7s %10s %10s %10s %10s",
+		nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr))
 	lines = append(lines, header)
 
 	if len(m.sorted) == 0 {
@@ -363,8 +363,8 @@ func (m TablesModel) View() string {
 		}
 
 		translogCol := ""
-		if t.TranslogUncommittedSize > 0 {
-			translogCol = formatBytes(t.TranslogUncommittedSize)
+		if t.ShardsOverTranslogThreshold > 0 {
+			translogCol = fmt.Sprintf("%s +%d", formatBytes(t.WorstTranslogSize), t.ShardsOverTranslogThreshold)
 		}
 
 		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s %10s",
@@ -472,8 +472,9 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 
 		// Translog uncommitted stats
 		if t.TranslogUncommittedSize > 0 {
-			tlLine := fmt.Sprintf("    Translog     uncommitted: %s (%d ops)",
-				formatBytes(t.TranslogUncommittedSize), t.TranslogUncommittedOps)
+			tlLine := fmt.Sprintf("    Translog     uncommitted: %s (%d ops) │ max shard %d: %s",
+				formatBytes(t.TranslogUncommittedSize), t.TranslogUncommittedOps,
+				t.WorstTranslogShardID, formatBytes(t.WorstTranslogSize))
 
 			if t.ShardsOverTranslogThreshold > 0 {
 				worstInfo := fmt.Sprintf("shard %d on %s: %s",

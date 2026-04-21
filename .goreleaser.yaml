@@ -1,0 +1,38 @@
+version: 2
+
+builds:
+  - main: .
+    binary: obsi
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: binary
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?\!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\(.+\))?\!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+checksum:
+  disable: true
+
+release:
+  github:
+    owner: WalBeh
+    name: obsi

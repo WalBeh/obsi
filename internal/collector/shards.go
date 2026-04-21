@@ -47,6 +47,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		s.recovery['stage'] AS recovery_stage,
 		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent,
 		s.relocating_node,
+		COALESCE(s.translog_stats['size'], 0) AS translog_size,
 		COALESCE(s.translog_stats['uncommitted_size'], 0) AS translog_uncommitted_size,
 		COALESCE(s.translog_stats['uncommitted_operations'], 0) AS translog_uncommitted_ops
 	FROM sys.shards s
@@ -176,6 +177,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 			ti.MaxShardSize = sa.MaxShardSize
 			ti.AvgShardSize = sa.AvgShardSize
 			ti.ShardsPerNode = sa.ShardsPerNode
+			ti.TranslogSize = sa.TranslogSize
 			ti.TranslogUncommittedSize = sa.TranslogUncommittedSize
 			ti.TranslogUncommittedOps = sa.TranslogUncommittedOps
 			ti.WorstTranslogSize = sa.WorstTranslogSize
@@ -188,7 +190,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 				threshold = cratedb.DefaultTranslogFlushThreshold
 			}
 			for _, s := range shardsByTable[key] {
-				if s.TranslogUncommittedSize > threshold {
+				if s.TranslogSize > threshold {
 					ti.ShardsOverTranslogThreshold++
 				}
 			}
@@ -351,8 +353,9 @@ func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
 			RecoveryStage:   cratedb.ToString(row[12]),
 			RecoveryPercent: cratedb.ToFloat64(row[13]),
 			RelocatingNode:          cratedb.ToString(row[14]),
-			TranslogUncommittedSize: cratedb.ToInt64(row[15]),
-			TranslogUncommittedOps:  cratedb.ToInt64(row[16]),
+			TranslogSize:            cratedb.ToInt64(row[15]),
+			TranslogUncommittedSize: cratedb.ToInt64(row[16]),
+			TranslogUncommittedOps:  cratedb.ToInt64(row[17]),
 		}
 		shards = append(shards, shard)
 	}
@@ -399,10 +402,11 @@ func aggregateTables(shards []cratedb.ShardInfo) []cratedb.TableInfo {
 			ti.ReplicaShards++
 		}
 
+		ti.TranslogSize += s.TranslogSize
 		ti.TranslogUncommittedSize += s.TranslogUncommittedSize
 		ti.TranslogUncommittedOps += s.TranslogUncommittedOps
-		if s.TranslogUncommittedSize > ti.WorstTranslogSize {
-			ti.WorstTranslogSize = s.TranslogUncommittedSize
+		if s.TranslogSize > ti.WorstTranslogSize {
+			ti.WorstTranslogSize = s.TranslogSize
 			ti.WorstTranslogShardID = s.ID
 			ti.WorstTranslogNodeName = s.NodeName
 		}

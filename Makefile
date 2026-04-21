@@ -7,7 +7,9 @@ TARGETS := \
 	$(OUTDIR)/$(APP)-linux-amd64 \
 	$(OUTDIR)/$(APP)-linux-arm64 \
 	$(OUTDIR)/$(APP)-darwin-amd64 \
-	$(OUTDIR)/$(APP)-darwin-arm64
+	$(OUTDIR)/$(APP)-darwin-arm64 \
+	$(OUTDIR)/$(APP)-windows-amd64.exe \
+	$(OUTDIR)/$(APP)-windows-arm64.exe
 
 .PHONY: build all clean $(APP) $(TARGETS)
 
@@ -29,6 +31,12 @@ $(OUTDIR)/$(APP)-darwin-amd64:
 
 $(OUTDIR)/$(APP)-darwin-arm64:
 	GOOS=darwin GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ .
+
+$(OUTDIR)/$(APP)-windows-amd64.exe:
+	GOOS=windows GOARCH=amd64 go build -ldflags '$(LDFLAGS)' -o $@ .
+
+$(OUTDIR)/$(APP)-windows-arm64.exe:
+	GOOS=windows GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ .
 
 clean:
 	rm -rf $(OUTDIR) $(APP)

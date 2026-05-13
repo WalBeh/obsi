@@ -29,6 +29,7 @@ type JMXCollector struct {
 
 // NewJMXCollector wires a JMX collector with sensible HTTP defaults.
 func NewJMXCollector(cfg config.JMXConfig) *JMXCollector {
+	slog.Info("JMX collector configured", "endpoint", cfg.Endpoint, "interval", cfg.Interval.Duration)
 	return &JMXCollector{
 		interval: cfg.Interval.Duration,
 		scraper:  jmx.NewScraper(cfg.Endpoint, cfg.Timeout.Duration),
@@ -51,8 +52,10 @@ func (c *JMXCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *s
 	// than fetch unverified data.
 	expected := reg.Status().ClusterName
 	if expected == "" {
+		slog.Debug("JMX collect skipped: cluster name not yet known")
 		return nil
 	}
+	slog.Debug("JMX collect", "expected_cluster", expected, "url", c.scraper.URL)
 
 	ex, err := c.scraper.Fetch(ctx, expected)
 	if err != nil {
@@ -60,8 +63,15 @@ func (c *JMXCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *s
 	}
 
 	c.mu.Lock()
+	wasFailing := c.consecutiveFailures > 0
 	c.consecutiveFailures = 0
 	c.mu.Unlock()
+
+	if wasFailing {
+		slog.Info("JMX endpoint reachable again", "pods", len(ex.Pods))
+	} else {
+		slog.Debug("JMX collect ok", "pods", len(ex.Pods), "scraped_at", ex.Cluster.Meta.ScrapedAt)
+	}
 
 	st.UpdateJMX(ex)
 	return nil

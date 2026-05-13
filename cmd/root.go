@@ -220,7 +220,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	st := store.New(cfg.TUI.SparklineHistory, cfg.Collectors)
 
 	// Create and start collectors
-	collectors := collector.DefaultCollectors(cfg.Collectors, tracker)
+	collectors := collector.DefaultCollectors(cfg.Collectors, cfg.JMX, tracker)
+	if cfg.JMX.Endpoint != "" {
+		st.RegisterCollectorStaleness("jmx", cfg.JMX.Interval.Duration)
+	}
 	mgr := collector.NewManager(registry, st, tracker, collectors...)
 	mgr.Start(ctx)
 

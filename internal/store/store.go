@@ -6,6 +6,7 @@ import (
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
+	"github.com/waltergrande/cratedb-observer/internal/jmx"
 )
 
 const (
@@ -111,6 +112,10 @@ type Store struct {
 	shards        []cratedb.ShardInfo
 	allocations   []cratedb.AllocationInfo
 
+	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
+	jmxPods    map[string]*jmx.JMXSnapshot
+	jmxCluster jmx.ClusterJMX
+
 	// Track known nodes for disappearance detection
 	knownNodes map[string]NodeSnapshot // nodeID -> last known snapshot
 
@@ -145,6 +150,12 @@ type StoreSnapshot struct {
 	Shards        []cratedb.ShardInfo
 	Allocations   []cratedb.AllocationInfo
 
+	// JMX per-pod snapshots; empty when the JMX collector is disabled or
+	// has not yet produced a successful scrape. Pod-name keys match
+	// NodeInfo.Hostname on CrateDB Cloud.
+	JMX        map[string]*jmx.JMXSnapshot
+	JMXCluster jmx.ClusterJMX
+
 	// NodeHistory maps node ID to its time-series snapshots.
 	NodeHistory map[string]NodeHistorySnapshot
 
@@ -168,6 +179,29 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 		lastUpdated:   make(map[string]time.Time),
 		staleAfter:    staleAfter,
 	}
+}
+
+// UpdateJMX replaces the per-pod JMX map and cluster summary with the latest
+// extracted scrape. The caller is expected to have already run the
+// cluster-name safety guard; the store does no further validation.
+func (s *Store) UpdateJMX(ex *jmx.Extracted) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.jmxPods = ex.Pods
+	s.jmxCluster = ex.Cluster
+	s.lastUpdated["jmx"] = time.Now()
+}
+
+// RegisterCollectorStaleness adds a collector to the staleness-tracking map
+// after construction. Used by JMX because it isn't part of the
+// cfg.Collectors map (its enablement signal is JMX.Endpoint).
+func (s *Store) RegisterCollectorStaleness(name string, interval time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.staleAfter == nil {
+		s.staleAfter = make(map[string]time.Duration)
+	}
+	s.staleAfter[name] = interval * stalenessMultiplier
 }
 
 // UpdateClusterSettings updates cluster-level settings.
@@ -408,6 +442,7 @@ type SnapshotHint struct {
 	IncludeQueries     bool // active queries
 	IncludeHealth      bool // cluster checks + table health
 	IncludeCluster     bool // cluster settings + summit
+	IncludeJMX         bool // per-pod JMX snapshots + cluster summary
 }
 
 // Snapshot returns a read-only copy of the store.
@@ -447,6 +482,13 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeShards {
 		snap.Shards = copySlice(s.shards)
 		snap.Allocations = copySlice(s.allocations)
+	}
+	if hint.IncludeJMX && len(s.jmxPods) > 0 {
+		snap.JMX = make(map[string]*jmx.JMXSnapshot, len(s.jmxPods))
+		for k, v := range s.jmxPods {
+			snap.JMX[k] = v
+		}
+		snap.JMXCluster = s.jmxCluster
 	}
 
 	if throttleMultiplier < 1 {

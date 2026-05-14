@@ -35,6 +35,11 @@ func DefaultConfig() *Config {
 				Interval: Duration{1 * time.Minute},
 			},
 		},
+		JMX: JMXConfig{
+			Endpoint: "", // empty = disabled until user opts in
+			Interval: Duration{30 * time.Second},
+			Timeout:  Duration{10 * time.Second},
+		},
 		TUI: TUIConfig{
 			RefreshRate:      Duration{500 * time.Millisecond},
 			SparklineHistory: 120,

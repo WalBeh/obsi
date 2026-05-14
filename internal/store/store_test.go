@@ -18,7 +18,7 @@ import (
 // Also asserts the count rate is derived from sample timestamps (matching
 // rate(jvm_gc_collection_seconds_count) on the same window).
 func TestJMXHistorySnapshot_GCWeightedMean(t *testing.T) {
-	h := newJMXHistory()
+	h := newJMXHistory(16)
 	ring := NewRingBuf[gcSample](16)
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	ring.Push(gcSample{Count: 1, Seconds: 0.010, At: t0})                          // 1 × 10ms
@@ -65,7 +65,7 @@ func TestJMXHistorySnapshot_GCWeightedMean(t *testing.T) {
 // samples → window duration is 0). The renderer treats RatePerSec == 0
 // as "don't show the rate", so this just verifies we don't blow up.
 func TestJMXHistorySnapshot_RateUndefinedOnSingleSample(t *testing.T) {
-	h := newJMXHistory()
+	h := newJMXHistory(16)
 	ring := NewRingBuf[gcSample](4)
 	ring.Push(gcSample{Count: 3, Seconds: 0.030, At: time.Now()})
 	h.GCDeltas["G1 Young Generation"] = ring
@@ -83,7 +83,7 @@ func TestJMXHistorySnapshot_RateUndefinedOnSingleSample(t *testing.T) {
 // path — the renderer relies on Collections==0 to show "—" instead of
 // a meaningless 0ms.
 func TestJMXHistorySnapshot_NoEvents(t *testing.T) {
-	h := newJMXHistory()
+	h := newJMXHistory(16)
 	ring := NewRingBuf[gcSample](4)
 	ring.Push(gcSample{})
 	ring.Push(gcSample{})

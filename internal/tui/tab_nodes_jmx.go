@@ -9,6 +9,90 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
+// renderContainerMem inserts a single line showing the cgroup memory the
+// pod is actually using vs the JVM heap, with the difference labelled
+// "native". An RSS that grows independently of heap is the classic
+// off-heap leak signal.
+func (m NodesModel) renderContainerMem(n store.NodeSnapshot) string {
+	snap := m.snap.JMX[n.Hostname]
+	if snap == nil || snap.ContainerMemBytes == 0 {
+		return ""
+	}
+	native := snap.ContainerMemBytes - n.HeapUsed
+	if native < 0 {
+		native = 0
+	}
+	return fmt.Sprintf("    Container    %s %s",
+		formatBytes(snap.ContainerMemBytes),
+		styleDim.Render(fmt.Sprintf("(heap %s + %s native)", formatBytes(n.HeapUsed), formatBytes(native))),
+	)
+}
+
+// renderJMXNetAndDisk inserts the network rx/tx rate lines and the
+// per-device disk rate breakdown. Returns nil when no JMX data is
+// available, so non-Cloud setups see no change.
+func (m NodesModel) renderJMXNetAndDisk(n store.NodeSnapshot) []string {
+	rates := m.snap.JMXRates[n.Hostname]
+	if rates == nil {
+		return nil
+	}
+	hist := m.snap.JMXHistory[n.Hostname]
+
+	var lines []string
+
+	netRxSpark := ""
+	if len(hist.NetRxRate) > 1 {
+		netRxSpark = " " + sparkline(hist.NetRxRate, 30)
+	}
+	netTxSpark := ""
+	if len(hist.NetTxRate) > 1 {
+		netTxSpark = " " + sparkline(hist.NetTxRate, 30)
+	}
+	lines = append(lines, fmt.Sprintf("    Net rx       %9s/s %s",
+		formatRate(rates.NetRxBytesPerSec), styleDim.Render(netRxSpark)))
+	lines = append(lines, fmt.Sprintf("    Net tx       %9s/s %s",
+		formatRate(rates.NetTxBytesPerSec), styleDim.Render(netTxSpark)))
+
+	// Per-device disk: skip devices with no recent activity to avoid
+	// listing every /dev/sda..sdf on CrateDB Cloud where only data
+	// volumes are interesting.
+	type devRate struct {
+		name string
+		r, w float64
+	}
+	all := map[string]*devRate{}
+	for dev, r := range rates.DiskReadPerSec {
+		if all[dev] == nil {
+			all[dev] = &devRate{name: dev}
+		}
+		all[dev].r = r
+	}
+	for dev, w := range rates.DiskWritePerSec {
+		if all[dev] == nil {
+			all[dev] = &devRate{name: dev}
+		}
+		all[dev].w = w
+	}
+	var active []*devRate
+	for _, d := range all {
+		if d.r > 0 || d.w > 0 {
+			active = append(active, d)
+		}
+	}
+	if len(active) > 0 {
+		sort.Slice(active, func(i, j int) bool { return active[i].name < active[j].name })
+		lines = append(lines, styleDim.Render("    Per-device   r/s         w/s"))
+		for _, d := range active {
+			lines = append(lines, fmt.Sprintf("    %-12s %9s/s %9s/s",
+				strings.TrimPrefix(d.name, "/dev/"),
+				formatRate(d.r), formatRate(d.w),
+			))
+		}
+	}
+
+	return lines
+}
+
 // renderJMX produces the GC, memory pool, and buffer pool sections of the
 // node detail panel. Returns nil when no JMX data is available for this
 // node (collector disabled, scrape not yet successful, or pod label

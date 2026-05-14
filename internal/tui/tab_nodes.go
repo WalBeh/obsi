@@ -584,6 +584,12 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 	memDetail := fmt.Sprintf("(%s / %s)", formatBytes(n.MemUsed), formatBytes(n.MemTotal))
 	lines = append(lines, fmt.Sprintf("    Memory       %s %5s %s", metricBar(memPct, barWidth), memLabel, styleDim.Render(memDetail)))
 
+	// Container memory vs heap — exposes off-heap / native growth that
+	// process Memory and JVM Heap together can't show on their own.
+	if s := m.renderContainerMem(n); s != "" {
+		lines = append(lines, s)
+	}
+
 	// Disk bar with watermark markers
 	cs := m.snap.ClusterSettings
 	fsLabel := fmt.Sprintf("%.1f%%", fsPct)
@@ -662,6 +668,10 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 			formatRate(n.WriteThroughput),
 			styleDim.Render(writeTPSpark), styleDim.Render(writeTPStats)))
 	}
+
+	// JMX-derived network and per-device disk rates — render alongside the
+	// other rate rows so all throughput data sits in one block.
+	lines = append(lines, m.renderJMXNetAndDisk(n)...)
 
 	// Thread pools
 	if len(n.ThreadPools) > 0 {

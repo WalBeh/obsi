@@ -92,11 +92,17 @@ type gcSample struct {
 // possibly others on differently-tuned JVMs) and we only allocate buffers
 // for collectors we actually observe.
 type jmxHistory struct {
-	GCDeltas map[string]*RingBuf[gcSample]
+	GCDeltas  map[string]*RingBuf[gcSample]
+	NetRxRate *RingBuf[float64] // bytes/s — cumulative across interfaces
+	NetTxRate *RingBuf[float64]
 }
 
-func newJMXHistory() *jmxHistory {
-	return &jmxHistory{GCDeltas: map[string]*RingBuf[gcSample]{}}
+func newJMXHistory(sparklineSize int) *jmxHistory {
+	return &jmxHistory{
+		GCDeltas:  map[string]*RingBuf[gcSample]{},
+		NetRxRate: NewRingBuf[float64](sparklineSize),
+		NetTxRate: NewRingBuf[float64](sparklineSize),
+	}
 }
 
 // GCWindowStat is the precomputed read-side summary for the recent-window
@@ -117,12 +123,39 @@ type JMXHistorySnapshot struct {
 	GCPauseMs map[string][]float64
 	// GCRecent holds precomputed window stats, one per collector.
 	GCRecent map[string]GCWindowStat
+	// NetRxRate / NetTxRate are sparkline-ready bytes/s series.
+	NetRxRate []float64
+	NetTxRate []float64
+}
+
+// JMXRates holds per-pod, per-scrape-cycle derived rates from JMX. Updated
+// in lockstep with the per-pod snapshot — there is one rate value per pod
+// per metric, recomputed on every UpdateJMX from the difference against
+// the previous scrape.
+type JMXRates struct {
+	NetRxBytesPerSec float64
+	NetTxBytesPerSec float64
+	DiskReadPerSec   map[string]float64 // device → bytes/s
+	DiskWritePerSec  map[string]float64
+}
+
+// jmxIOPrev is the previous-scrape reading needed to compute rates on the
+// next UpdateJMX call. Stored separately from JMXRates so callers reading
+// the rate map never see the raw cumulative counters.
+type jmxIOPrev struct {
+	At             time.Time
+	NetRxBytes     int64
+	NetTxBytes     int64
+	DiskReadBytes  map[string]int64
+	DiskWriteBytes map[string]int64
 }
 
 func (h *jmxHistory) snapshot() JMXHistorySnapshot {
 	out := JMXHistorySnapshot{
 		GCPauseMs: make(map[string][]float64, len(h.GCDeltas)),
 		GCRecent:  make(map[string]GCWindowStat, len(h.GCDeltas)),
+		NetRxRate: h.NetRxRate.Slice(),
+		NetTxRate: h.NetTxRate.Slice(),
 	}
 	for name, r := range h.GCDeltas {
 		samples := r.Slice()
@@ -212,7 +245,11 @@ type Store struct {
 	// Previous JMX GC counters for delta computation (pod → gc name → reading).
 	prevGC map[string]map[string]jmx.GCStat
 
-	// Per-pod history for JMX-derived signals (currently only GC pauses).
+	// Previous JMX IO counters and current derived rates (pod-keyed).
+	prevJMXIO map[string]jmxIOPrev
+	jmxRates  map[string]*JMXRates
+
+	// Per-pod history for JMX-derived signals (GC pauses + network rates).
 	jmxHistory map[string]*jmxHistory
 
 	// Track known nodes for disappearance detection
@@ -256,8 +293,12 @@ type StoreSnapshot struct {
 	JMXCluster jmx.ClusterJMX
 
 	// JMXHistory holds per-pod ring-buffer snapshots derived from JMX
-	// (currently only GC pause times). Key: pod name.
+	// (GC pauses + network rates). Key: pod name.
 	JMXHistory map[string]JMXHistorySnapshot
+
+	// JMXRates holds per-pod current-cycle rates (network and per-device
+	// disk byte rates) computed by the store. Key: pod name.
+	JMXRates map[string]*JMXRates
 
 	// NodeHistory maps node ID to its time-series snapshots.
 	NodeHistory map[string]NodeHistorySnapshot
@@ -279,6 +320,8 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 		prevRejected:  make(map[string]map[string]int64),
 		nodeHistories: make(map[string]*nodeHistory),
 		prevGC:        make(map[string]map[string]jmx.GCStat),
+		prevJMXIO:     make(map[string]jmxIOPrev),
+		jmxRates:      make(map[string]*JMXRates),
 		jmxHistory:    make(map[string]*jmxHistory),
 		sparklineSize: sparklineSize,
 		lastUpdated:   make(map[string]time.Time),
@@ -295,10 +338,12 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 func (s *Store) UpdateJMX(ex *jmx.Extracted) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.pushGCHistory(ex)
+	now := time.Now()
+	s.pushGCHistory(ex, now)
+	s.deriveJMXRates(ex, now)
 	s.jmxPods = ex.Pods
 	s.jmxCluster = ex.Cluster
-	s.lastUpdated["jmx"] = time.Now()
+	s.lastUpdated["jmx"] = now
 }
 
 // pushGCHistory diffs cumulative GC counters from the previous scrape and
@@ -308,12 +353,11 @@ func (s *Store) UpdateJMX(ex *jmx.Extracted) {
 // Intervals with no GC events push a zero sample. Negative deltas — which
 // happen on JVM restarts when counters reset — are dropped (also pushed
 // as zero) to avoid polluting the ring with garbage.
-func (s *Store) pushGCHistory(ex *jmx.Extracted) {
-	now := time.Now()
+func (s *Store) pushGCHistory(ex *jmx.Extracted, now time.Time) {
 	for pod, snap := range ex.Pods {
 		hist, ok := s.jmxHistory[pod]
 		if !ok {
-			hist = newJMXHistory()
+			hist = newJMXHistory(s.sparklineSize)
 			s.jmxHistory[pod] = hist
 		}
 		prevForPod := s.prevGC[pod]
@@ -341,6 +385,75 @@ func (s *Store) pushGCHistory(ex *jmx.Extracted) {
 		}
 		s.prevGC[pod] = next
 	}
+}
+
+// deriveJMXRates computes per-pod network and per-device disk byte rates
+// from the difference between this and the previous JMX scrape. Pushes
+// the network rates into the per-pod history rings for sparkline display.
+// Caller must hold s.mu.
+//
+// Pods that don't have a previous reading (first scrape, or a new pod
+// appearing) get zero rates this cycle and a real rate from the next
+// scrape onward. Negative deltas (counter resets on pod restart) are
+// clamped to zero.
+func (s *Store) deriveJMXRates(ex *jmx.Extracted, now time.Time) {
+	fresh := make(map[string]*JMXRates, len(ex.Pods))
+	for pod, snap := range ex.Pods {
+		r := &JMXRates{
+			DiskReadPerSec:  map[string]float64{},
+			DiskWritePerSec: map[string]float64{},
+		}
+		if prev, ok := s.prevJMXIO[pod]; ok {
+			if elapsed := now.Sub(prev.At).Seconds(); elapsed > 0 {
+				r.NetRxBytesPerSec = clampRate(snap.NetRxBytes-prev.NetRxBytes, elapsed)
+				r.NetTxBytesPerSec = clampRate(snap.NetTxBytes-prev.NetTxBytes, elapsed)
+				for dev, cur := range snap.DiskReadBytes {
+					r.DiskReadPerSec[dev] = clampRate(cur-prev.DiskReadBytes[dev], elapsed)
+				}
+				for dev, cur := range snap.DiskWriteBytes {
+					r.DiskWritePerSec[dev] = clampRate(cur-prev.DiskWriteBytes[dev], elapsed)
+				}
+			}
+		}
+		fresh[pod] = r
+
+		hist, ok := s.jmxHistory[pod]
+		if !ok {
+			hist = newJMXHistory(s.sparklineSize)
+			s.jmxHistory[pod] = hist
+		}
+		hist.NetRxRate.Push(r.NetRxBytesPerSec)
+		hist.NetTxRate.Push(r.NetTxBytesPerSec)
+
+		s.prevJMXIO[pod] = jmxIOPrev{
+			At:             now,
+			NetRxBytes:     snap.NetRxBytes,
+			NetTxBytes:     snap.NetTxBytes,
+			DiskReadBytes:  copyInt64Map(snap.DiskReadBytes),
+			DiskWriteBytes: copyInt64Map(snap.DiskWriteBytes),
+		}
+	}
+	s.jmxRates = fresh
+}
+
+// clampRate returns delta/elapsed as a non-negative rate, or 0 when the
+// delta is negative (cumulative counters were reset, e.g. pod restart).
+func clampRate(delta int64, elapsed float64) float64 {
+	if delta < 0 || elapsed <= 0 {
+		return 0
+	}
+	return float64(delta) / elapsed
+}
+
+func copyInt64Map(m map[string]int64) map[string]int64 {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 // RegisterCollectorStaleness adds a collector to the staleness-tracking map
@@ -643,6 +756,10 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 		snap.JMXHistory = make(map[string]JMXHistorySnapshot, len(s.jmxHistory))
 		for k, h := range s.jmxHistory {
 			snap.JMXHistory[k] = h.snapshot()
+		}
+		snap.JMXRates = make(map[string]*JMXRates, len(s.jmxRates))
+		for k, v := range s.jmxRates {
+			snap.JMXRates[k] = v
 		}
 	}
 

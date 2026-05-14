@@ -369,7 +369,7 @@ func (a *App) snapshotHint() store.SnapshotHint {
 	case TabOverview:
 		return store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeTables: true}
 	case TabNodes:
-		return store.SnapshotHint{IncludeNodes: true}
+		return store.SnapshotHint{IncludeNodes: true, IncludeJMX: true}
 	case TabQueries:
 		return store.SnapshotHint{IncludeQueries: true}
 	case TabTables:

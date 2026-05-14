@@ -27,19 +27,25 @@ const (
 
 var nodeSortFieldNames = [nodeSortFieldCount]string{"name", "cpu", "heap", "sat", "load", "io"}
 
+// detailScrollStep is the number of lines pgup/pgdn moves the detail panel.
+// Half the visible detail area would be more "vim-correct" but a constant
+// keeps the behaviour predictable across window sizes.
+const detailScrollStep = 5
+
 // NodesModel shows detailed per-node metrics.
 type NodesModel struct {
-	snap      store.StoreSnapshot
-	sorted    []int // indices into snap.Nodes after sort+filter
-	selected  int
-	scroll    int
-	sortField NodeSortField
-	sortDesc  bool
-	searching bool
-	search    string
-	keyMap    KeyMap
-	width     int
-	height    int
+	snap         store.StoreSnapshot
+	sorted       []int // indices into snap.Nodes after sort+filter
+	selected     int
+	scroll       int
+	detailScroll int // lines scrolled within the detail panel
+	sortField    NodeSortField
+	sortDesc     bool
+	searching    bool
+	search       string
+	keyMap       KeyMap
+	width        int
+	height       int
 }
 
 func NewNodesModel(width, height int) NodesModel {
@@ -68,15 +74,55 @@ func (m NodesModel) listHeight() int {
 	if m.searching {
 		headerLines += 2
 	}
-	detailReserve := m.height * 45 / 100
-	if detailReserve < 10 {
-		detailReserve = 10
-	}
-	listH := m.height - headerLines - detailReserve
+	listH := m.height - headerLines - m.detailReserve()
 	if listH < 3 {
 		listH = 3
 	}
 	return listH
+}
+
+// detailReserve is the number of terminal rows the detail panel may occupy.
+// Kept at ~45% of total with a 10-line floor so the panel stays usable on
+// small terminals.
+func (m NodesModel) detailReserve() int {
+	r := m.height * 45 / 100
+	if r < 10 {
+		r = 10
+	}
+	return r
+}
+
+// sliceDetail returns the slice of detail lines that fits the reserved area,
+// applying detailScroll and replacing the first/last visible rows with
+// "↑ N more above" / "↓ N more below" indicators when content extends
+// past the viewport. Side effect: clamps detailScroll to a valid range.
+func (m *NodesModel) sliceDetail(detail []string) []string {
+	avail := m.detailReserve()
+	if len(detail) <= avail {
+		m.detailScroll = 0
+		return detail
+	}
+	maxScroll := len(detail) - avail
+	if m.detailScroll > maxScroll {
+		m.detailScroll = maxScroll
+	}
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+	start := m.detailScroll
+	end := start + avail
+	if end > len(detail) {
+		end = len(detail)
+	}
+	visible := make([]string, end-start)
+	copy(visible, detail[start:end])
+	if start > 0 {
+		visible[0] = styleDim.Render(fmt.Sprintf("    ↑ %d more above", start))
+	}
+	if end < len(detail) {
+		visible[len(visible)-1] = styleDim.Render(fmt.Sprintf("    ↓ %d more below — pgdn", len(detail)-end))
+	}
+	return visible
 }
 
 func (m *NodesModel) clampScroll() {
@@ -192,12 +238,21 @@ func (m NodesModel) HandleKey(msg tea.KeyMsg) (NodesModel, tea.Cmd) {
 	case key.Matches(msg, km.Up):
 		if m.selected > 0 {
 			m.selected--
+			m.detailScroll = 0 // new node — start from the top of its detail
 			m.clampScroll()
 		}
 	case key.Matches(msg, km.Down):
 		if m.selected < len(m.sorted)-1 {
 			m.selected++
+			m.detailScroll = 0
 			m.clampScroll()
+		}
+	case key.Matches(msg, km.DetailDown):
+		m.detailScroll += detailScrollStep // clamped at render time
+	case key.Matches(msg, km.DetailUp):
+		m.detailScroll -= detailScrollStep
+		if m.detailScroll < 0 {
+			m.detailScroll = 0
 		}
 	case key.Matches(msg, km.Search):
 		m.searching = true
@@ -266,7 +321,7 @@ func (m NodesModel) View() string {
 		len(m.snap.Nodes),
 		sortIndicator, filterInfo,
 		styleDim.Render(lastRefresh),
-		styleDim.Render("s:sort  /:search  ctrl+r:refresh")))
+		styleDim.Render("s:sort  /:search  pgdn:scroll-detail  ctrl+r:refresh")))
 
 	if m.searching {
 		lines = append(lines, fmt.Sprintf("  Search: %s▏", m.search))
@@ -384,10 +439,13 @@ func (m NodesModel) View() string {
 		lines = append(lines, styleDim.Render(fmt.Sprintf("  ↓ %d more below", remaining)))
 	}
 
-	// Detail panel (always visible)
+	// Detail panel (always visible). Sliced to fit the reserved height —
+	// pgup/pgdn scrolls when the content exceeds the reserved rows.
 	if m.selected < len(m.sorted) {
 		lines = append(lines, "")
-		lines = append(lines, m.renderDetail(m.snap.Nodes[m.sorted[m.selected]]))
+		detail := m.renderDetail(m.snap.Nodes[m.sorted[m.selected]])
+		detailLines := strings.Split(detail, "\n")
+		lines = append(lines, m.sliceDetail(detailLines)...)
 	}
 
 	result := strings.Join(lines, "\n")
@@ -632,6 +690,9 @@ func (m NodesModel) renderDetail(n store.NodeSnapshot) string {
 			lines = append(lines, styleHighValue.Render(fmt.Sprintf("    * %d new rejections since last poll", n.ThreadPoolNewRejections)))
 		}
 	}
+
+	// JMX — GC, memory pools, buffer pools (when croudng integration is on)
+	lines = append(lines, m.renderJMX(n)...)
 
 	// Latency (if direct reachable)
 	if n.LastLatency > 0 {

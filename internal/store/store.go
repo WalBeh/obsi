@@ -70,6 +70,99 @@ func newNodeHistory(size int) *nodeHistory {
 	}
 }
 
+// gcSample is one scrape interval's raw delta plus the wall-clock time it
+// was recorded. Storing the deltas (rather than a pre-computed pause-per-
+// collection) lets snapshot() derive the weighted mean used by our
+// Grafana dashboards:
+//
+//	rate(jvm_gc_collection_seconds_sum) / rate(jvm_gc_collection_seconds_count)
+//	  =  Σ Δseconds  /  Σ Δcount     over the window
+//
+// Storing the timestamp lets snapshot() also compute the count rate —
+// rate(jvm_gc_collection_seconds_count) — honestly across croudng
+// outages where no sample is pushed for a stretch.
+type gcSample struct {
+	Count   int64
+	Seconds float64
+	At      time.Time
+}
+
+// jmxHistory holds per-pod time-series buffers derived from JMX scrapes.
+// Keyed off the GC collector name because the set is dynamic (G1 today,
+// possibly others on differently-tuned JVMs) and we only allocate buffers
+// for collectors we actually observe.
+type jmxHistory struct {
+	GCDeltas map[string]*RingBuf[gcSample]
+}
+
+func newJMXHistory() *jmxHistory {
+	return &jmxHistory{GCDeltas: map[string]*RingBuf[gcSample]{}}
+}
+
+// GCWindowStat is the precomputed read-side summary for the recent-window
+// headline next to each collector row. Collections == 0 signals "no GC
+// events in the visible window" so the renderer can show "—" instead of
+// a meaningless 0ms.
+type GCWindowStat struct {
+	MeanPauseMs float64 // Σdsec * 1000 / Σdcount (weighted, matches Grafana)
+	MaxPauseMs  float64 // max of per-interval averages (worst slot we saw)
+	Collections int64   // total collections across the window
+	RatePerSec  float64 // Collections / window-duration-seconds; 0 if undefined
+}
+
+// JMXHistorySnapshot is the read-only view used by the TUI.
+type JMXHistorySnapshot struct {
+	// GCPauseMs holds per-interval average pause times in ms, for sparkline
+	// rendering. Slots with no GC events are 0.
+	GCPauseMs map[string][]float64
+	// GCRecent holds precomputed window stats, one per collector.
+	GCRecent map[string]GCWindowStat
+}
+
+func (h *jmxHistory) snapshot() JMXHistorySnapshot {
+	out := JMXHistorySnapshot{
+		GCPauseMs: make(map[string][]float64, len(h.GCDeltas)),
+		GCRecent:  make(map[string]GCWindowStat, len(h.GCDeltas)),
+	}
+	for name, r := range h.GCDeltas {
+		samples := r.Slice()
+		pauses := make([]float64, len(samples))
+		var sumSec float64
+		var sumCnt int64
+		var maxMs float64
+		var firstAt, lastAt time.Time
+		for i, s := range samples {
+			if s.Count > 0 {
+				ms := s.Seconds * 1000 / float64(s.Count)
+				pauses[i] = ms
+				if ms > maxMs {
+					maxMs = ms
+				}
+			}
+			sumCnt += s.Count
+			sumSec += s.Seconds
+			if !s.At.IsZero() {
+				if firstAt.IsZero() {
+					firstAt = s.At
+				}
+				lastAt = s.At
+			}
+		}
+		out.GCPauseMs[name] = pauses
+		stat := GCWindowStat{MaxPauseMs: maxMs, Collections: sumCnt}
+		if sumCnt > 0 {
+			stat.MeanPauseMs = sumSec * 1000 / float64(sumCnt)
+		}
+		// Rate is well-defined once at least two samples exist (we need a
+		// non-zero window duration). A single sample has window = 0.
+		if window := lastAt.Sub(firstAt).Seconds(); window > 0 {
+			stat.RatePerSec = float64(sumCnt) / window
+		}
+		out.GCRecent[name] = stat
+	}
+	return out
+}
+
 // NodeHistorySnapshot is a read-only copy of a node's time-series data.
 type NodeHistorySnapshot struct {
 	CPU      []float64
@@ -116,6 +209,12 @@ type Store struct {
 	jmxPods    map[string]*jmx.JMXSnapshot
 	jmxCluster jmx.ClusterJMX
 
+	// Previous JMX GC counters for delta computation (pod → gc name → reading).
+	prevGC map[string]map[string]jmx.GCStat
+
+	// Per-pod history for JMX-derived signals (currently only GC pauses).
+	jmxHistory map[string]*jmxHistory
+
 	// Track known nodes for disappearance detection
 	knownNodes map[string]NodeSnapshot // nodeID -> last known snapshot
 
@@ -156,6 +255,10 @@ type StoreSnapshot struct {
 	JMX        map[string]*jmx.JMXSnapshot
 	JMXCluster jmx.ClusterJMX
 
+	// JMXHistory holds per-pod ring-buffer snapshots derived from JMX
+	// (currently only GC pause times). Key: pod name.
+	JMXHistory map[string]JMXHistorySnapshot
+
 	// NodeHistory maps node ID to its time-series snapshots.
 	NodeHistory map[string]NodeHistorySnapshot
 
@@ -175,6 +278,8 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 		prevIOSample:  make(map[string]ioSample),
 		prevRejected:  make(map[string]map[string]int64),
 		nodeHistories: make(map[string]*nodeHistory),
+		prevGC:        make(map[string]map[string]jmx.GCStat),
+		jmxHistory:    make(map[string]*jmxHistory),
 		sparklineSize: sparklineSize,
 		lastUpdated:   make(map[string]time.Time),
 		staleAfter:    staleAfter,
@@ -182,14 +287,60 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 }
 
 // UpdateJMX replaces the per-pod JMX map and cluster summary with the latest
-// extracted scrape. The caller is expected to have already run the
-// cluster-name safety guard; the store does no further validation.
+// extracted scrape, and pushes per-collector GC-pause samples into the
+// per-pod history rings for sparkline + recent-stats display.
+//
+// The caller is expected to have already run the cluster-name safety guard;
+// the store does no further validation.
 func (s *Store) UpdateJMX(ex *jmx.Extracted) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pushGCHistory(ex)
 	s.jmxPods = ex.Pods
 	s.jmxCluster = ex.Cluster
 	s.lastUpdated["jmx"] = time.Now()
+}
+
+// pushGCHistory diffs cumulative GC counters from the previous scrape and
+// records the (Δcount, Δseconds) tuple per scrape interval for each
+// collector. Caller must hold s.mu.
+//
+// Intervals with no GC events push a zero sample. Negative deltas — which
+// happen on JVM restarts when counters reset — are dropped (also pushed
+// as zero) to avoid polluting the ring with garbage.
+func (s *Store) pushGCHistory(ex *jmx.Extracted) {
+	now := time.Now()
+	for pod, snap := range ex.Pods {
+		hist, ok := s.jmxHistory[pod]
+		if !ok {
+			hist = newJMXHistory()
+			s.jmxHistory[pod] = hist
+		}
+		prevForPod := s.prevGC[pod]
+		for gcName, curr := range snap.GC {
+			ring, ok := hist.GCDeltas[gcName]
+			if !ok {
+				ring = NewRingBuf[gcSample](s.sparklineSize)
+				hist.GCDeltas[gcName] = ring
+			}
+			sample := gcSample{At: now}
+			if prev, hasPrev := prevForPod[gcName]; hasPrev {
+				dCount := curr.Count - prev.Count
+				dSec := curr.TotalSeconds - prev.TotalSeconds
+				if dCount > 0 && dSec > 0 {
+					sample.Count = dCount
+					sample.Seconds = dSec
+				}
+			}
+			ring.Push(sample)
+		}
+		// Replace prev with a copy of curr for the next diff.
+		next := make(map[string]jmx.GCStat, len(snap.GC))
+		for k, v := range snap.GC {
+			next[k] = v
+		}
+		s.prevGC[pod] = next
+	}
 }
 
 // RegisterCollectorStaleness adds a collector to the staleness-tracking map
@@ -489,6 +640,10 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 			snap.JMX[k] = v
 		}
 		snap.JMXCluster = s.jmxCluster
+		snap.JMXHistory = make(map[string]JMXHistorySnapshot, len(s.jmxHistory))
+		for k, h := range s.jmxHistory {
+			snap.JMXHistory[k] = h.snapshot()
+		}
 	}
 
 	if throttleMultiplier < 1 {

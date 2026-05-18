@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Per-query memory accounting** in the Queries tab. The active-queries
+  collector now `LEFT JOIN`s `sys.jobs` with `sys.operations` on `job_id`,
+  surfacing how much memory each running query holds and which operation
+  is responsible.
+  - New `MEMORY` column shows total `used_bytes` for the job plus the name
+    of the dominant operation (e.g. `42.3MB COLLECT`). Jobs still in their
+    planning phase (no `sys.operations` rows yet) survive the join and
+    show `—`.
+  - `i` on a selected query opens an operation-details modal: per-op
+    memory, node, and offset-from-job-start, plus the full untruncated
+    statement.
+  - `y` inside the modal yanks the job header + operations table + full
+    statement to the system clipboard via OSC 52 (works over SSH).
+
 - **JMX metrics integration** for CrateDB Cloud clusters, via `croudng`'s
   local Prometheus endpoint. Opt-in via a single config knob; disabled by
   default with no change for non-Cloud setups. See `docs/jmx.md` for

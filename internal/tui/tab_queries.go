@@ -134,7 +134,7 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	if m.infoTarget != nil {
 		switch {
 		case key.Matches(msg, km.Yank):
-			payload := formatQueryDump(*m.infoTarget)
+			payload := formatQueryDump(*m.infoTarget, time.Now())
 			return m, func() tea.Msg {
 				return YankResultMsg{Error: writeClipboard(payload)}
 			}
@@ -167,7 +167,7 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 		}
 	case key.Matches(msg, km.Yank):
 		if m.selected < len(visible) {
-			payload := formatQueryDump(visible[m.selected])
+			payload := formatQueryDump(visible[m.selected], time.Now())
 			return m, func() tea.Msg {
 				return YankResultMsg{Error: writeClipboard(payload)}
 			}
@@ -404,13 +404,17 @@ func (m QueriesModel) renderInfoModal() string {
 }
 
 // formatQueryDump produces the plaintext blob copied to the clipboard via `y`.
+// `now` is captured at yank time so the dump records how long the query had
+// been running when the operator grabbed it — useful when pasting into a
+// ticket later, by which point the job may be long gone from sys.jobs.
 // Pure function so the format is easy to lock down in a test.
-func formatQueryDump(q cratedb.ActiveQuery) string {
+func formatQueryDump(q cratedb.ActiveQuery, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Job ID:   %s\n", q.ID)
 	fmt.Fprintf(&b, "User:     %s\n", q.Username)
 	fmt.Fprintf(&b, "Node:     %s\n", q.Node)
 	fmt.Fprintf(&b, "Started:  %s\n", q.Started.UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "Duration: %s\n", formatDuration(now.Sub(q.Started)))
 	fmt.Fprintf(&b, "Memory:   %s (sum of %d operation(s))\n", formatBytes(q.UsedBytes), len(q.Operations))
 	b.WriteString("\n")
 

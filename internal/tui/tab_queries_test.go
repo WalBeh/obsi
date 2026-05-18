@@ -27,11 +27,13 @@ func TestFormatQueryDump(t *testing.T) {
 		},
 	}
 
-	dump := formatQueryDump(q)
+	now := jobStart.Add(2*time.Hour + 35*time.Minute)
+	dump := formatQueryDump(q, now)
 
 	for _, want := range []string{
 		"Job ID:   abc-123",
 		"User:     alice",
+		"Duration: 2h35m",
 		"Memory:   42.0MB (sum of 2 operation(s))",
 		"Operations:",
 		"- COLLECT on data-1: 40.0MB",
@@ -50,7 +52,7 @@ func TestFormatQueryDump(t *testing.T) {
 		Started:  jobStart,
 		Username: "bob",
 	}
-	bareDump := formatQueryDump(bare)
+	bareDump := formatQueryDump(bare, jobStart.Add(500*time.Millisecond))
 	if strings.Contains(bareDump, "Operations:") {
 		t.Errorf("expected no Operations section for op-less job, got:\n%s", bareDump)
 	}

@@ -64,7 +64,8 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `f` | Toggle unhealthy table filter (Tables tab) |
 | `K` | Kill selected query (Queries tab) |
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
-| `y` | Yank query + operations to clipboard (inside `i` modal, via OSC 52) |
+| `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52) |
+| `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
 | `t` | Cycle throttle (normal/mild/heavy/paused) |
 | `ctrl+r` / `R` / `F5` | Force refresh current tab |
 | `r` | Reconnect to cluster |
@@ -147,7 +148,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
-- Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard
+- Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard. Stuck queries (running longer than 24h, typically abandoned cursors) are hidden by default; press `h` to show them
 - Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)
 
 ## JMX metrics (CrateDB Cloud)

@@ -19,8 +19,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `i` on a selected query opens an operation-details modal: per-op
     memory, node, and offset-from-job-start, plus the full untruncated
     statement.
-  - `y` inside the modal yanks the job header + operations table + full
-    statement to the system clipboard via OSC 52 (works over SSH).
+  - `y` yanks the job header + operations table + full statement to the
+    system clipboard via OSC 52 (works over SSH). Available both from
+    the list (acts on the highlighted row) and from inside the `i` modal.
+
+- **Hide stuck queries** in the Queries tab. Sessions running longer
+  than 24h — typically abandoned `DECLARE ... CURSOR WITH HOLD`
+  cursors — are hidden by default so they don't drown out queries an
+  operator actually cares about. The header surfaces the hidden count
+  (`N active queries (M stuck hidden — press h to show)`). Press `h`
+  to toggle visibility; selection re-anchors to the same job ID across
+  the toggle so the cursor doesn't jump to an unrelated row.
 
 - **JMX metrics integration** for CrateDB Cloud clusters, via `croudng`'s
   local Prometheus endpoint. Opt-in via a single config knob; disabled by

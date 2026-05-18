@@ -165,6 +165,13 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 			q := visible[m.selected]
 			m.infoTarget = &q
 		}
+	case key.Matches(msg, km.Yank):
+		if m.selected < len(visible) {
+			payload := formatQueryDump(visible[m.selected])
+			return m, func() tea.Msg {
+				return YankResultMsg{Error: writeClipboard(payload)}
+			}
+		}
 	case key.Matches(msg, km.Hide):
 		// Re-anchor selection to the same job ID across the toggle so the
 		// cursor doesn't jump to an unrelated row.

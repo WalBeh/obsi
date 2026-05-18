@@ -24,6 +24,7 @@ type KeyMap struct {
 	Kill      key.Binding
 	Info      key.Binding
 	Yank      key.Binding
+	Hide      key.Binding
 	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
@@ -115,6 +116,10 @@ func DefaultKeyMap() KeyMap {
 		Yank: key.NewBinding(
 			key.WithKeys("y"),
 			key.WithHelp("y", "yank to clipboard"),
+		),
+		Hide: key.NewBinding(
+			key.WithKeys("h"),
+			key.WithHelp("h", "show/hide stuck"),
 		),
 		Edit: key.NewBinding(
 			key.WithKeys("e"),

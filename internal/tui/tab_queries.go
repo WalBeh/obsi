@@ -14,6 +14,12 @@ import (
 
 const killResultDisplayDuration = 3 * time.Second
 
+// stuckThreshold is the age beyond which a sys.jobs row is considered an
+// abandoned cursor / runaway query and hidden by default. Long-lived
+// `DECLARE ... CURSOR WITH HOLD` statements dominate the list on busy
+// clusters and drown out the queries an operator actually needs to see.
+const stuckThreshold = 24 * time.Hour
+
 type KillQueryMsg struct {
 	ID string
 }
@@ -43,6 +49,7 @@ type QueriesModel struct {
 	infoTarget   *cratedb.ActiveQuery
 	yankResult   string
 	yankResultAt time.Time
+	showStuck    bool // when true, queries older than stuckThreshold are listed
 }
 
 func NewQueriesModel(width, height int) QueriesModel {
@@ -57,8 +64,9 @@ func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
 	if m.yankResult != "" && time.Since(m.yankResultAt) > killResultDisplayDuration {
 		m.yankResult = ""
 	}
-	if m.selected >= len(snap.ActiveQueries) && len(snap.ActiveQueries) > 0 {
-		m.selected = len(snap.ActiveQueries) - 1
+	visible, _ := m.visibleQueries()
+	if m.selected >= len(visible) && len(visible) > 0 {
+		m.selected = len(visible) - 1
 	}
 	// Keep the info modal's data fresh so memory/ops update live while open.
 	// If the job has finished it's gone from sys.jobs — close the modal.
@@ -83,6 +91,25 @@ func (m QueriesModel) SetSize(width, height int) QueriesModel {
 	m.width = width
 	m.height = height
 	return m
+}
+
+// visibleQueries returns the queries shown in the list and the count of
+// stuck queries hidden by the current filter. When showStuck is true the
+// full snapshot is returned and hidden is zero.
+func (m QueriesModel) visibleQueries() (visible []cratedb.ActiveQuery, hidden int) {
+	if m.showStuck {
+		return m.snap.ActiveQueries, 0
+	}
+	now := time.Now()
+	visible = make([]cratedb.ActiveQuery, 0, len(m.snap.ActiveQueries))
+	for _, q := range m.snap.ActiveQueries {
+		if now.Sub(q.Started) > stuckThreshold {
+			hidden++
+			continue
+		}
+		visible = append(visible, q)
+	}
+	return visible, hidden
 }
 
 func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
@@ -117,24 +144,42 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 		return m, nil
 	}
 
+	visible, _ := m.visibleQueries()
+
 	switch {
 	case key.Matches(msg, km.Up):
 		if m.selected > 0 {
 			m.selected--
 		}
 	case key.Matches(msg, km.Down):
-		if m.selected < len(m.snap.ActiveQueries)-1 {
+		if m.selected < len(visible)-1 {
 			m.selected++
 		}
 	case key.Matches(msg, km.Kill):
-		if m.selected < len(m.snap.ActiveQueries) {
-			q := m.snap.ActiveQueries[m.selected]
+		if m.selected < len(visible) {
+			q := visible[m.selected]
 			m.killTarget = &q
 		}
 	case key.Matches(msg, km.Info):
-		if m.selected < len(m.snap.ActiveQueries) {
-			q := m.snap.ActiveQueries[m.selected]
+		if m.selected < len(visible) {
+			q := visible[m.selected]
 			m.infoTarget = &q
+		}
+	case key.Matches(msg, km.Hide):
+		// Re-anchor selection to the same job ID across the toggle so the
+		// cursor doesn't jump to an unrelated row.
+		var anchorID string
+		if m.selected < len(visible) {
+			anchorID = visible[m.selected].ID
+		}
+		m.showStuck = !m.showStuck
+		newVisible, _ := m.visibleQueries()
+		m.selected = 0
+		for i, q := range newVisible {
+			if q.ID == anchorID {
+				m.selected = i
+				break
+			}
 		}
 	}
 	return m, nil
@@ -155,8 +200,13 @@ func (m QueriesModel) View() string {
 		title += " " + styleStale.Render("(stale)")
 	}
 
-	if len(m.snap.ActiveQueries) == 0 {
+	visible, hidden := m.visibleQueries()
+
+	if len(visible) == 0 {
 		body := title + "\n  No active queries"
+		if hidden > 0 {
+			body += styleDim.Render(fmt.Sprintf(" (%d stuck hidden — press h to show)", hidden))
+		}
 		if m.killResult != "" {
 			body = "  " + m.killResultStyle().Render(m.killResult) + "\n" + body
 		}
@@ -173,7 +223,13 @@ func (m QueriesModel) View() string {
 	}
 
 	lines = append(lines, title)
-	lines = append(lines, fmt.Sprintf("  %d active queries", len(m.snap.ActiveQueries)))
+	countLine := fmt.Sprintf("  %d active queries", len(visible))
+	if hidden > 0 {
+		countLine += styleDim.Render(fmt.Sprintf(" (%d stuck hidden — press h to show)", hidden))
+	} else if m.showStuck {
+		countLine += styleDim.Render(" (showing stuck — press h to hide)")
+	}
+	lines = append(lines, countLine)
 	lines = append(lines, "")
 
 	// Header
@@ -182,7 +238,7 @@ func (m QueriesModel) View() string {
 	lines = append(lines, header)
 
 	now := time.Now()
-	for i, q := range m.snap.ActiveQueries {
+	for i, q := range visible {
 		marker := "  "
 		if i == m.selected {
 			marker = "▸ "
@@ -221,9 +277,9 @@ func (m QueriesModel) View() string {
 	}
 
 	// Detail panel for selected query
-	if m.selected < len(m.snap.ActiveQueries) {
+	if m.selected < len(visible) {
 		lines = append(lines, "")
-		q := m.snap.ActiveQueries[m.selected]
+		q := visible[m.selected]
 		lines = append(lines, styleTitle.Render("  Query Detail"))
 		lines = append(lines, fmt.Sprintf("    ID:       %s", q.ID))
 		lines = append(lines, fmt.Sprintf("    Node:     %s", q.Node))

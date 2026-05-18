@@ -33,7 +33,13 @@ func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 	var sections []string
 	sections = append(sections, m.renderClusterSettings())
 	sections = append(sections, m.renderChecks())
+	if s := m.renderCircuitBreakers(); s != "" {
+		sections = append(sections, s)
+	}
 	sections = append(sections, m.renderNodeSummary())
+	if s := m.renderQueryTypes(); s != "" {
+		sections = append(sections, s)
+	}
 	sections = append(sections, m.renderTableHealth())
 	sections = append(sections, m.renderSummit())
 	content := strings.Join(sections, "\n\n")

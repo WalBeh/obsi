@@ -25,6 +25,10 @@ type KeyMap struct {
 	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
+
+	// Detail-panel scrolling (Nodes detail; will extend to other tabs as needed).
+	DetailDown key.Binding
+	DetailUp   key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings.
@@ -113,6 +117,14 @@ func DefaultKeyMap() KeyMap {
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
+		),
+		DetailDown: key.NewBinding(
+			key.WithKeys("pgdown", "shift+down"),
+			key.WithHelp("pgdn", "scroll detail"),
+		),
+		DetailUp: key.NewBinding(
+			key.WithKeys("pgup", "shift+up"),
+			key.WithHelp("pgup", "scroll detail"),
 		),
 	}
 }

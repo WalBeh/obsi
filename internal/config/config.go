@@ -14,6 +14,7 @@ type Config struct {
 	Connection  ConnectionConfig            `toml:"connection"`
 	Profiles    map[string]ProfileConfig    `toml:"profiles,omitempty"`
 	Collectors  map[string]CollectorConfig  `toml:"collectors"`
+	JMX         JMXConfig                   `toml:"jmx"`
 	TUI         TUIConfig                   `toml:"tui"`
 	Logging     LoggingConfig               `toml:"logging"`
 }
@@ -39,6 +40,15 @@ type ConnectionConfig struct {
 type CollectorConfig struct {
 	Enabled  bool     `toml:"enabled"`
 	Interval Duration `toml:"interval"`
+}
+
+// JMXConfig configures ingestion of JVM/cAdvisor/operator metrics served by
+// croudng's localhost Prometheus endpoint. An empty Endpoint disables the
+// integration entirely — there is no separate Enabled flag.
+type JMXConfig struct {
+	Endpoint string   `toml:"endpoint"`
+	Interval Duration `toml:"interval"`
+	Timeout  Duration `toml:"timeout"`
 }
 
 // TUIConfig holds TUI display settings.
@@ -143,5 +153,12 @@ func applyDefaults(cfg *Config) {
 				cfg.Collectors[name] = dc
 			}
 		}
+	}
+
+	if cfg.JMX.Interval.Duration == 0 {
+		cfg.JMX.Interval = defaults.JMX.Interval
+	}
+	if cfg.JMX.Timeout.Duration == 0 {
+		cfg.JMX.Timeout = defaults.JMX.Timeout
 	}
 }

@@ -67,6 +67,7 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `ctrl+r` / `R` / `F5` | Force refresh current tab |
 | `r` | Reconnect to cluster |
 | `L` | Toggle query log |
+| `pgdn` / `pgup` (or `shift+↓` / `shift+↑`) | Scroll detail panel (Nodes tab) |
 | `?` | Help |
 | `q` | Quit |
 
@@ -118,6 +119,13 @@ interval = "2s"
 
 [collectors.shards]
 interval = "30s"
+
+[jmx]
+# Set to the croudng endpoint to enable JVM/cAdvisor/operator metrics
+# on CrateDB Cloud clusters. Empty disables the integration.
+endpoint = ""        # e.g. "http://127.0.0.1:9275/metrics"
+interval = "30s"
+timeout  = "10s"
 ```
 
 Collector/TUI/logging settings are global (shared across profiles).
@@ -137,6 +145,28 @@ Collector/TUI/logging settings are global (shared across profiles).
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
+- Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)
+
+## JMX metrics (CrateDB Cloud)
+
+obsi can surface JVM, container, and CrateDB-internal metrics by scraping
+the local Prometheus endpoint served by `croudng clusters metrics --watch`.
+Quick setup:
+
+```bash
+# 1. Run croudng in a separate terminal
+croudng clusters metrics -n <cluster> --profile <profile> --watch
+
+# 2. Add to your obsi config
+[jmx]
+endpoint = "http://127.0.0.1:9275/metrics"
+
+# 3. Start obsi as usual — new sections appear on Overview and Nodes detail
+```
+
+See [docs/jmx.md](docs/jmx.md) for the full integration guide, including the
+cluster-name safety guard, the Grafana-aligned GC math, and what's included
+vs. deliberately skipped.
 
 ## License
 

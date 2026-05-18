@@ -263,7 +263,9 @@ func (m *Manager) runCollector(ctx context.Context, c Collector) {
 }
 
 // DefaultCollectors returns all enabled collectors in a deterministic order.
-func DefaultCollectors(cfg map[string]config.CollectorConfig, tracker *QueryTracker) []Collector {
+// The JMX collector is appended only when jmxCfg.Endpoint is non-empty —
+// empty endpoint is the off-switch, there is no separate Enabled flag.
+func DefaultCollectors(cfg map[string]config.CollectorConfig, jmxCfg config.JMXConfig, tracker *QueryTracker) []Collector {
 	type entry struct {
 		name string
 		make func() Collector
@@ -281,6 +283,9 @@ func DefaultCollectors(cfg map[string]config.CollectorConfig, tracker *QueryTrac
 		if cc, ok := cfg[e.name]; ok && cc.Enabled {
 			enabled = append(enabled, e.make())
 		}
+	}
+	if jmxCfg.Endpoint != "" {
+		enabled = append(enabled, NewJMXCollector(jmxCfg))
 	}
 	return enabled
 }

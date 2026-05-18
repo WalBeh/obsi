@@ -128,13 +128,24 @@ type TableHealth struct {
 	Partition     string
 }
 
-// ActiveQuery represents a row from sys.jobs.
+// ActiveQuery represents a row from sys.jobs, enriched with the running
+// operations from sys.operations joined on job_id.
 type ActiveQuery struct {
-	ID      string
-	Node    string
-	Started time.Time
-	Stmt    string
-	Username string
+	ID         string
+	Node       string
+	Started    time.Time
+	Stmt       string
+	Username   string
+	UsedBytes  int64       // sum of used_bytes across all operations of this job
+	Operations []Operation // sorted by UsedBytes desc; empty when the job has no ops yet
+}
+
+// Operation represents a row from sys.operations.
+type Operation struct {
+	Name      string
+	NodeName  string
+	UsedBytes int64
+	Started   time.Time
 }
 
 // ShardInfo represents a row from sys.shards.

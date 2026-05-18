@@ -209,6 +209,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.queries.killResultAt = time.Now()
 		return a, nil
 
+	case YankResultMsg:
+		if msg.Error != "" {
+			a.queries.yankResult = fmt.Sprintf("Yank failed: %s", msg.Error)
+		} else {
+			a.queries.yankResult = "Copied to clipboard"
+		}
+		a.queries.yankResultAt = time.Now()
+		return a, nil
+
 	case StoreTickMsg:
 		throttle := a.collectors.Throttle()
 		hint := a.snapshotHint()
@@ -330,7 +339,7 @@ func (a *App) isTabInputMode() bool {
 	case TabNodes:
 		return a.nodes.searching
 	case TabQueries:
-		return a.queries.killTarget != nil
+		return a.queries.killTarget != nil || a.queries.infoTarget != nil
 	case TabTables:
 		return a.tables.searching
 	case TabShards:

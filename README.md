@@ -45,7 +45,7 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 |-----|-----|---------------|
 | `1` | Overview | Cluster settings (inline editable), health checks, node/zone topology, CrateDB version, table health |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
-| `3` | Queries | Active queries with duration, node, username, statement preview |
+| `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview |
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
 | `5` | Shards | Shard allocation problems, recovery progress, relocations |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results |
@@ -63,6 +63,8 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `e` | Edit cluster settings (Overview tab) |
 | `f` | Toggle unhealthy table filter (Tables tab) |
 | `K` | Kill selected query (Queries tab) |
+| `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
+| `y` | Yank query + operations to clipboard (inside `i` modal, via OSC 52) |
 | `t` | Cycle throttle (normal/mild/heavy/paused) |
 | `ctrl+r` / `R` / `F5` | Force refresh current tab |
 | `r` | Reconnect to cluster |
@@ -145,6 +147,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
+- Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard
 - Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)
 
 ## JMX metrics (CrateDB Cloud)

@@ -74,6 +74,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `sys.cluster.name`; a mismatch disables the collector permanently
     rather than risk attributing foreign metrics to obsi's nodes.
 
+### Fixed
+
+- Non-ASCII statements, errors and table names (e.g. `größe`, `表名`) were
+  cut mid-character when truncated or wrapped, leaving broken glyphs, and
+  sometimes shortened although they fit. Truncation and wrapping now count
+  characters instead of bytes.
+
 ### Notes
 
 - GC pause math matches the existing Grafana dashboards

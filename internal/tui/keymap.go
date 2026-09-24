@@ -4,16 +4,16 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all key bindings.
 type KeyMap struct {
-	Tab1    key.Binding
-	Tab2    key.Binding
-	Tab3    key.Binding
-	Tab4    key.Binding
-	Tab5    key.Binding
-	Tab6    key.Binding
-	NextTab key.Binding
-	PrevTab key.Binding
-	Up      key.Binding
-	Down    key.Binding
+	Tab1      key.Binding
+	Tab2      key.Binding
+	Tab3      key.Binding
+	Tab4      key.Binding
+	Tab5      key.Binding
+	Tab6      key.Binding
+	NextTab   key.Binding
+	PrevTab   key.Binding
+	Up        key.Binding
+	Down      key.Binding
 	Search    key.Binding
 	SortNext  key.Binding
 	Throttle  key.Binding
@@ -89,10 +89,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("s", "cycle sort"),
 		),
 		Throttle: key.NewBinding(
-		key.WithKeys("t"),
-		key.WithHelp("t", "cycle throttle"),
-	),
-	Refresh: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "cycle throttle"),
+		),
+		Refresh: key.NewBinding(
 			key.WithKeys("R", "ctrl+r", "f5"),
 			key.WithHelp("ctrl+r", "refresh"),
 		),

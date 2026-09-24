@@ -35,24 +35,24 @@ type SQLResponse struct {
 
 // NodeInfo represents a discovered CrateDB node from sys.nodes.
 type NodeInfo struct {
-	ID         string
-	Name       string
-	Hostname   string
-	RestURL    string
-	Version    string
-	Load       [3]float64
-	HeapUsed   int64
-	HeapMax    int64
-	HeapFree   int64
-	FSTotal    int64
-	FSUsed     int64
-	FSAvail    int64
-	CPUPercent int16  // from process['cpu']['percent'] (reliable across OS)
-	CPUSystem  int16  // from os['cpu']['system'] (may be -1 on some OS)
-	CPUUser    int16  // from os['cpu']['user'] (may be -1 on some OS)
-	MemUsed    int64
-	MemFree    int64
-	MemTotal   int64
+	ID             string
+	Name           string
+	Hostname       string
+	RestURL        string
+	Version        string
+	Load           [3]float64
+	HeapUsed       int64
+	HeapMax        int64
+	HeapFree       int64
+	FSTotal        int64
+	FSUsed         int64
+	FSAvail        int64
+	CPUPercent     int16 // from process['cpu']['percent'] (reliable across OS)
+	CPUSystem      int16 // from os['cpu']['system'] (may be -1 on some OS)
+	CPUUser        int16 // from os['cpu']['user'] (may be -1 on some OS)
+	MemUsed        int64
+	MemFree        int64
+	MemTotal       int64
 	FSReads        int64  // cumulative read ops from fs['total']['reads']
 	FSWrites       int64  // cumulative write ops from fs['total']['writes']
 	FSBytesRead    int64  // cumulative bytes read from fs['total']['bytes_read']
@@ -61,8 +61,8 @@ type NodeInfo struct {
 	NodeRole       string // from attributes['node_name'] (hot, warm, cold, master)
 	IsMaster       bool   // from is_master
 	NumCPUs        int    // from os_info['available_processors']
-	JVMVersion string // from os_info['jvm']['version']
-	JVMName    string // from os_info['jvm']['vm_name']
+	JVMVersion     string // from os_info['jvm']['version']
+	JVMName        string // from os_info['jvm']['vm_name']
 
 	ThreadPools []ThreadPoolStats // from sys.nodes thread_pools
 }
@@ -90,15 +90,15 @@ type NodeHealth struct {
 
 // ClusterSettings holds key cluster-level settings from sys.cluster.
 type ClusterSettings struct {
-	MaxShardsPerNode          int
-	AllocationEnable          string // "all", "primaries", "new_primaries", "none"
-	NodeConcurrentRecoveries  int
+	MaxShardsPerNode           int
+	AllocationEnable           string // "all", "primaries", "new_primaries", "none"
+	NodeConcurrentRecoveries   int
 	ClusterConcurrentRebalance int
-	RecoveryMaxBytesPerSec    string // e.g. "40mb"
-	DiskWatermarkLow          string // e.g. "85%"
-	DiskWatermarkHigh         string // e.g. "90%"
-	DiskWatermarkFlood        string // e.g. "95%"
-	RebalanceEnable           string // "all", "primaries", "replicas", "none"
+	RecoveryMaxBytesPerSec     string // e.g. "40mb"
+	DiskWatermarkLow           string // e.g. "85%"
+	DiskWatermarkHigh          string // e.g. "90%"
+	DiskWatermarkFlood         string // e.g. "95%"
+	RebalanceEnable            string // "all", "primaries", "replicas", "none"
 }
 
 // Summit is a random mountain from sys.summits — CrateDB's Easter egg.
@@ -120,12 +120,12 @@ type ClusterCheck struct {
 
 // TableHealth represents a row from sys.health.
 type TableHealth struct {
-	TableSchema   string
-	TableName     string
-	Health        string
-	MissingShards int64
+	TableSchema     string
+	TableName       string
+	Health          string
+	MissingShards   int64
 	UnderReplicated int64
-	Partition     string
+	Partition       string
 }
 
 // ActiveQuery represents a row from sys.jobs, enriched with the running
@@ -183,24 +183,24 @@ type JobLogCoverage struct {
 
 // ShardInfo represents a row from sys.shards.
 type ShardInfo struct {
-	ID             int
-	SchemaName     string
-	TableName      string
-	PartitionIdent string
-	NumDocs        int64
-	Primary        bool
-	State          string
-	RoutingState   string
-	Relocating     bool
-	RelocatingNode string // target node name when relocating
-	Size           int64
-	NodeID         string
-	NodeName       string
-	RecoveryStage            string
-	RecoveryPercent          float64
-	TranslogSize             int64
-	TranslogUncommittedSize  int64
-	TranslogUncommittedOps   int64
+	ID                      int
+	SchemaName              string
+	TableName               string
+	PartitionIdent          string
+	NumDocs                 int64
+	Primary                 bool
+	State                   string
+	RoutingState            string
+	Relocating              bool
+	RelocatingNode          string // target node name when relocating
+	Size                    int64
+	NodeID                  string
+	NodeName                string
+	RecoveryStage           string
+	RecoveryPercent         float64
+	TranslogSize            int64
+	TranslogUncommittedSize int64
+	TranslogUncommittedOps  int64
 }
 
 // AllocationInfo represents a row from sys.allocations for non-STARTED shards.
@@ -221,39 +221,39 @@ const DefaultTranslogFlushThreshold int64 = 512 << 20
 
 // TableSettings holds table-level configuration from information_schema.tables.
 type TableSettings struct {
-	NumberOfShards   int
-	NumberOfReplicas string // can be "0-1", "1", etc.
-	ClusteredBy      string
-	PartitionedBy    []string
-	ColumnPolicy     string
-	RefreshInterval          int    // ms
-	Codec                    string
-	TranslogFlushThreshold   int64  // bytes
-	TranslogSyncInterval     int    // ms
-	TranslogDurability       string
+	NumberOfShards         int
+	NumberOfReplicas       string // can be "0-1", "1", etc.
+	ClusteredBy            string
+	PartitionedBy          []string
+	ColumnPolicy           string
+	RefreshInterval        int // ms
+	Codec                  string
+	TranslogFlushThreshold int64 // bytes
+	TranslogSyncInterval   int   // ms
+	TranslogDurability     string
 }
 
 // TableInfo is an aggregated view of a table with shard distribution.
 type TableInfo struct {
-	SchemaName     string
-	TableName      string
-	TotalShards    int
-	PrimaryShards  int
-	ReplicaShards  int
-	TotalRecords   int64
-	TotalSize      int64 // primary shards only
-	TotalDiskSize  int64 // all shards including replicas
-	Health         string
-	ShardsPerNode  map[string]int // nodeName -> shard count
-	MinShardSize                 int64
-	MaxShardSize                 int64
-	AvgShardSize                 int64
-	TranslogSize                 int64  // sum of translog size across all shards
-	TranslogUncommittedSize      int64  // sum across all shards
-	TranslogUncommittedOps       int64
-	WorstTranslogSize            int64  // highest single shard
-	WorstTranslogShardID         int
-	WorstTranslogNodeName        string
-	ShardsOverTranslogThreshold  int    // count of shards exceeding flush_threshold_size
-	Settings                     TableSettings
+	SchemaName                  string
+	TableName                   string
+	TotalShards                 int
+	PrimaryShards               int
+	ReplicaShards               int
+	TotalRecords                int64
+	TotalSize                   int64 // primary shards only
+	TotalDiskSize               int64 // all shards including replicas
+	Health                      string
+	ShardsPerNode               map[string]int // nodeName -> shard count
+	MinShardSize                int64
+	MaxShardSize                int64
+	AvgShardSize                int64
+	TranslogSize                int64 // sum of translog size across all shards
+	TranslogUncommittedSize     int64 // sum across all shards
+	TranslogUncommittedOps      int64
+	WorstTranslogSize           int64 // highest single shard
+	WorstTranslogShardID        int
+	WorstTranslogNodeName       string
+	ShardsOverTranslogThreshold int // count of shards exceeding flush_threshold_size
+	Settings                    TableSettings
 }

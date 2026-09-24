@@ -28,9 +28,9 @@ const (
 	QueryJobsLogEntries  = "jobs_log.entries"
 	QueryJobsLogGroups   = "jobs_log.groups"
 	QueryStatsEnabled    = "jobs_log.stats_enabled"
-	QueryHeartbeat     = cratedb.QueryLabelHeartbeat
-	QueryBootstrap     = cratedb.QueryLabelBootstrap
-	QueryNodeDiscovery = cratedb.QueryLabelNodeDiscovery
+	QueryHeartbeat       = cratedb.QueryLabelHeartbeat
+	QueryBootstrap       = cratedb.QueryLabelBootstrap
+	QueryNodeDiscovery   = cratedb.QueryLabelNodeDiscovery
 )
 
 // QueryStat holds execution statistics for a single query label.

@@ -16,7 +16,7 @@ import (
 type ShardSortField int
 
 const (
-	ShardSortByTable    ShardSortField = iota
+	ShardSortByTable ShardSortField = iota
 	ShardSortByState
 	ShardSortByRecovery
 	ShardSortBySize
@@ -38,7 +38,7 @@ type ShardsModel struct {
 	width     int
 	height    int
 
-	keyMap    KeyMap
+	keyMap KeyMap
 
 	// Derived data recomputed on each Refresh
 	countStarted      int

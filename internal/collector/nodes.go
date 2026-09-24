@@ -12,9 +12,9 @@ import (
 )
 
 type NodesCollector struct {
-	interval       time.Duration
-	tracker        *QueryTracker
-	hasThreadPools bool // false until first successful query with thread_pools
+	interval         time.Duration
+	tracker          *QueryTracker
+	hasThreadPools   bool // false until first successful query with thread_pools
 	triedThreadPools bool // true after first attempt
 }
 
@@ -22,7 +22,7 @@ func NewNodesCollector(cfg config.CollectorConfig, tracker *QueryTracker) *Nodes
 	return &NodesCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
-func (c *NodesCollector) Name() string           { return "nodes" }
+func (c *NodesCollector) Name() string            { return "nodes" }
 func (c *NodesCollector) Interval() time.Duration { return c.interval }
 
 // nodesBaseQuery is the core SELECT for sys.nodes (without thread_pools).
@@ -107,23 +107,23 @@ func (c *NodesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st 
 		}
 
 		info := cratedb.NodeInfo{
-			ID:         cratedb.ToString(row[0]),
-			Name:       cratedb.ToString(row[1]),
-			Hostname:   cratedb.ToString(row[2]),
-			RestURL:    cratedb.ToString(row[3]),
-			CPUPercent: cratedb.ToInt16(row[4]),
-			CPUSystem:  cratedb.ToInt16(row[5]),
-			CPUUser:    cratedb.ToInt16(row[6]),
-			HeapUsed:   cratedb.ToInt64(row[7]),
-			HeapMax:    cratedb.ToInt64(row[8]),
-			HeapFree:   cratedb.ToInt64(row[9]),
-			FSTotal:    cratedb.ToInt64(row[10]),
-			FSUsed:     cratedb.ToInt64(row[11]),
-			FSAvail:    cratedb.ToInt64(row[12]),
-			MemUsed:    cratedb.ToInt64(row[13]),
-			MemFree:    cratedb.ToInt64(row[14]),
-			MemTotal:   cratedb.ToInt64(row[15]),
-			Load:       [3]float64{cratedb.ToFloat64(row[16]), cratedb.ToFloat64(row[17]), cratedb.ToFloat64(row[18])},
+			ID:             cratedb.ToString(row[0]),
+			Name:           cratedb.ToString(row[1]),
+			Hostname:       cratedb.ToString(row[2]),
+			RestURL:        cratedb.ToString(row[3]),
+			CPUPercent:     cratedb.ToInt16(row[4]),
+			CPUSystem:      cratedb.ToInt16(row[5]),
+			CPUUser:        cratedb.ToInt16(row[6]),
+			HeapUsed:       cratedb.ToInt64(row[7]),
+			HeapMax:        cratedb.ToInt64(row[8]),
+			HeapFree:       cratedb.ToInt64(row[9]),
+			FSTotal:        cratedb.ToInt64(row[10]),
+			FSUsed:         cratedb.ToInt64(row[11]),
+			FSAvail:        cratedb.ToInt64(row[12]),
+			MemUsed:        cratedb.ToInt64(row[13]),
+			MemFree:        cratedb.ToInt64(row[14]),
+			MemTotal:       cratedb.ToInt64(row[15]),
+			Load:           [3]float64{cratedb.ToFloat64(row[16]), cratedb.ToFloat64(row[17]), cratedb.ToFloat64(row[18])},
 			Version:        cratedb.ToString(row[19]),
 			FSReads:        cratedb.ToInt64(row[20]),
 			FSWrites:       cratedb.ToInt64(row[21]),

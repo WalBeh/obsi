@@ -9,14 +9,14 @@ import (
 
 var (
 	// Colors
-	colorPrimary    = lipgloss.Color("#00BFFF") // CrateDB blue
-	colorSecondary  = lipgloss.Color("#A0A0A0")
-	colorGreen      = lipgloss.Color("#00FF00")
-	colorYellow     = lipgloss.Color("#FFD700")
-	colorRed        = lipgloss.Color("#FF4444")
-	colorDim        = lipgloss.Color("#666666")
-	colorBg         = lipgloss.Color("#1A1A2E")
-	colorTabActive  = lipgloss.Color("#00BFFF")
+	colorPrimary     = lipgloss.Color("#00BFFF") // CrateDB blue
+	colorSecondary   = lipgloss.Color("#A0A0A0")
+	colorGreen       = lipgloss.Color("#00FF00")
+	colorYellow      = lipgloss.Color("#FFD700")
+	colorRed         = lipgloss.Color("#FF4444")
+	colorDim         = lipgloss.Color("#666666")
+	colorBg          = lipgloss.Color("#1A1A2E")
+	colorTabActive   = lipgloss.Color("#00BFFF")
 	colorTabInactive = lipgloss.Color("#444444")
 
 	// Styles
@@ -30,9 +30,9 @@ var (
 			Padding(0, 2)
 
 	styleTabInactive = lipgloss.NewStyle().
-			Foreground(colorSecondary).
-			Background(colorTabInactive).
-			Padding(0, 2)
+				Foreground(colorSecondary).
+				Background(colorTabInactive).
+				Padding(0, 2)
 
 	styleStatusBar = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF")).
@@ -40,22 +40,22 @@ var (
 			Padding(0, 1)
 
 	styleStatusConnected = lipgloss.NewStyle().
-			Foreground(colorGreen).
-			Bold(true)
+				Foreground(colorGreen).
+				Bold(true)
 
 	styleStatusDisconnected = lipgloss.NewStyle().
-			Foreground(colorRed).
-			Bold(true)
+				Foreground(colorRed).
+				Bold(true)
 
 	styleTitle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorPrimary)
 
 	styleHealthGreen = lipgloss.NewStyle().
-			Foreground(colorGreen)
+				Foreground(colorGreen)
 
 	styleHealthYellow = lipgloss.NewStyle().
-			Foreground(colorYellow)
+				Foreground(colorYellow)
 
 	styleHealthYellowBold = styleHealthYellow.
 				Bold(true)
@@ -106,8 +106,8 @@ var (
 			Underline(true)
 
 	stylePickerActive = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(colorPrimary)
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(colorPrimary)
 
 	stylePickerItem = lipgloss.NewStyle().
 			Foreground(colorSecondary)

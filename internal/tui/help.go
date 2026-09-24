@@ -118,7 +118,5 @@ func renderHelp(tab Tab, km KeyMap, slowest bool, width, height int) string {
 	sections = append(sections, "", styleDim.Render("[?/esc] close"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	modal := styleModalBorder.Render(content)
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal,
-		lipgloss.WithWhitespaceBackground(colorOverlayBg))
+	return placeModal(content, 0, width, height)
 }

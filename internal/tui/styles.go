@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -143,14 +144,6 @@ func metricBar(pct float64, barWidth int) string {
 	return fmt.Sprintf("[%s]", bar)
 }
 
-// truncateString truncates s to max characters, adding "..." if truncated.
-func truncateString(s string, max int) string {
-	if len(s) > max {
-		return s[:max-3] + "..."
-	}
-	return s
-}
-
 func repeat(ch rune, n int) string {
 	if n <= 0 {
 		return ""
@@ -203,6 +196,17 @@ func padNodeName(name string, isMaster bool, width int) string {
 		return fmt.Sprintf("%s %s%*s", name, stylePrimary.Render("★"), pad, "")
 	}
 	return fmt.Sprintf("%-*s", width, name)
+}
+
+// durationStyle colours a query duration: yellow past 10s, red past 30s.
+func durationStyle(d time.Duration) lipgloss.Style {
+	switch {
+	case d > 30*time.Second:
+		return styleHighValue
+	case d > 10*time.Second:
+		return styleHealthYellow
+	}
+	return styleValue
 }
 
 // healthStyle returns the appropriate style for a health status string.

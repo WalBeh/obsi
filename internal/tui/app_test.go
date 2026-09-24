@@ -118,3 +118,22 @@ func TestAppResizePropagates(t *testing.T) {
 			a.nodes.width, a.nodes.height, a.queries.height, a.sql.width, body)
 	}
 }
+
+// The manual refresh key triggers these collectors per tab.
+func TestAppRefreshCollectors(t *testing.T) {
+	a := newTestApp(t)
+	want := map[Tab][]string{
+		TabOverview: {"health", "cluster"},
+		TabNodes:    {"nodes"},
+		TabQueries:  {"queries"},
+		TabTables:   {"shards"},
+		TabShards:   {"shards"},
+		TabSQL:      nil,
+	}
+	for tab, cols := range want {
+		a.activeTab = tab
+		if got := a.current().Collectors(); strings.Join(got, ",") != strings.Join(cols, ",") {
+			t.Errorf("tab %d refresh collectors = %v, want %v", tab, got, cols)
+		}
+	}
+}

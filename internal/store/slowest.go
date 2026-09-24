@@ -150,3 +150,13 @@ func sortObserved(qs []ObservedQuery) {
 		return qs[i].ID < qs[j].ID
 	})
 }
+
+// UpdateActiveQueries updates the list of active queries.
+func (s *Store) UpdateActiveQueries(queries []cratedb.ActiveQuery) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	s.activeQueries = queries
+	s.observeQueries(queries, now)
+	s.lastUpdated["queries"] = now
+}

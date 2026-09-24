@@ -26,7 +26,7 @@ func TestTabHelp(t *testing.T) {
 	}
 
 	_, live := tabHelp(TabQueries, km, false)
-	for _, k := range []string{"K", "i", "y", "h", "S"} {
+	for _, k := range []string{"K", "i", "y", "h", "S", "f", "g"} {
 		if !strings.Contains(helpKeys(live), k+" ") {
 			t.Errorf("live queries help missing %q", k)
 		}

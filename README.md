@@ -67,6 +67,8 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52) |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |
+| `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab, slowest view) |
+| `g` | Slowest statements from `sys.jobs_log`, grouped by exact text with count/max/avg (Queries tab, slowest view) |
 | `t` | Cycle throttle (normal/mild/heavy/paused) |
 | `ctrl+r` / `R` / `F5` | Force refresh current tab |
 | `r` | Reconnect to cluster |
@@ -124,6 +126,10 @@ interval = "2s"
 [collectors.shards]
 interval = "30s"
 
+[collectors.jobs_log]
+enabled = true
+interval = "15s"     # only polled while the slowest board is open
+
 [jmx]
 # Set to the croudng endpoint to enable JVM/cAdvisor/operator metrics
 # on CrateDB Cloud clusters. Empty disables the integration.
@@ -150,7 +156,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
 - Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard. Stuck queries (running longer than 24h, typically abandoned cursors) are hidden by default; press `h` to show them
-- Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration, built from the `sys.jobs` poll. Durations are as of the last poll that saw the job, so they step once per poll and can be short by up to one interval (2s default), queries faster than that aren't seen, and killed jobs look like finished ones. Stuck queries are always left out
+- Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration. Finished jobs come from `sys.jobs_log` with exact durations and errors; running ones from the `sys.jobs` poll. `sys.jobs_log` is an in-memory ring per node (`stats.jobs_log_size`), so jobs it no longer holds fall back to sampled durations, marked `≥` (short by up to one poll interval). Without `sys.jobs_log` (`stats.enabled = false`, no privileges) the whole board is sampled and the header says why. `f` lists failed queries, `g` groups by statement. `sys.jobs_log` is only polled while the board is open. obsi tags its own statements with `/* obsi */` and leaves them out of the Queries tab. Stuck queries are always left out
 - Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)
 
 ## JMX metrics (CrateDB Cloud)

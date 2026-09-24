@@ -24,6 +24,10 @@ const (
 	QueryTables          = "shards.tables"
 	QueryViewCount       = "shards.view_count"
 	QueryAllocations     = "shards.allocations"
+	QueryJobsLogCoverage = "jobs_log.coverage"
+	QueryJobsLogEntries  = "jobs_log.entries"
+	QueryJobsLogGroups   = "jobs_log.groups"
+	QueryStatsEnabled    = "jobs_log.stats_enabled"
 	QueryHeartbeat     = cratedb.QueryLabelHeartbeat
 	QueryBootstrap     = cratedb.QueryLabelBootstrap
 	QueryNodeDiscovery = cratedb.QueryLabelNodeDiscovery
@@ -87,6 +91,10 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryTables, "shards", ci("shards")},
 		{QueryViewCount, "shards", ci("shards")},
 		{QueryAllocations, "shards", ci("shards")},
+		{QueryJobsLogCoverage, "jobs_log", ci("jobs_log")},
+		{QueryJobsLogEntries, "jobs_log", ci("jobs_log")},
+		{QueryJobsLogGroups, "jobs_log", ci("jobs_log")},
+		{QueryStatsEnabled, "jobs_log", 0},
 		{QueryHeartbeat, "registry", connCfg.HeartbeatInterval.Duration},
 		{QueryBootstrap, "registry", 0},
 		{QueryNodeDiscovery, "registry", connCfg.NodeRefreshInterval.Duration},
@@ -155,9 +163,11 @@ func (t *QueryTracker) Snapshot() []QueryStat {
 }
 
 // trackedQuery executes a query via the registry and records timing/row stats.
+// The statement is tagged so obsi's own polling can be told apart in
+// sys.jobs and sys.jobs_log.
 func trackedQuery(ctx context.Context, t *QueryTracker, label string, reg *cratedb.Registry, stmt string, args ...interface{}) (*cratedb.SQLResponse, error) {
 	start := time.Now()
-	resp, err := reg.Query(ctx, stmt, args...)
+	resp, err := reg.Query(ctx, stmt+cratedb.QueryTag, args...)
 	dur := time.Since(start)
 	if err != nil {
 		t.RecordError(label, err)

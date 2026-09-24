@@ -57,20 +57,20 @@ func TestObserveQueries_CappedAtLimit(t *testing.T) {
 	now := t0.Add(time.Hour)
 
 	var qs []cratedb.ActiveQuery
-	for i := 0; i < slowestLimit+5; i++ {
+	for i := 0; i < SlowestLimit+5; i++ {
 		qs = append(qs, job(fmt.Sprintf("j%02d", i), t0.Add(time.Duration(i)*time.Minute), 0))
 	}
 	s.observeQueries(qs, now)
 	s.observeQueries(nil, now.Add(time.Second))
 
-	if len(s.slowestDone) != slowestLimit {
-		t.Fatalf("slowestDone = %d, want %d", len(s.slowestDone), slowestLimit)
+	if len(s.slowestDone) != SlowestLimit {
+		t.Fatalf("slowestDone = %d, want %d", len(s.slowestDone), SlowestLimit)
 	}
 	// j00 started first, so it ran longest; the 5 youngest fall off.
 	if s.slowestDone[0].ID != "j00" {
 		t.Errorf("top = %s, want j00", s.slowestDone[0].ID)
 	}
-	if last := s.slowestDone[slowestLimit-1].ID; last != "j19" {
+	if last := s.slowestDone[SlowestLimit-1].ID; last != "j19" {
 		t.Errorf("last = %s, want j19", last)
 	}
 }

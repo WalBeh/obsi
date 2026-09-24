@@ -55,6 +55,7 @@ type QueriesModel struct {
 	slowSelected    int
 	infoFromSlowest bool      // info modal opened from the slowest board
 	infoEnd         time.Time // non-zero when infoTarget has finished
+	logMode         store.JobsLogMode
 }
 
 func NewQueriesModel(width, height int) QueriesModel {
@@ -65,18 +66,19 @@ func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
 	// The board re-sorts every tick as running jobs age; keep the cursor
 	// on the same job rather than the same row index.
 	var slowAnchor string
-	if m.slowSelected < len(m.snap.SlowestQueries) {
-		slowAnchor = m.snap.SlowestQueries[m.slowSelected].ID
+	if keys := m.slowKeys(m.snap); m.slowSelected < len(keys) {
+		slowAnchor = keys[m.slowSelected]
 	}
 	m.snap = snap
-	for i, o := range snap.SlowestQueries {
-		if o.ID == slowAnchor {
+	keys := m.slowKeys(snap)
+	for i, k := range keys {
+		if k == slowAnchor {
 			m.slowSelected = i
 			break
 		}
 	}
-	if m.slowSelected >= len(snap.SlowestQueries) {
-		m.slowSelected = max(len(snap.SlowestQueries)-1, 0)
+	if m.slowSelected >= len(keys) {
+		m.slowSelected = max(len(keys)-1, 0)
 	}
 	if m.killResult != "" && time.Since(m.killResultAt) > killResultDisplayDuration {
 		m.killResult = ""
@@ -234,6 +236,15 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 // here: no killing from a leaderboard, and stuck jobs are always excluded.
 func (m QueriesModel) handleSlowestKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	km := m.keyMap
+	switch {
+	case key.Matches(msg, km.Failed):
+		return m.toggleLogMode(store.JobsLogFailed), nil
+	case key.Matches(msg, km.Grouped):
+		return m.toggleLogMode(store.JobsLogGrouped), nil
+	}
+	if m.logMode != store.JobsLogSlowest {
+		return m.handleJobsLogKey(msg)
+	}
 	board := m.snap.SlowestQueries
 
 	switch {
@@ -457,7 +468,11 @@ func (m QueriesModel) renderInfoModal() string {
 	sections = append(sections, "")
 
 	if len(q.Operations) == 0 {
-		sections = append(sections, styleDim.Render("No operations recorded yet (job may be in planning phase)."))
+		if m.infoEnd.IsZero() {
+			sections = append(sections, styleDim.Render("No operations recorded yet (job may be in planning phase)."))
+		} else {
+			sections = append(sections, styleDim.Render("No operation data (finished before a poll caught it running)."))
+		}
 	} else {
 		sections = append(sections, styleHeader.Render(fmt.Sprintf("%-22s %-18s %-12s %s",
 			"NAME", "NODE", "USED", "STARTED")))
@@ -494,12 +509,15 @@ func (m QueriesModel) renderInfoModal() string {
 		lipgloss.WithWhitespaceBackground(colorOverlayBg))
 }
 
-// renderSlowest draws the slowest-jobs board. Durations are as of the last
-// poll that saw the job, so they can be short by up to one SampleInterval;
-// the header says so.
+// renderSlowest draws the slowest-jobs board. Rows from sys.jobs_log are
+// exact; sampled ones are as of the last poll that saw the job, short by up
+// to one SampleInterval, and finished ones are marked ≥.
 func (m QueriesModel) renderSlowest() string {
+	if m.logMode != store.JobsLogSlowest {
+		return m.renderJobsLog()
+	}
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live)")
+	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live  f: failed  g: grouped)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}
@@ -511,10 +529,9 @@ func (m QueriesModel) renderSlowest() string {
 	}
 	lines = append(lines, title)
 
-	sinceLine := fmt.Sprintf("  since %s (%s observed, sampled every %s)",
+	sinceLine := fmt.Sprintf("  since %s (%s observed)",
 		m.snap.ObservedSince.Format("15:04:05"),
-		formatDuration(now.Sub(m.snap.ObservedSince)),
-		formatDuration(m.snap.SampleInterval))
+		formatDuration(now.Sub(m.snap.ObservedSince)))
 	stuck := 0
 	for _, q := range m.snap.ActiveQueries {
 		if now.Sub(q.Started) > stuckThreshold {
@@ -524,7 +541,7 @@ func (m QueriesModel) renderSlowest() string {
 	if stuck > 0 {
 		sinceLine += styleDim.Render(fmt.Sprintf(" (%d stuck excluded)", stuck))
 	}
-	lines = append(lines, sinceLine)
+	lines = append(lines, sinceLine, "  "+m.sourceLine(now))
 
 	board := m.snap.SlowestQueries
 	if len(board) == 0 {
@@ -550,8 +567,15 @@ func (m QueriesModel) renderSlowest() string {
 			durStyle = styleHealthYellow
 		}
 		state := "running"
-		if o.Done {
+		switch {
+		case o.Error != "":
+			state = "failed"
+		case o.Done:
 			state = "done"
+		}
+		durStr := formatDuration(d)
+		if o.Done && !o.Exact {
+			durStr = "≥" + durStr
 		}
 		mem := "—"
 		if o.PeakBytes > 0 {
@@ -560,7 +584,7 @@ func (m QueriesModel) renderSlowest() string {
 		stmt := truncateString(strings.ReplaceAll(o.Stmt, "\n", " "), maxStmtLen)
 		lines = append(lines, fmt.Sprintf("%s%-3d %s %-8s %-10s %-12s %-10s %s",
 			marker, i+1,
-			durStyle.Render(fmt.Sprintf("%-10s", formatDuration(d))),
+			durStyle.Render(fmt.Sprintf("%-10s", durStr)),
 			state, mem,
 			truncateString(o.Node, 12), truncateString(o.Username, 10), stmt))
 	}
@@ -568,7 +592,12 @@ func (m QueriesModel) renderSlowest() string {
 	if m.slowSelected < len(board) {
 		o := board[m.slowSelected]
 		state := "running"
-		if o.Done {
+		switch {
+		case o.Exact && o.Error != "":
+			state = "failed at " + o.LastSeen.Format("15:04:05") + ": " + firstLine(o.Error)
+		case o.Exact:
+			state = "finished at " + o.LastSeen.Format("15:04:05") + " (sys.jobs_log)"
+		case o.Done:
 			state = "finished, last seen " + o.LastSeen.Format("15:04:05")
 		}
 		lines = append(lines, "")

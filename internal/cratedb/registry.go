@@ -115,7 +115,7 @@ func (r *Registry) OnRecovery(fn func()) {
 func (r *Registry) Bootstrap(ctx context.Context) error {
 	// Get cluster name
 	start := time.Now()
-	resp, err := r.primary.Query(ctx, "SELECT name FROM sys.cluster")
+	resp, err := r.primary.Query(ctx, "SELECT name FROM sys.cluster"+QueryTag)
 	if err != nil {
 		r.recordQuery(QueryLabelBootstrap, time.Since(start), 0, err)
 		return fmt.Errorf("bootstrap cluster name: %w", err)
@@ -179,7 +179,7 @@ func (r *Registry) Reconnect(ctx context.Context) {
 // full node metrics are collected by the nodes collector.
 func (r *Registry) Refresh(ctx context.Context) error {
 	start := time.Now()
-	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url FROM sys.nodes`)
+	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url FROM sys.nodes`+QueryTag)
 	dur := time.Since(start)
 	if err != nil {
 		r.recordQuery(QueryLabelNodeDiscovery, dur, 0, err)

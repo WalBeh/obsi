@@ -129,6 +129,20 @@ func (m *Manager) SetFastPath(collectorName string, enabled bool) {
 	}
 }
 
+// SetJobsLogView tells the jobs_log collector whether the slowest board is
+// open and in which mode; it only queries while open. A change triggers an
+// immediate poll so the board doesn't wait out the interval.
+func (m *Manager) SetJobsLogView(ctx context.Context, active bool, mode store.JobsLogMode) {
+	for _, c := range m.collectors {
+		if jl, ok := c.(*JobsLogCollector); ok {
+			if jl.SetView(active, mode) && active {
+				m.TriggerCollector(ctx, jl.Name())
+			}
+			return
+		}
+	}
+}
+
 // TriggerCollector runs a named collector once immediately in the background.
 // Blocked in ThrottleMax mode — all collectors are paused.
 func (m *Manager) TriggerCollector(ctx context.Context, name string) {
@@ -275,6 +289,7 @@ func DefaultCollectors(cfg map[string]config.CollectorConfig, jmxCfg config.JMXC
 		{"health", func() Collector { return NewHealthCollector(cfg["health"], tracker) }},
 		{"nodes", func() Collector { return NewNodesCollector(cfg["nodes"], tracker) }},
 		{"queries", func() Collector { return NewQueriesCollector(cfg["queries"], tracker) }},
+		{"jobs_log", func() Collector { return NewJobsLogCollector(cfg["jobs_log"], tracker) }},
 		{"shards", func() Collector { return NewShardsCollector(cfg["shards"], tracker) }},
 	}
 

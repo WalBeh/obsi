@@ -24,11 +24,13 @@ func (c *QueriesCollector) Interval() time.Duration { return c.interval }
 
 // LEFT JOIN preserves jobs that have no sys.operations row yet (planning
 // phase) — the join-side columns come back as NULL for those rows.
+// obsi's own tagged polling (this query included) is left out.
 const activeJobsQuery = `SELECT
 	j.id, j.node['name'] AS node_name, j.started, j.stmt, j.username,
 	o.name, o.used_bytes, o.node['name'] AS op_node, o.started AS op_started
 FROM sys.jobs j
 LEFT JOIN sys.operations o ON o.job_id = j.id
+WHERE j.stmt NOT LIKE ` + cratedb.QueryTagLike + `
 ORDER BY j.started ASC, o.used_bytes DESC`
 
 func (c *QueriesCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {

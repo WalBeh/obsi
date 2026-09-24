@@ -148,6 +148,39 @@ type Operation struct {
 	Started   time.Time
 }
 
+// JobLogEntry is a finished job from sys.jobs_log.
+type JobLogEntry struct {
+	ID       string
+	Node     string
+	Username string
+	Stmt     string
+	Started  time.Time
+	Ended    time.Time
+	Error    string // empty when the job succeeded
+	Type     string // classification['type'], e.g. SELECT, DDL
+}
+
+// JobLogGroup aggregates sys.jobs_log rows sharing the exact stmt text.
+// Parameterized statements are logged with placeholders, so they group well;
+// literal-heavy SQL mostly doesn't.
+type JobLogGroup struct {
+	Stmt      string
+	Count     int64
+	Failed    int64
+	Max       time.Duration
+	Avg       time.Duration
+	LastEnded time.Time
+}
+
+// JobLogCoverage is how far back one node's sys.jobs_log reaches. The log is
+// an in-memory ring per node (stats.jobs_log_size), so on busy clusters this
+// can be minutes.
+type JobLogCoverage struct {
+	Node    string
+	Oldest  time.Time
+	Entries int64
+}
+
 // ShardInfo represents a row from sys.shards.
 type ShardInfo struct {
 	ID             int

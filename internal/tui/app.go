@@ -266,6 +266,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.showQueryLog {
 			a.queryLog.Refresh(a.collectors.QueryTracker(), throttle)
 		}
+		// jobs_log is only polled while the slowest board is on screen.
+		a.collectors.SetJobsLogView(a.ctx, a.activeTab == TabQueries && a.queries.showSlowest, a.queries.logMode)
 		return a, a.doStoreTick()
 	}
 

@@ -377,12 +377,7 @@ func (m QueriesModel) View() string {
 		}
 		stmt = truncateString(stmt, maxStmtLen)
 
-		durStyle := styleValue
-		if duration > 30*time.Second {
-			durStyle = styleHighValue
-		} else if duration > 10*time.Second {
-			durStyle = styleHealthYellow
-		}
+		durStyle := durationStyle(duration)
 
 		row := fmt.Sprintf("%s%s %-22s %-12s %-10s %s",
 			marker,
@@ -425,15 +420,7 @@ func (m QueriesModel) killResultStyle() lipgloss.Style {
 
 // renderKillModal renders the kill confirmation modal centered over a dimmed background.
 func (m QueriesModel) renderKillModal() string {
-	modalWidth := m.width * 65 / 100
-	if modalWidth < 40 {
-		modalWidth = 40
-	}
-	// Inner content width = modal width minus border (2) and padding (4)
-	innerWidth := modalWidth - 6
-	if innerWidth < 20 {
-		innerWidth = 20
-	}
+	innerWidth := modalInnerWidth(m.width, 65, 40)
 
 	q := m.killTarget
 	stmt := truncateString(strings.ReplaceAll(q.Stmt, "\n", " "), innerWidth)
@@ -444,23 +431,13 @@ func (m QueriesModel) renderKillModal() string {
 	footer := styleDim.Render("[y]es  [n]o")
 
 	content := lipgloss.JoinVertical(lipgloss.Left, title, "", id, stmtLine, "", footer)
-	modal := styleModalBorder.Width(innerWidth).Render(content)
-
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal,
-		lipgloss.WithWhitespaceBackground(colorOverlayBg))
+	return placeModal(content, innerWidth, m.width, m.height)
 }
 
 // renderInfoModal shows the operations breakdown plus the full statement for
 // the selected query, centered over the dimmed list.
 func (m QueriesModel) renderInfoModal() string {
-	modalWidth := m.width * 85 / 100
-	if modalWidth < 60 {
-		modalWidth = 60
-	}
-	innerWidth := modalWidth - 6
-	if innerWidth < 40 {
-		innerWidth = 40
-	}
+	innerWidth := modalInnerWidth(m.width, 85, 60)
 
 	q := m.infoTarget
 	now := endOrNow(m.infoEnd)
@@ -512,10 +489,7 @@ func (m QueriesModel) renderInfoModal() string {
 	sections = append(sections, styleDim.Render("[y] yank to clipboard   [i/esc] close"))
 
 	content := lipgloss.JoinVertical(lipgloss.Left, sections...)
-	modal := styleModalBorder.Width(innerWidth).Render(content)
-
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal,
-		lipgloss.WithWhitespaceBackground(colorOverlayBg))
+	return placeModal(content, innerWidth, m.width, m.height)
 }
 
 // renderSlowest draws the slowest-jobs board. Rows from sys.jobs_log are
@@ -569,12 +543,7 @@ func (m QueriesModel) renderSlowest() string {
 			marker = "▸ "
 		}
 		d := o.Duration()
-		durStyle := styleValue
-		if d > 30*time.Second {
-			durStyle = styleHighValue
-		} else if d > 10*time.Second {
-			durStyle = styleHealthYellow
-		}
+		durStyle := durationStyle(d)
 		state := "running"
 		switch {
 		case o.Error != "":
@@ -665,42 +634,4 @@ func formatQueryDump(q cratedb.ActiveQuery, now time.Time) string {
 		b.WriteString("\n")
 	}
 	return b.String()
-}
-
-// wrapText breaks s into lines no wider than width, preserving existing
-// newlines. Naive whitespace wrapping — good enough for SQL display.
-func wrapText(s string, width int) []string {
-	if width < 10 {
-		width = 10
-	}
-	var out []string
-	for _, line := range strings.Split(s, "\n") {
-		for len(line) > width {
-			cut := strings.LastIndex(line[:width], " ")
-			if cut <= 0 {
-				cut = width
-			}
-			out = append(out, line[:cut])
-			line = strings.TrimLeft(line[cut:], " ")
-		}
-		out = append(out, line)
-	}
-	return out
-}
-
-func formatDuration(d time.Duration) string {
-	switch {
-	case d >= time.Hour:
-		h := int(d.Hours())
-		m := int(d.Minutes()) % 60
-		return fmt.Sprintf("%dh%dm", h, m)
-	case d >= time.Minute:
-		m := int(d.Minutes())
-		s := int(d.Seconds()) % 60
-		return fmt.Sprintf("%dm%ds", m, s)
-	case d >= time.Second:
-		return fmt.Sprintf("%.1fs", d.Seconds())
-	default:
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	}
 }

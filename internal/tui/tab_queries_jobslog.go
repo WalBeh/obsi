@@ -90,13 +90,6 @@ func (m QueriesModel) sourceLine(now time.Time) string {
 	}
 }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
-}
-
 func (m QueriesModel) renderJobsLog() string {
 	now := time.Now()
 	jl := m.snap.JobsLog

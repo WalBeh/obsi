@@ -84,6 +84,11 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 		"SELECT count(*) FROM sys.jobs",
 		"Required for active queries (Queries tab)")
 
+	// 7b. sys.jobs_log
+	checkTable(ctx, registry, "sys.jobs_log",
+		"SELECT count(*) FROM sys.jobs_log",
+		"Used for exact durations, failed and grouped views on the slowest board (Queries tab, S); empty when stats.enabled = false")
+
 	// 8. sys.allocations
 	checkTable(ctx, registry, "sys.allocations",
 		"SELECT count(*) FROM sys.allocations",

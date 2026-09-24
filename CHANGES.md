@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **sys.jobs_log on the slowest board.** Finished jobs now show exact
+  durations and errors from `sys.jobs_log`; running jobs still come from
+  the `sys.jobs` poll. Jobs the log no longer holds keep their sampled
+  duration, marked `≥`, and without `sys.jobs_log` the board stays fully
+  sampled with the reason in the header. `f` lists failed queries, `g`
+  groups by exact statement (count / max / avg / failed). Polled every
+  15s only while the board is open. obsi's own statements are tagged
+  `/* obsi */` and left out of the Queries tab. `--doctor` checks
+  `sys.jobs_log`.
+
 - **Key help** on every tab. `?` opens a modal listing the keys the active
   tab handles (the Queries list differs between live and slowest views)
   plus the global ones. `?` is plain text in the SQL editor and search

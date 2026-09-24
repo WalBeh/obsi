@@ -58,6 +58,7 @@ type TUIConfig struct {
 	RefreshRate      Duration `toml:"refresh_rate"`
 	SparklineHistory int      `toml:"sparkline_history"`
 	SetGlobalMode    string   `toml:"set_global_mode"` // "persistent" (default) or "transient"
+	AlertBell        bool     `toml:"alert_bell"`      // ring the terminal bell when an alert is raised
 }
 
 // LoggingConfig holds logging settings.

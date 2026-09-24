@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/waltergrande/cratedb-observer/internal/collector"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
+	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
 func fmtMs(d time.Duration) string {
@@ -29,6 +30,7 @@ type StatusBarModel struct {
 	totalShards   int
 	shardQueryDur time.Duration
 	readOnly      bool
+	alerts        store.AlertsState
 	width         int
 }
 
@@ -131,12 +133,23 @@ func (m StatusBarModel) View() string {
 			fmtMs(s.Latency.Avg), fmtMs(s.Latency.P90), fmtMs(s.Latency.Max))
 	}
 
+	alertStr := ""
+	if m.alerts.Firing > 0 {
+		style := styleHealthYellow
+		for _, a := range m.alerts.History {
+			if a.Firing() && a.Level == store.AlertCrit {
+				style = styleHealthRed
+			}
+		}
+		alertStr = " │ " + style.Render(fmt.Sprintf("⚠ %d alert(s) a:list", m.alerts.Firing))
+	}
+
 	modeStr := " │ " + styleDim.Render("read-only")
 	if !m.readOnly {
 		modeStr = " │ " + styleHealthYellow.Render("read-write")
 	}
 
-	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr + modeStr
+	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr + alertStr + modeStr
 
 	help := styleDim.Render("?:help  t:throttle  r:reconnect  q:quit")
 

@@ -36,6 +36,8 @@ type Store struct {
 	slowestDone     []ObservedQuery           // finished jobs, top SlowestLimit
 	jobsLog         JobsLogState
 
+	alerts alertLog
+
 	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
 	jmxPods    map[string]*jmx.JMXSnapshot
 	jmxCluster jmx.ClusterJMX
@@ -92,6 +94,9 @@ type StoreSnapshot struct {
 	ObservedSince  time.Time
 	SampleInterval time.Duration
 	JobsLog        JobsLogState
+
+	// Alerts is always filled, whatever the hint.
+	Alerts AlertsState
 
 	// JMX per-pod snapshots; empty when the JMX collector is disabled or
 	// has not yet produced a successful scrape. Pod-name keys match
@@ -174,6 +179,7 @@ func (s *Store) UpdateClusterHealth(checks []cratedb.ClusterCheck, health []crat
 	s.clusterChecks = checks
 	s.tableHealth = health
 	s.lastUpdated["health"] = time.Now()
+	s.alerts.sync("health", time.Now(), healthAlerts(checks, health))
 }
 
 // ClusterHealth returns the worst table health across the cluster: "RED", "YELLOW", "GREEN", or "" if unknown.
@@ -216,6 +222,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	snap := StoreSnapshot{
 		Staleness:   make(map[string]bool),
 		LastUpdated: make(map[string]time.Time),
+		Alerts:      s.alerts.snapshot(),
 	}
 
 	if hint.IncludeCluster {

@@ -99,6 +99,7 @@ func (s *Store) UpdateNodes(nodes []NodeSnapshot) {
 
 	s.nodes = nodes
 	s.lastUpdated["nodes"] = now
+	s.alerts.sync("nodes", now, s.alerts.nodeAlerts(nodes, s.clusterSettings))
 
 	s.pushHistory(nodes)
 }

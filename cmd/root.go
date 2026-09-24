@@ -47,7 +47,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
 	cmd.PersistentFlags().BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification")
 	cmd.PersistentFlags().StringVar(&profile, "profile", "", "Named cluster profile from config")
-	cmd.PersistentFlags().BoolVar(&readWrite, "read-write", false, "Allow writes from the SQL tab, KILL and settings edits for this run")
+	cmd.PersistentFlags().BoolVar(&readWrite, "read-write", false, "Allow writes from the SQL tab and settings edits for this run")
 
 	cmd.AddCommand(doctorCmd)
 	cmd.AddCommand(profilesCmd)

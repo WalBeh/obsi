@@ -79,7 +79,6 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		sql:         NewSQLModel(0, 0, reg, ctx),
 	}
 	a.sql.readOnly = readOnly
-	a.queries.readOnly = readOnly
 	a.overview.editor.readOnly = readOnly
 	a.statusBar.readOnly = readOnly
 	return a

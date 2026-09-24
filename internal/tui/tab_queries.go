@@ -43,7 +43,6 @@ type QueriesModel struct {
 	height       int
 	keyMap       KeyMap
 	killTarget   *cratedb.ActiveQuery
-	readOnly     bool
 	killResult   string
 	killIsError  bool
 	killResultAt time.Time
@@ -205,8 +204,6 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 		if m.selected < len(visible)-1 {
 			m.selected++
 		}
-	case key.Matches(msg, km.Kill) && m.readOnly:
-		m.killResult, m.killIsError, m.killResultAt = readOnlyRefusal("KILL is off"), true, time.Now()
 	case key.Matches(msg, km.Kill):
 		if m.selected < len(visible) {
 			q := visible[m.selected]

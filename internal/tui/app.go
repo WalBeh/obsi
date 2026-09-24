@@ -143,19 +143,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.collectors.CycleThrottle()
 			return a, nil
 		case key.Matches(msg, a.keyMap.Refresh):
-			// Manual refresh for current tab's data
-			switch a.activeTab {
-			case TabTables:
-				a.collectors.TriggerCollector(a.ctx, "shards")
-			case TabShards:
-				a.collectors.TriggerCollector(a.ctx, "shards")
-			case TabOverview:
-				a.collectors.TriggerCollector(a.ctx, "health")
-				a.collectors.TriggerCollector(a.ctx, "cluster")
-			case TabNodes:
-				a.collectors.TriggerCollector(a.ctx, "nodes")
-			case TabQueries:
-				a.collectors.TriggerCollector(a.ctx, "queries")
+			for _, name := range a.current().Collectors() {
+				a.collectors.TriggerCollector(a.ctx, name)
 			}
 			return a, nil
 		case key.Matches(msg, a.keyMap.QueryLog):
@@ -242,18 +231,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		throttle := a.collectors.Throttle()
 		hint := a.snapshotHint()
 		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
-		switch a.activeTab {
-		case TabOverview:
-			a.overview = a.overview.Refresh(snap)
-		case TabNodes:
-			a.nodes = a.nodes.Refresh(snap)
-		case TabQueries:
-			a.queries = a.queries.Refresh(snap)
-		case TabTables:
-			a.tables = a.tables.Refresh(snap)
-		case TabShards:
-			a.shards = a.shards.Refresh(snap)
-		}
+		a.current().Refresh(snap)
 		shardStat := a.collectors.QueryTracker().GetStat(collector.QueryShards)
 		a.statusBar = a.statusBar.Refresh(
 			a.registry.Status(),
@@ -281,21 +259,7 @@ func (a *App) View() string {
 
 	tabBar := a.renderTabBar()
 
-	var body string
-	switch a.activeTab {
-	case TabOverview:
-		body = a.overview.View()
-	case TabNodes:
-		body = a.nodes.View()
-	case TabQueries:
-		body = a.queries.View()
-	case TabTables:
-		body = a.tables.View()
-	case TabShards:
-		body = a.shards.View()
-	case TabSQL:
-		body = a.sql.View()
-	}
+	body := a.current().View()
 	if a.showHelp {
 		body = renderHelp(a.activeTab, a.keyMap, a.queries.showSlowest, a.width, a.bodyHeight())
 	}
@@ -330,51 +294,11 @@ func (a *App) renderTabBar() string {
 }
 
 func (a *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
-	switch a.activeTab {
-	case TabOverview:
-		var cmd tea.Cmd
-		a.overview, cmd = a.overview.HandleKey(msg)
-		return cmd
-	case TabNodes:
-		var cmd tea.Cmd
-		a.nodes, cmd = a.nodes.HandleKey(msg)
-		return cmd
-	case TabQueries:
-		var cmd tea.Cmd
-		a.queries, cmd = a.queries.HandleKey(msg)
-		return cmd
-	case TabTables:
-		var cmd tea.Cmd
-		a.tables, cmd = a.tables.HandleKey(msg)
-		return cmd
-	case TabShards:
-		var cmd tea.Cmd
-		a.shards, cmd = a.shards.HandleKey(msg)
-		return cmd
-	case TabSQL:
-		var cmd tea.Cmd
-		a.sql, cmd = a.sql.HandleKey(msg)
-		return cmd
-	}
-	return nil
+	return a.current().HandleKey(msg)
 }
 
 func (a *App) isTabInputMode() bool {
-	switch a.activeTab {
-	case TabNodes:
-		return a.nodes.searching
-	case TabQueries:
-		return a.queries.killTarget != nil || a.queries.infoTarget != nil
-	case TabTables:
-		return a.tables.searching
-	case TabShards:
-		return a.shards.searching
-	case TabOverview:
-		return a.overview.editor.isInputMode()
-	case TabSQL:
-		return a.sql.IsEditing()
-	}
-	return false
+	return a.current().InputMode()
 }
 
 func (a *App) setActiveTab(tab Tab) {
@@ -384,35 +308,11 @@ func (a *App) setActiveTab(tab Tab) {
 	throttle := a.collectors.Throttle()
 	hint := a.snapshotHint()
 	snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
-	switch tab {
-	case TabOverview:
-		a.overview = a.overview.Refresh(snap)
-	case TabNodes:
-		a.nodes = a.nodes.Refresh(snap)
-	case TabQueries:
-		a.queries = a.queries.Refresh(snap)
-	case TabTables:
-		a.tables = a.tables.Refresh(snap)
-	case TabShards:
-		a.shards = a.shards.Refresh(snap)
-	}
+	a.current().Refresh(snap)
 }
 
 func (a *App) snapshotHint() store.SnapshotHint {
-	switch a.activeTab {
-	case TabOverview:
-		return store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeTables: true, IncludeJMX: true}
-	case TabNodes:
-		return store.SnapshotHint{IncludeNodes: true, IncludeJMX: true}
-	case TabQueries:
-		return store.SnapshotHint{IncludeQueries: true}
-	case TabTables:
-		return store.SnapshotHint{IncludeTables: true, IncludeHealth: true}
-	case TabShards:
-		return store.SnapshotHint{IncludeShards: true}
-	default:
-		return store.SnapshotHint{}
-	}
+	return a.current().Hint()
 }
 
 // bodyHeight returns the available height for the tab body, accounting for
@@ -431,12 +331,9 @@ func (a *App) bodyHeight() int {
 // resizeTabs recalculates tab body sizes (e.g. after toggling the overlay).
 func (a *App) resizeTabs() {
 	bodyHeight := a.bodyHeight()
-	a.overview = a.overview.SetSize(a.width, bodyHeight)
-	a.nodes = a.nodes.SetSize(a.width, bodyHeight)
-	a.queries = a.queries.SetSize(a.width, bodyHeight)
-	a.tables = a.tables.SetSize(a.width, bodyHeight)
-	a.shards = a.shards.SetSize(a.width, bodyHeight)
-	a.sql = a.sql.SetSize(a.width, bodyHeight)
+	for _, t := range a.tabs() {
+		t.SetSize(a.width, bodyHeight)
+	}
 	a.statusBar = a.statusBar.SetWidth(a.width)
 }
 

@@ -34,8 +34,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Slowest queries** in the Queries tab. `S` flips to a board of the 20
   slowest jobs seen in `sys.jobs` since obsi started, running and
   finished mixed, with peak memory. Built from the existing poll, so
-  finished durations are frozen at the last poll that saw the job (short
-  by up to one interval) and sub-interval queries never show up. Stuck
+  durations are as of the last poll that saw the job (short by up to one
+  interval, running rows step once per poll) and sub-interval queries
+  never show up. Stuck
   queries (>24h) are always excluded. `i` and `y` work on finished jobs.
 
 - **JMX metrics integration** for CrateDB Cloud clusters, via `croudng`'s

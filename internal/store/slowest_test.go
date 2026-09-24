@@ -43,7 +43,7 @@ func TestObserveQueries_FinalizeOnDisappearance(t *testing.T) {
 	if !got.Done {
 		t.Error("want Done")
 	}
-	if d := got.Duration(t0.Add(time.Hour)); d != 6*time.Second {
+	if d := got.Duration(); d != 6*time.Second {
 		t.Errorf("Duration = %s, want 6s (frozen at last seen)", d)
 	}
 	if got.PeakBytes != 500 {
@@ -82,8 +82,9 @@ func TestSlowestSnapshot_MergesRunning(t *testing.T) {
 
 	s.observeQueries([]cratedb.ActiveQuery{job("done", t0, 0), job("run", t0.Add(time.Minute), 0)}, t0.Add(4*time.Minute))
 	s.observeQueries([]cratedb.ActiveQuery{job("run", t0.Add(time.Minute), 0)}, t0.Add(5*time.Minute))
+	s.observeQueries([]cratedb.ActiveQuery{job("run", t0.Add(time.Minute), 0)}, t0.Add(11*time.Minute))
 
-	// done: 4m. run at t0+5m: 4m, at t0+11m: 10m.
+	// done: 4m. run last seen at t0+11m: 10m.
 	got := s.slowestSnapshot(t0.Add(11 * time.Minute))
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2", len(got))
@@ -93,6 +94,37 @@ func TestSlowestSnapshot_MergesRunning(t *testing.T) {
 	}
 	if got[1].ID != "done" || !got[1].Done {
 		t.Errorf("second = %s (done=%v), want finished job", got[1].ID, got[1].Done)
+	}
+}
+
+// Regression: running jobs used to count up to now between polls, climb to
+// #1, then drop below a slower finished job (or off the board) once the next
+// poll found them gone. A job's duration must not change between polls, nor
+// when it's finalized.
+func TestSlowestSnapshot_NoDropOnFinish(t *testing.T) {
+	s := newTestStore()
+	t0 := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	slow := job("slow", t0, 0)
+	s.observeQueries([]cratedb.ActiveQuery{slow}, t0.Add(4900*time.Millisecond))
+	s.observeQueries(nil, t0.Add(6900*time.Millisecond)) // slow done at 4.9s
+
+	late := job("late", t0.Add(10*time.Second), 0)
+	s.observeQueries([]cratedb.ActiveQuery{late}, t0.Add(14*time.Second)) // late seen at 4.0s
+
+	// 2.1s later, before the next poll: late must still read 4.0s and sit
+	// below slow, not count up to 6.1s and overtake it.
+	mid := s.slowestSnapshot(t0.Add(16100 * time.Millisecond))
+	if mid[0].ID != "slow" || mid[1].ID != "late" {
+		t.Fatalf("between polls order = %s,%s, want slow,late", mid[0].ID, mid[1].ID)
+	}
+	if d := mid[1].Duration(); d != 4*time.Second {
+		t.Errorf("running late = %s, want 4s (as of last poll)", d)
+	}
+
+	s.observeQueries(nil, t0.Add(16*time.Second))
+	after := s.slowestSnapshot(t0.Add(16 * time.Second))
+	if after[1].ID != "late" || !after[1].Done || after[1].Duration() != 4*time.Second {
+		t.Errorf("after finish = %+v, want late done at 4s", after[1])
 	}
 }
 

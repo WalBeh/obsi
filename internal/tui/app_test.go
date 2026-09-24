@@ -123,7 +123,7 @@ func TestAppResizePropagates(t *testing.T) {
 func TestAppRefreshCollectors(t *testing.T) {
 	a := newTestApp(t)
 	want := map[Tab][]string{
-		TabOverview: {"health", "cluster"},
+		TabOverview: {"health", "cluster", "snapshots"},
 		TabNodes:    {"nodes"},
 		TabQueries:  {"queries"},
 		TabTables:   {"shards"},

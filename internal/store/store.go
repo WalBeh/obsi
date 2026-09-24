@@ -36,7 +36,8 @@ type Store struct {
 	slowestDone     []ObservedQuery           // finished jobs, top SlowestLimit
 	jobsLog         JobsLogState
 
-	alerts alertLog
+	alerts    alertLog
+	snapshots SnapshotsState
 
 	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
 	jmxPods    map[string]*jmx.JMXSnapshot
@@ -94,6 +95,8 @@ type StoreSnapshot struct {
 	ObservedSince  time.Time
 	SampleInterval time.Duration
 	JobsLog        JobsLogState
+
+	Snapshots SnapshotsState
 
 	// Alerts is always filled, whatever the hint.
 	Alerts AlertsState
@@ -228,6 +231,8 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeCluster {
 		snap.ClusterSettings = s.clusterSettings
 		snap.Summit = s.summit
+		snap.Snapshots = s.snapshots
+		snap.Snapshots.Snapshots = copySlice(s.snapshots.Snapshots)
 	}
 	if hint.IncludeHealth {
 		snap.ClusterChecks = copySlice(s.clusterChecks)

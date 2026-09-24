@@ -28,6 +28,8 @@ const (
 	QueryJobsLogEntries  = "jobs_log.entries"
 	QueryJobsLogGroups   = "jobs_log.groups"
 	QueryStatsEnabled    = "jobs_log.stats_enabled"
+	QuerySnapshotRepos   = "snapshots.repositories"
+	QuerySnapshots       = "snapshots.list"
 	QueryHeartbeat       = cratedb.QueryLabelHeartbeat
 	QueryBootstrap       = cratedb.QueryLabelBootstrap
 	QueryNodeDiscovery   = cratedb.QueryLabelNodeDiscovery
@@ -95,6 +97,8 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryJobsLogEntries, "jobs_log", ci("jobs_log")},
 		{QueryJobsLogGroups, "jobs_log", ci("jobs_log")},
 		{QueryStatsEnabled, "jobs_log", 0},
+		{QuerySnapshotRepos, "snapshots", ci("snapshots")},
+		{QuerySnapshots, "snapshots", ci("snapshots")},
 		{QueryHeartbeat, "registry", connCfg.HeartbeatInterval.Duration},
 		{QueryBootstrap, "registry", 0},
 		{QueryNodeDiscovery, "registry", connCfg.NodeRefreshInterval.Duration},

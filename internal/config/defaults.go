@@ -35,6 +35,11 @@ func DefaultConfig() *Config {
 				Enabled:  true,
 				Interval: Duration{1 * time.Minute},
 			},
+			// sys.snapshots lists the repository (S3, Azure) on every read.
+			"snapshots": {
+				Enabled:  true,
+				Interval: Duration{15 * time.Minute},
+			},
 			// Only polls while the slowest board is open.
 			"jobs_log": {
 				Enabled:  true,

@@ -72,7 +72,7 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `r` | Reconnect to cluster |
 | `L` | Toggle query log |
 | `pgdn` / `pgup` (or `shift+↓` / `shift+↑`) | Scroll detail panel (Nodes tab) |
-| `?` | Help |
+| `?` / `F1` | Keys for the active tab (`F1` also works while typing in the SQL editor or a search) |
 | `q` | Quit |
 
 ## Doctor

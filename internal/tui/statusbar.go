@@ -132,7 +132,7 @@ func (m StatusBarModel) View() string {
 
 	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr
 
-	help := styleDim.Render("t:throttle  r:reconnect  q:quit")
+	help := styleDim.Render("?:help  t:throttle  r:reconnect  q:quit")
 
 	// Pad to fill width
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(help) - 2

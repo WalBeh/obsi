@@ -43,6 +43,7 @@ type App struct {
 	statusBar    StatusBarModel
 	queryLog     QueryLogOverlay
 	showQueryLog bool
+	showHelp     bool
 	store        *store.Store
 	registry     *cratedb.Registry
 	collectors   *collector.Manager
@@ -88,6 +89,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		// Help modal swallows everything but its close keys and ctrl+c.
+		if a.showHelp {
+			switch {
+			case msg.Type == tea.KeyCtrlC:
+				return a, tea.Quit
+			case key.Matches(msg, a.keyMap.Help), key.Matches(msg, a.keyMap.Escape), key.Matches(msg, a.keyMap.Quit):
+				a.showHelp = false
+			}
+			return a, nil
+		}
+		// F1 opens help even while typing, where ? is text.
+		if msg.Type == tea.KeyF1 {
+			a.showHelp = true
+			return a, nil
+		}
+
 		// When a tab is in input mode (search), delegate all keys to it first
 		if a.isTabInputMode() {
 			// Only ctrl+c can exit during input mode
@@ -151,6 +168,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(msg, a.keyMap.Reconnect):
 			a.registry.Reconnect(a.ctx)
+			return a, nil
+		case key.Matches(msg, a.keyMap.Help):
+			a.showHelp = true
 			return a, nil
 		default:
 			return a, a.delegateKey(msg)
@@ -273,6 +293,9 @@ func (a *App) View() string {
 		body = a.shards.View()
 	case TabSQL:
 		body = a.sql.View()
+	}
+	if a.showHelp {
+		body = renderHelp(a.activeTab, a.keyMap, a.queries.showSlowest, a.width, a.bodyHeight())
 	}
 
 	status := a.statusBar.View()

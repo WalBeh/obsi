@@ -164,14 +164,19 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 	fmt.Println()
 }
 
+// queryErr trims a CrateDB error down to its message.
+func queryErr(err error) string {
+	msg := err.Error()
+	if idx := strings.Index(msg, "message:"); idx >= 0 {
+		msg = strings.TrimSpace(msg[idx+8:])
+	}
+	return msg
+}
+
 func checkScalar(ctx context.Context, registry *cratedb.Registry, name, query, purpose string) {
 	_, err := registry.Query(ctx, query)
 	if err != nil {
-		errMsg := err.Error()
-		if idx := strings.Index(errMsg, "message:"); idx >= 0 {
-			errMsg = strings.TrimSpace(errMsg[idx+8:])
-		}
-		printCheck(false, name, fmt.Sprintf("%s — %s", errMsg, purpose))
+		printCheck(false, name, fmt.Sprintf("%s — %s", queryErr(err), purpose))
 		return
 	}
 	printCheck(true, name, "ok")
@@ -180,11 +185,7 @@ func checkScalar(ctx context.Context, registry *cratedb.Registry, name, query, p
 func checkTable(ctx context.Context, registry *cratedb.Registry, name, query, purpose string) {
 	resp, err := registry.Query(ctx, query)
 	if err != nil {
-		errMsg := err.Error()
-		if idx := strings.Index(errMsg, "message:"); idx >= 0 {
-			errMsg = strings.TrimSpace(errMsg[idx+8:])
-		}
-		printCheck(false, name, fmt.Sprintf("%s — %s", errMsg, purpose))
+		printCheck(false, name, fmt.Sprintf("%s — %s", queryErr(err), purpose))
 		return
 	}
 

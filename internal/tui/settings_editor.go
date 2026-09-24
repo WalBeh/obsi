@@ -154,12 +154,6 @@ func (e settingsEditor) handleKey(msg tea.KeyMsg) (settingsEditor, tea.Cmd, bool
 	case key.Matches(msg, e.keyMap.Escape):
 		e.active = false
 		return e, nil, true
-	case msg.Type == tea.KeyTab:
-		e.cursor = (e.cursor + 1) % len(e.slots)
-		return e, nil, true
-	case msg.Type == tea.KeyShiftTab:
-		e.cursor = (e.cursor - 1 + len(e.slots)) % len(e.slots)
-		return e, nil, true
 	case msg.Type == tea.KeyEnter:
 		e.activateInput()
 		return e, nil, true
@@ -349,7 +343,7 @@ func (e *settingsEditor) renderEditHint() string {
 	if !e.persistent {
 		mode = "TRANSIENT"
 	}
-	return styleDim.Render(fmt.Sprintf("  [Tab/↑↓] navigate  [Enter] edit  [Esc] exit  (%s)", mode))
+	return styleDim.Render(fmt.Sprintf("  [↑↓] navigate  [Enter] edit  [Esc] exit  (%s)", mode))
 }
 
 // renderError returns the error message if one is active.

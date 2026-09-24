@@ -137,3 +137,17 @@ func TestAppRefreshCollectors(t *testing.T) {
 		}
 	}
 }
+
+// With the settings editor open (not typing), tab still switches tabs; the
+// editor moves between settings with up/down only.
+func TestAppTabLeavesSettingsEditor(t *testing.T) {
+	a := newTestApp(t)
+	a.Update(keyRune('e'))
+	if !a.overview.editor.active {
+		t.Fatal("e did not open the settings editor")
+	}
+	a.Update(keyType(tea.KeyTab))
+	if a.activeTab != TabNodes {
+		t.Errorf("tab in editor: activeTab=%d, want nodes", a.activeTab)
+	}
+}

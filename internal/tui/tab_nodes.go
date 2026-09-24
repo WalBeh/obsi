@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -34,18 +33,12 @@ const detailScrollStep = 5
 
 // NodesModel shows detailed per-node metrics.
 type NodesModel struct {
-	snap         store.StoreSnapshot
-	sorted       []int // indices into snap.Nodes after sort+filter
-	selected     int
-	scroll       int
-	detailScroll int // lines scrolled within the detail panel
-	sortField    NodeSortField
-	sortDesc     bool
-	searching    bool
-	search       string
-	keyMap       KeyMap
-	width        int
-	height       int
+	listState[NodeSortField] // sorted indexes snap.Nodes
+	snap                     store.StoreSnapshot
+	detailScroll             int // lines scrolled within the detail panel
+	keyMap                   KeyMap
+	width                    int
+	height                   int
 }
 
 func NewNodesModel(width, height int) NodesModel {
@@ -55,9 +48,7 @@ func NewNodesModel(width, height int) NodesModel {
 func (m NodesModel) Refresh(snap store.StoreSnapshot) NodesModel {
 	m.snap = snap
 	m.rebuildSorted()
-	if m.selected >= len(m.sorted) && len(m.sorted) > 0 {
-		m.selected = len(m.sorted) - 1
-	}
+	m.clampSelection()
 	m.clampScroll()
 	return m
 }
@@ -126,42 +117,20 @@ func (m *NodesModel) sliceDetail(detail []string) []string {
 }
 
 func (m *NodesModel) clampScroll() {
-	listH := m.listHeight()
-	if m.selected < m.scroll {
-		m.scroll = m.selected
-	}
-	if m.selected >= m.scroll+listH {
-		m.scroll = m.selected - listH + 1
-	}
-	maxScroll := len(m.sorted) - listH
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.scroll > maxScroll {
-		m.scroll = maxScroll
-	}
-	if m.scroll < 0 {
-		m.scroll = 0
-	}
+	m.clampScrollTo(m.listHeight())
 }
 
 func (m *NodesModel) rebuildSorted() {
 	m.sorted = m.sorted[:0]
 	for i, n := range m.snap.Nodes {
-		if m.search != "" {
-			searchable := strings.ToLower(n.Name + " " + n.Zone + " " + n.NodeRole)
-			if !strings.Contains(searchable, strings.ToLower(m.search)) {
-				continue
-			}
+		if m.matches(n.Name + " " + n.Zone + " " + n.NodeRole) {
+			m.sorted = append(m.sorted, i)
 		}
-		m.sorted = append(m.sorted, i)
 	}
 
 	nodes := m.snap.Nodes
 	sf := m.sortField
-	desc := m.sortDesc
-	sort.Slice(m.sorted, func(a, b int) bool {
-		ia, ib := m.sorted[a], m.sorted[b]
+	m.sortRows(func(ia, ib int) bool {
 		na, nb := nodes[ia], nodes[ib]
 		var less bool
 		switch sf {
@@ -194,89 +163,30 @@ func (m *NodesModel) rebuildSorted() {
 		default:
 			less = ia < ib
 		}
-		if desc {
-			return !less
-		}
 		return less
 	})
 }
 
 func (m NodesModel) HandleKey(msg tea.KeyMsg) (NodesModel, tea.Cmd) {
 	km := m.keyMap
-
-	if m.searching {
-		switch {
-		case key.Matches(msg, km.Escape):
-			m.searching = false
-			m.search = ""
-			m.selected = 0
-			m.scroll = 0
+	if r := m.handleKey(msg, km, nodeSortFieldCount); r.handled {
+		if r.rebuild {
 			m.rebuildSorted()
-			return m, nil
-		case msg.Type == tea.KeyEnter:
-			m.searching = false
-			return m, nil
-		case msg.Type == tea.KeyBackspace:
-			if len(m.search) > 0 {
-				m.search = m.search[:len(m.search)-1]
-				m.selected = 0
-				m.scroll = 0
-				m.rebuildSorted()
-			}
-			return m, nil
-		case msg.Type == tea.KeyRunes:
-			m.search += string(msg.Runes)
-			m.selected = 0
-			m.scroll = 0
-			m.rebuildSorted()
-			return m, nil
+		}
+		if r.moved {
+			m.detailScroll = 0 // new node — start from the top of its detail
+			m.clampScroll()
 		}
 		return m, nil
 	}
 
 	switch {
-	case key.Matches(msg, km.Up):
-		if m.selected > 0 {
-			m.selected--
-			m.detailScroll = 0 // new node — start from the top of its detail
-			m.clampScroll()
-		}
-	case key.Matches(msg, km.Down):
-		if m.selected < len(m.sorted)-1 {
-			m.selected++
-			m.detailScroll = 0
-			m.clampScroll()
-		}
 	case key.Matches(msg, km.DetailDown):
 		m.detailScroll += detailScrollStep // clamped at render time
 	case key.Matches(msg, km.DetailUp):
 		m.detailScroll -= detailScrollStep
 		if m.detailScroll < 0 {
 			m.detailScroll = 0
-		}
-	case key.Matches(msg, km.Search):
-		m.searching = true
-		m.search = ""
-		m.selected = 0
-		m.scroll = 0
-	case key.Matches(msg, km.SortNext):
-		oldField := m.sortField
-		m.sortField = (m.sortField + 1) % nodeSortFieldCount
-		if m.sortField == oldField {
-			m.sortDesc = !m.sortDesc
-		}
-		if m.sortField != oldField {
-			m.sortDesc = m.sortField != NodeSortByName
-		}
-		m.selected = 0
-		m.scroll = 0
-		m.rebuildSorted()
-	case key.Matches(msg, km.Escape):
-		if m.search != "" {
-			m.search = ""
-			m.selected = 0
-			m.scroll = 0
-			m.rebuildSorted()
 		}
 	}
 	return m, nil
@@ -297,12 +207,7 @@ func (m NodesModel) View() string {
 	lines = append(lines, title)
 
 	// Summary + sort/search
-	sortIndicator := fmt.Sprintf("sort: %s", nodeSortFieldNames[m.sortField])
-	if m.sortDesc {
-		sortIndicator += " ↓"
-	} else {
-		sortIndicator += " ↑"
-	}
+	sortIndicator := m.sortLabel(nodeSortFieldNames[:])
 
 	filterInfo := ""
 	if m.search != "" {

@@ -155,9 +155,11 @@ func (t *QueryTracker) Snapshot() []QueryStat {
 }
 
 // trackedQuery executes a query via the registry and records timing/row stats.
+// The statement is tagged so obsi's own polling can be told apart in
+// sys.jobs and sys.jobs_log.
 func trackedQuery(ctx context.Context, t *QueryTracker, label string, reg *cratedb.Registry, stmt string, args ...interface{}) (*cratedb.SQLResponse, error) {
 	start := time.Now()
-	resp, err := reg.Query(ctx, stmt, args...)
+	resp, err := reg.Query(ctx, stmt+cratedb.QueryTag, args...)
 	dur := time.Since(start)
 	if err != nil {
 		t.RecordError(label, err)

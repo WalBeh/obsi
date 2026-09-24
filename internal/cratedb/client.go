@@ -97,7 +97,7 @@ func (c *Client) Query(ctx context.Context, stmt string, args ...interface{}) (*
 // Ping sends a lightweight SELECT 1 and returns the latency.
 func (c *Client) Ping(ctx context.Context) (time.Duration, error) {
 	start := time.Now()
-	_, err := c.Query(ctx, "SELECT 1")
+	_, err := c.Query(ctx, "SELECT 1"+QueryTag)
 	return time.Since(start), err
 }
 

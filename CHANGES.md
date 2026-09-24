@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Snapshots** section on the Overview: the last 10 snapshots with
+  state, duration and failures, or "no snapshot repository configured".
+  Polled every 15 minutes (`[collectors.snapshots]`) because listing
+  reads the repository bucket. A FAILED or PARTIAL newest snapshot in a
+  repository raises an alert.
+
 - **Alerts.** A node leaving, obsi losing the connection, a table turning
   YELLOW or RED (partitions folded into one alert per table), a failing
   `sys.checks` entry, disk past a percentage watermark and heap above 85%

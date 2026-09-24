@@ -110,6 +110,16 @@ type Summit struct {
 	FirstAscent int
 }
 
+// SnapshotInfo represents a row from sys.snapshots.
+type SnapshotInfo struct {
+	Repository string
+	Name       string
+	State      string // SUCCESS, PARTIAL, FAILED, IN_PROGRESS, INCOMPATIBLE
+	Started    time.Time
+	Finished   time.Time
+	Failures   int
+}
+
 // ClusterCheck represents a row from sys.checks.
 type ClusterCheck struct {
 	ID          int

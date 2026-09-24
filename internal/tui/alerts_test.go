@@ -43,3 +43,24 @@ func TestAlertRowsCleared(t *testing.T) {
 		t.Errorf("rows = %q", rows)
 	}
 }
+
+func TestRenderSnapshots(t *testing.T) {
+	m := NewOverviewModel(120, 40, true)
+	if !strings.Contains(m.renderSnapshots(), "loading") {
+		t.Error("want loading before the first poll")
+	}
+	m.snap.Snapshots = store.SnapshotsState{UpdatedAt: time.Now()}
+	if !strings.Contains(m.renderSnapshots(), "no snapshot repository configured") {
+		t.Error("want the no-repository line")
+	}
+	start := time.Date(2026, 9, 24, 3, 0, 0, 0, time.Local)
+	m.snap.Snapshots = store.SnapshotsState{UpdatedAt: time.Now(), Repositories: 1, Snapshots: []cratedb.SnapshotInfo{
+		{Repository: "backups", Name: "nightly", State: "PARTIAL", Started: start, Finished: start.Add(5 * time.Minute), Failures: 3},
+	}}
+	out := m.renderSnapshots()
+	for _, want := range []string{"2026-09-24 03:00", "backups", "nightly", "PARTIAL", "5m", "3"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("section missing %q:\n%s", want, out)
+		}
+	}
+}

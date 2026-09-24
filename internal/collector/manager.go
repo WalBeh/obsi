@@ -291,6 +291,7 @@ func DefaultCollectors(cfg map[string]config.CollectorConfig, jmxCfg config.JMXC
 		{"queries", func() Collector { return NewQueriesCollector(cfg["queries"], tracker) }},
 		{"jobs_log", func() Collector { return NewJobsLogCollector(cfg["jobs_log"], tracker) }},
 		{"shards", func() Collector { return NewShardsCollector(cfg["shards"], tracker) }},
+		{"snapshots", func() Collector { return NewSnapshotsCollector(cfg["snapshots"], tracker) }},
 	}
 
 	var enabled []Collector

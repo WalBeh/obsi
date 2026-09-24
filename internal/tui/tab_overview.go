@@ -5,9 +5,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
@@ -41,6 +43,7 @@ func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 		sections = append(sections, s)
 	}
 	sections = append(sections, m.renderTableHealth())
+	sections = append(sections, m.renderSnapshots())
 	sections = append(sections, m.renderSummit())
 	content := strings.Join(sections, "\n\n")
 	m.lines = strings.Split(content, "\n")
@@ -525,4 +528,60 @@ func (m OverviewModel) renderSummit() string {
 	}
 	return styleDim.Render(fmt.Sprintf("  /\\/\\  %s (%dm) — %s, %s%s",
 		s.Mountain, s.Height, s.Region, s.Country, ascent))
+}
+
+func snapshotStateStyle(state string) lipgloss.Style {
+	switch state {
+	case "SUCCESS":
+		return styleHealthGreen
+	case "PARTIAL":
+		return styleHealthYellow
+	case "FAILED", "INCOMPATIBLE":
+		return styleHealthRed
+	default:
+		return styleDim
+	}
+}
+
+func (m OverviewModel) renderSnapshots() string {
+	st := m.snap.Snapshots
+	title := sectionTitle("Snapshots")
+	if m.snap.Staleness["snapshots"] {
+		title += " " + styleStale.Render("(stale)")
+	}
+	if st.Err != "" {
+		title += " " + styleHealthRed.Render("(last poll failed: "+truncateString(firstLine(st.Err), 60)+")")
+	}
+	switch {
+	case st.UpdatedAt.IsZero():
+		return title + "\n" + styleStale.Render("  (loading...)")
+	case st.Repositories == 0:
+		return title + "\n" + styleHealthYellow.Render("  no snapshot repository configured")
+	case len(st.Snapshots) == 0:
+		return title + "\n" + styleHealthYellow.Render(fmt.Sprintf("  %d repositories, no snapshots", st.Repositories))
+	}
+
+	repoW, nameW := len("REPOSITORY"), len("NAME")
+	for _, s := range st.Snapshots {
+		repoW = max(repoW, utf8.RuneCountInString(s.Repository))
+		nameW = max(nameW, utf8.RuneCountInString(s.Name))
+	}
+	repoW, nameW = min(repoW, 24), min(nameW, 40)
+	// state is padded before styling, so the row format takes it as %s
+	row := fmt.Sprintf("  %%-16s  %%-%ds  %%-%ds  %%s  %%8s  %%s", repoW, nameW)
+	lines := []string{title, styleHeader.Render(fmt.Sprintf(row, "STARTED", "REPOSITORY", "NAME", fmt.Sprintf("%-11s", "STATE"), "TOOK", "FAILURES"))}
+	for _, s := range st.Snapshots {
+		took := "—"
+		if !s.Finished.IsZero() {
+			took = formatDuration(s.Finished.Sub(s.Started).Round(time.Second))
+		}
+		failures := ""
+		if s.Failures > 0 {
+			failures = styleHealthRed.Render(fmt.Sprintf("%d", s.Failures))
+		}
+		state := snapshotStateStyle(s.State).Render(fmt.Sprintf("%-11s", s.State))
+		lines = append(lines, fmt.Sprintf(row, s.Started.Local().Format("2006-01-02 15:04"),
+			truncateString(s.Repository, repoW), truncateString(s.Name, nameW), state, took, failures))
+	}
+	return strings.Join(lines, "\n")
 }

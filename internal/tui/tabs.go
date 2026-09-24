@@ -58,7 +58,7 @@ func (a *App) tabs() []tabModel {
 			handleKey: OverviewModel.HandleKey, view: OverviewModel.View,
 			inputMode:  func(m OverviewModel) bool { return m.editor.isInputMode() },
 			hint:       store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeTables: true, IncludeJMX: true},
-			collectors: []string{"health", "cluster"},
+			collectors: []string{"health", "cluster", "snapshots"},
 		},
 		TabNodes: tab[NodesModel]{
 			m: &a.nodes, refresh: NodesModel.Refresh, setSize: NodesModel.SetSize,

@@ -93,3 +93,21 @@ func TestConnectionAlert(t *testing.T) {
 		t.Fatalf("state = %+v", st)
 	}
 }
+
+// The newest finished snapshot per repository decides; IN_PROGRESS is skipped.
+func TestSnapshotAlerts(t *testing.T) {
+	s := New(10, nil)
+	s.UpdateSnapshots(2, []cratedb.SnapshotInfo{
+		{Repository: "a", Name: "a3", State: "IN_PROGRESS"},
+		{Repository: "a", Name: "a2", State: "FAILED"},
+		{Repository: "b", Name: "b2", State: "SUCCESS"},
+		{Repository: "b", Name: "b1", State: "FAILED"},
+	})
+	if got := firing(s.Snapshot(1, SnapshotHint{}).Alerts); len(got) != 1 || got[0] != "snapshot a/a2 FAILED" {
+		t.Fatalf("firing = %v", got)
+	}
+	s.UpdateSnapshots(2, []cratedb.SnapshotInfo{{Repository: "a", Name: "a3", State: "SUCCESS"}})
+	if st := s.Snapshot(1, SnapshotHint{}).Alerts; st.Firing != 0 {
+		t.Errorf("firing = %v, want none after a good snapshot", firing(st))
+	}
+}

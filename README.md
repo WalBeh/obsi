@@ -48,7 +48,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 
 | Key | Tab | What it shows |
 |-----|-----|---------------|
-| `1` | Overview | Cluster settings (inline editable), health checks, node/zone topology, CrateDB version, table health |
+| `1` | Overview | Cluster settings (inline editable), health checks, node/zone topology, CrateDB version, table health, last 10 snapshots |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview |
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
@@ -138,6 +138,9 @@ interval = "30s"
 [collectors.jobs_log]
 interval = "15s"     # only polled while the slowest board is open
 
+[collectors.snapshots]
+interval = "15m"     # sys.snapshots lists the repository (S3, Azure) on every read
+
 [tui]
 alert_bell = false   # ring the terminal bell when an alert is raised
 
@@ -166,7 +169,8 @@ Collector/TUI/logging settings are global (shared across profiles).
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
-- Alerts on transitions: a node leaving, lost connection, a table going YELLOW/RED, a failing `sys.checks` entry, disk past a watermark, heap above 85% (clears below 80%). The newest one sits next to the tabs, the count in the status bar, `a` lists them. Each condition raises once until it clears
+- Snapshots on the Overview: the last 10 from `sys.snapshots` with state, duration and failure count, or a warning when no repository is configured. Checks `sys.repositories` first and polls every 15 minutes, since listing a repository reads the bucket
+- Alerts on transitions: a node leaving, lost connection, a table going YELLOW/RED, a failing `sys.checks` entry, disk past a watermark, heap above 85% (clears below 80%), the newest snapshot in a repository FAILED or PARTIAL. The newest one sits next to the tabs, the count in the status bar, `a` lists them. Each condition raises once until it clears
 - Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard. Stuck queries (running longer than 24h, typically abandoned cursors) are hidden by default; press `h` to show them
 - Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration. Finished jobs come from `sys.jobs_log` with exact durations and errors; running ones from the `sys.jobs` poll. `sys.jobs_log` is an in-memory ring per node (`stats.jobs_log_size`), so jobs it no longer holds fall back to sampled durations, marked `≥` (short by up to one poll interval). Without `sys.jobs_log` (`stats.enabled = false`, no privileges) the whole board is sampled and the header says why. `f` lists failed queries, `g` groups by statement. `sys.jobs_log` is only polled while the board is open. obsi tags its own statements with `/* obsi */` and leaves them out of the Queries tab. Stuck queries are always left out
 - Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)

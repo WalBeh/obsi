@@ -88,6 +88,7 @@ func globalHelp(km KeyMap) []helpEntry {
 		bindingHelp(km.Throttle),
 		bindingHelp(km.Reconnect),
 		bindingHelp(km.QueryLog),
+		bindingHelp(km.Alerts),
 		{"? F1", "toggle this help (F1 also while typing)"},
 		bindingHelp(km.Quit),
 	}

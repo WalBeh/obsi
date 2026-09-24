@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -44,6 +45,10 @@ type App struct {
 	queryLog     QueryLogOverlay
 	showQueryLog bool
 	showHelp     bool
+	showAlerts   bool
+	alertScroll  int
+	alerts       store.AlertsState
+	alertBell    bool
 	store        *store.Store
 	registry     *cratedb.Registry
 	collectors   *collector.Manager
@@ -65,6 +70,7 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		ctx:         ctx,
 		keyMap:      DefaultKeyMap(),
 		refreshRate: tuiCfg.RefreshRate.Duration,
+		alertBell:   tuiCfg.AlertBell,
 		overview:    NewOverviewModel(0, 0, persistent),
 		nodes:       NewNodesModel(0, 0),
 		queries:     NewQueriesModel(0, 0),
@@ -101,6 +107,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Quit
 			case key.Matches(msg, a.keyMap.Help), key.Matches(msg, a.keyMap.Escape), key.Matches(msg, a.keyMap.Quit):
 				a.showHelp = false
+			}
+			return a, nil
+		}
+		if a.showAlerts {
+			switch {
+			case msg.Type == tea.KeyCtrlC:
+				return a, tea.Quit
+			case key.Matches(msg, a.keyMap.Alerts), key.Matches(msg, a.keyMap.Escape), key.Matches(msg, a.keyMap.Quit):
+				a.showAlerts = false
+			case key.Matches(msg, a.keyMap.Up):
+				a.alertScroll = max(a.alertScroll-1, 0)
+			case key.Matches(msg, a.keyMap.Down):
+				a.alertScroll = min(a.alertScroll+1, max(len(a.alerts.History)-1, 0))
 			}
 			return a, nil
 		}
@@ -165,6 +184,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(msg, a.keyMap.Help):
 			a.showHelp = true
+			return a, nil
+		case key.Matches(msg, a.keyMap.Alerts):
+			a.showAlerts, a.alertScroll = true, 0
 			return a, nil
 		default:
 			return a, a.delegateKey(msg)
@@ -234,12 +256,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StoreTickMsg:
 		throttle := a.collectors.Throttle()
+		status := a.registry.Status()
+		a.store.ObserveConnection(status.Connected)
 		hint := a.snapshotHint()
 		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
 		a.current().Refresh(snap)
+		var ring tea.Cmd
+		if a.alertBell && snap.Alerts.Raised > a.alerts.Raised {
+			ring = bell
+		}
+		a.alerts = snap.Alerts
+		a.statusBar.alerts = snap.Alerts
 		shardStat := a.collectors.QueryTracker().GetStat(collector.QueryShards)
 		a.statusBar = a.statusBar.Refresh(
-			a.registry.Status(),
+			status,
 			throttle,
 			a.collectors.SuggestThrottle(),
 			a.store.ClusterHealth(),
@@ -251,7 +281,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// jobs_log is only polled while the slowest board is on screen.
 		a.collectors.SetJobsLogView(a.ctx, a.activeTab == TabQueries && a.queries.showSlowest, a.queries.logMode)
-		return a, a.doStoreTick()
+		return a, tea.Batch(a.doStoreTick(), ring)
 	}
 
 	return a, nil
@@ -267,6 +297,9 @@ func (a *App) View() string {
 	body := a.current().View()
 	if a.showHelp {
 		body = renderHelp(a.activeTab, a.keyMap, a.queries.showSlowest, a.width, a.bodyHeight())
+	}
+	if a.showAlerts {
+		body = renderAlerts(a.alerts, a.alertScroll, a.width, a.bodyHeight())
 	}
 
 	status := a.statusBar.View()
@@ -295,7 +328,12 @@ func (a *App) renderTabBar() string {
 			tabs = append(tabs, styleTabInactive.Render(name))
 		}
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	bar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	room := a.width - lipgloss.Width(bar) - 2
+	if banner := alertBanner(a.alerts, room); banner != "" {
+		bar += strings.Repeat(" ", room-lipgloss.Width(banner)+1) + banner
+	}
+	return bar
 }
 
 func (a *App) delegateKey(msg tea.KeyMsg) tea.Cmd {

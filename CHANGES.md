@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Alerts.** A node leaving, obsi losing the connection, a table turning
+  YELLOW or RED (partitions folded into one alert per table), a failing
+  `sys.checks` entry, disk past a percentage watermark and heap above 85%
+  raise an alert once and clear when the condition goes away. Newest one
+  next to the tabs, count in the status bar, `a` for the history.
+  `alert_bell = true` under `[tui]` rings the terminal bell.
+
 - **Read-only by default.** The SQL tab only runs `SELECT`, `SHOW`,
   `EXPLAIN` and `WITH` statements, and `K` and the settings editor are
   refused with a hint. `--read-write` lifts it for one run,

@@ -36,13 +36,13 @@ obsi prod --doctor --skip-verify
 # Local dev (empty password auto-detected)
 obsi http://localhost:4200
 
-# Allow writes (SQL tab, KILL, settings editor) for this run only
+# Allow writes (SQL tab, settings editor) for this run only
 obsi prod --read-write
 ```
 
 Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.
 
-obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, `SHOW`, `EXPLAIN` or `WITH`, and `K` (KILL) and `e` (SET GLOBAL) are refused. The status bar shows which mode you're in. Turn it off with `--read-write` for one run or `read_only = false` under `[connection]`. The SQL check looks at the first keyword only; a CrateDB user with just DQL privileges is the real guard.
+obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, `SHOW`, `EXPLAIN` or `WITH`, and `e` (SET GLOBAL) is refused. `K` still kills the selected query after its confirm; `KILL` typed in the SQL tab stays blocked. The status bar shows which mode you're in. Turn it off with `--read-write` for one run or `read_only = false` under `[connection]`. The SQL check looks at the first keyword only; a CrateDB user with just DQL privileges is the real guard.
 
 ## Tabs
 
@@ -124,7 +124,7 @@ endpoint = "https://staging-cluster:4200"
 username = "crate"
 
 [connection]
-read_only = true     # default; false allows writes, KILL and settings edits
+read_only = true     # default; false allows SQL writes and settings edits
 
 [collectors.nodes]
 interval = "5s"

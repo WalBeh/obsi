@@ -34,7 +34,9 @@ type ConnectionConfig struct {
 	QueryTimeout        Duration `toml:"query_timeout"` // data query timeout (collectors)
 	HeartbeatInterval   Duration `toml:"heartbeat_interval"`
 	NodeRefreshInterval Duration `toml:"node_refresh_interval"`
-	// ReadOnly blocks the SQL editor's writes, KILL and SET GLOBAL. On when omitted.
+	// ReadOnly blocks the SQL editor's writes and SET GLOBAL. K still kills:
+	// it's one confirmed job, and restarting obsi mid-incident to get it back
+	// is worse. On when omitted.
 	ReadOnly bool `toml:"read_only"`
 }
 

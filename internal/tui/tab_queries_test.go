@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/waltergrande/cratedb-observer/internal/collector"
+	"github.com/waltergrande/cratedb-observer/internal/config"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
@@ -224,15 +227,17 @@ func TestQueriesSlowestView(t *testing.T) {
 	}
 }
 
-func TestKillRefusedInReadOnly(t *testing.T) {
-	m := NewQueriesModel(120, 30)
-	m.readOnly = true
-	m = m.Refresh(store.StoreSnapshot{ActiveQueries: []cratedb.ActiveQuery{{ID: "a", Started: time.Now()}}})
-	m, _ = m.HandleKey(keyRune('K'))
-	if m.killTarget != nil {
-		t.Fatal("K armed a kill in read-only mode")
-	}
-	if !m.killIsError || !strings.Contains(m.killResult, "read-only") {
-		t.Errorf("killResult = %q, want a read-only refusal", m.killResult)
+// K stays available in read-only mode (the default), behind its confirm.
+func TestKillAllowedInReadOnly(t *testing.T) {
+	cfg := config.DefaultConfig()
+	st := store.New(cfg.TUI.SparklineHistory, cfg.Collectors)
+	mgr := collector.NewManager(nil, st, collector.NewQueryTracker(cfg.Collectors, cfg.Connection))
+	a := NewApp(st, nil, mgr, context.Background(), cfg.TUI, true)
+	a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	a.Update(keyRune('3'))
+	a.queries = a.queries.Refresh(store.StoreSnapshot{ActiveQueries: []cratedb.ActiveQuery{{ID: "a", Started: time.Now()}}})
+	a.Update(keyRune('K'))
+	if a.queries.killTarget == nil || a.queries.killTarget.ID != "a" {
+		t.Fatal("K did not open the kill confirm in read-only mode")
 	}
 }

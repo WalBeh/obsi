@@ -22,8 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `alert_bell = true` under `[tui]` rings the terminal bell.
 
 - **Read-only by default.** The SQL tab only runs `SELECT`, `SHOW`,
-  `EXPLAIN` and `WITH` statements, and `K` and the settings editor are
-  refused with a hint. `--read-write` lifts it for one run,
+  `EXPLAIN` and `WITH` statements, and the settings editor is refused
+  with a hint. `K` still kills after its confirm; a restart just to kill
+  a runaway query is too slow. `--read-write` lifts it for one run,
   `read_only = false` under `[connection]` for good. Status bar shows
   `read-only` or `read-write`.
 

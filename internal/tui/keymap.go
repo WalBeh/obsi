@@ -25,6 +25,7 @@ type KeyMap struct {
 	Info      key.Binding
 	Yank      key.Binding
 	Hide      key.Binding
+	Slowest   key.Binding
 	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
@@ -120,6 +121,10 @@ func DefaultKeyMap() KeyMap {
 		Hide: key.NewBinding(
 			key.WithKeys("h"),
 			key.WithHelp("h", "show/hide stuck"),
+		),
+		Slowest: key.NewBinding(
+			key.WithKeys("S"),
+			key.WithHelp("S", "live/slowest queries"),
 		),
 		Edit: key.NewBinding(
 			key.WithKeys("e"),

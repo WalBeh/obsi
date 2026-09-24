@@ -29,6 +29,7 @@ type SQLResultMsg struct {
 type SQLModel struct {
 	registry *cratedb.Registry
 	ctx      context.Context
+	readOnly bool
 
 	// Input
 	input   string
@@ -126,6 +127,11 @@ func (m SQLModel) HandleKey(msg tea.KeyMsg) (SQLModel, tea.Cmd) {
 				}
 			}
 			m.historyIdx = -1
+			if m.readOnly && !isReadOnlyStmt(stmt) {
+				m.errMsg = readOnlyRefusal("only SELECT, SHOW, EXPLAIN and WITH run")
+				m.rows, m.cols = nil, nil
+				return m, nil
+			}
 			m.running = true
 			m.errMsg = ""
 			m.rows = nil
@@ -274,6 +280,9 @@ func (m SQLModel) View() string {
 	var lines []string
 
 	title := sectionTitle("SQL")
+	if m.readOnly {
+		title += styleDim.Render("  read-only")
+	}
 	lines = append(lines, title)
 
 	// Input line
@@ -367,6 +376,72 @@ func (m SQLModel) renderRow(values []string) string {
 func isSelect(stmt string) bool {
 	s := strings.TrimSpace(stmt)
 	return len(s) >= 6 && strings.EqualFold(s[:6], "SELECT")
+}
+
+// isReadOnlyStmt is a keyword check, not a parser. A CrateDB user with
+// only DQL privileges is the real guard.
+func isReadOnlyStmt(stmt string) bool {
+	s := stripLeadingComments(stmt)
+	word, rest := firstWord(s)
+	switch strings.ToUpper(word) {
+	case "SELECT", "SHOW", "WITH", "VALUES":
+		return true
+	case "EXPLAIN":
+		// EXPLAIN ANALYZE executes the statement, so check what follows.
+		rest = stripLeadingComments(rest)
+		if strings.HasPrefix(rest, "(") {
+			end := strings.Index(rest, ")")
+			if end < 0 {
+				return false
+			}
+			rest = rest[end+1:]
+		}
+		for {
+			w, r := firstWord(stripLeadingComments(rest))
+			if u := strings.ToUpper(w); u != "ANALYZE" && u != "VERBOSE" {
+				break
+			}
+			rest = r
+		}
+		return isReadOnlyStmt(rest)
+	}
+	return false
+}
+
+func stripLeadingComments(s string) string {
+	for {
+		s = strings.TrimSpace(s)
+		switch {
+		case strings.HasPrefix(s, "--"):
+			i := strings.IndexByte(s, '\n')
+			if i < 0 {
+				return ""
+			}
+			s = s[i+1:]
+		case strings.HasPrefix(s, "/*"):
+			i := strings.Index(s, "*/")
+			if i < 0 {
+				return ""
+			}
+			s = s[i+2:]
+		default:
+			return s
+		}
+	}
+}
+
+func firstWord(s string) (string, string) {
+	end := strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
+	})
+	if end < 0 {
+		return s, ""
+	}
+	return s[:end], s[end:]
+}
+
+func readOnlyRefusal(what string) string {
+	return "read-only: " + what + " (start obsi with --read-write)"
 }
 
 func hasLimit(stmt string) bool {

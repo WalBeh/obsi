@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Read-only by default.** The SQL tab only runs `SELECT`, `SHOW`,
+  `EXPLAIN` and `WITH` statements, and `K` and the settings editor are
+  refused with a hint. `--read-write` lifts it for one run,
+  `read_only = false` under `[connection]` for good. Status bar shows
+  `read-only` or `read-write`.
+
 - **sys.jobs_log on the slowest board.** Finished jobs now show exact
   durations and errors from `sys.jobs_log`; running jobs still come from
   the `sys.jobs` poll. Jobs the log no longer holds keep their sampled

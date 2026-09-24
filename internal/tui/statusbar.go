@@ -28,6 +28,7 @@ type StatusBarModel struct {
 	clusterHealth string // "GREEN", "YELLOW", "RED", or ""
 	totalShards   int
 	shardQueryDur time.Duration
+	readOnly      bool
 	width         int
 }
 
@@ -130,7 +131,12 @@ func (m StatusBarModel) View() string {
 			fmtMs(s.Latency.Avg), fmtMs(s.Latency.P90), fmtMs(s.Latency.Max))
 	}
 
-	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr
+	modeStr := " │ " + styleDim.Render("read-only")
+	if !m.readOnly {
+		modeStr = " │ " + styleHealthYellow.Render("read-write")
+	}
+
+	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr + modeStr
 
 	help := styleDim.Render("?:help  t:throttle  r:reconnect  q:quit")
 

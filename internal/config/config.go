@@ -34,6 +34,8 @@ type ConnectionConfig struct {
 	QueryTimeout        Duration `toml:"query_timeout"` // data query timeout (collectors)
 	HeartbeatInterval   Duration `toml:"heartbeat_interval"`
 	NodeRefreshInterval Duration `toml:"node_refresh_interval"`
+	// ReadOnly blocks the SQL editor's writes, KILL and SET GLOBAL. On when omitted.
+	ReadOnly bool `toml:"read_only"`
 }
 
 // CollectorConfig holds settings for a single collector.
@@ -133,6 +135,9 @@ func applyDefaults(cfg *Config, md toml.MetaData) {
 	}
 	if cfg.Connection.NodeRefreshInterval.Duration == 0 {
 		cfg.Connection.NodeRefreshInterval = defaults.Connection.NodeRefreshInterval
+	}
+	if !md.IsDefined("connection", "read_only") {
+		cfg.Connection.ReadOnly = defaults.Connection.ReadOnly
 	}
 	if cfg.TUI.RefreshRate.Duration == 0 {
 		cfg.TUI.RefreshRate = defaults.TUI.RefreshRate

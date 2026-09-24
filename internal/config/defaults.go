@@ -12,6 +12,7 @@ func DefaultConfig() *Config {
 			QueryTimeout:        Duration{10 * time.Second},
 			HeartbeatInterval:   Duration{5 * time.Second},
 			NodeRefreshInterval: Duration{30 * time.Second},
+			ReadOnly:            true,
 		},
 		Collectors: map[string]CollectorConfig{
 			"cluster": {

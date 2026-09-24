@@ -29,6 +29,7 @@ var (
 	configPath string
 	skipVerify bool
 	profile    string
+	readWrite  bool
 )
 
 func newRootCmd() *cobra.Command {
@@ -46,6 +47,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath(), "Path to TOML config file")
 	cmd.PersistentFlags().BoolVar(&skipVerify, "skip-verify", false, "Skip TLS certificate verification")
 	cmd.PersistentFlags().StringVar(&profile, "profile", "", "Named cluster profile from config")
+	cmd.PersistentFlags().BoolVar(&readWrite, "read-write", false, "Allow writes from the SQL tab, KILL and settings edits for this run")
 
 	cmd.AddCommand(doctorCmd)
 	cmd.AddCommand(profilesCmd)
@@ -233,7 +235,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	})
 
 	// Create and run TUI
-	app := tui.NewApp(st, registry, mgr, ctx, cfg.TUI)
+	app := tui.NewApp(st, registry, mgr, ctx, cfg.TUI, cfg.Connection.ReadOnly && !readWrite)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
 	// Run TUI (blocks until quit)

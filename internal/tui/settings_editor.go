@@ -73,6 +73,8 @@ type settingsEditor struct {
 
 	// Config
 	persistent bool // SET GLOBAL PERSISTENT vs TRANSIENT
+	readOnly   bool
+	refusedAt  time.Time
 
 	keyMap KeyMap
 }
@@ -136,6 +138,10 @@ func (e *settingsEditor) isInputMode() bool {
 // Returns the editor state, a command (if any), and whether the key was consumed.
 func (e settingsEditor) handleKey(msg tea.KeyMsg) (settingsEditor, tea.Cmd, bool) {
 	if !e.active {
+		if key.Matches(msg, e.keyMap.Edit) && e.readOnly {
+			e.refusedAt = time.Now()
+			return e, nil, true
+		}
 		if key.Matches(msg, e.keyMap.Edit) {
 			e.active = true
 			e.cursor = 0
@@ -334,6 +340,9 @@ func (e *settingsEditor) renderPicker(slotIdx int, indent string) string {
 // renderEditHint returns a hint line shown when edit mode is active.
 func (e *settingsEditor) renderEditHint() string {
 	if !e.active {
+		if time.Since(e.refusedAt) < 3*time.Second {
+			return "  " + styleHealthYellow.Render(readOnlyRefusal("settings are not editable"))
+		}
 		return ""
 	}
 	if e.inputActive {

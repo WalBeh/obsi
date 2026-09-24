@@ -26,6 +26,8 @@ type KeyMap struct {
 	Yank      key.Binding
 	Hide      key.Binding
 	Slowest   key.Binding
+	Failed    key.Binding
+	Grouped   key.Binding
 	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
@@ -125,6 +127,14 @@ func DefaultKeyMap() KeyMap {
 		Slowest: key.NewBinding(
 			key.WithKeys("S"),
 			key.WithHelp("S", "live/slowest queries"),
+		),
+		Failed: key.NewBinding(
+			key.WithKeys("f"),
+			key.WithHelp("f", "failed queries (jobs_log)"),
+		),
+		Grouped: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("g", "group by statement (jobs_log)"),
 		),
 		Edit: key.NewBinding(
 			key.WithKeys("e"),

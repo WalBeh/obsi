@@ -50,6 +50,8 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 				nav,
 				bindingHelp(km.Info),
 				bindingHelp(km.Yank),
+				bindingHelp(km.Failed),
+				bindingHelp(km.Grouped),
 				bindingHelp(km.Slowest),
 			}
 		}

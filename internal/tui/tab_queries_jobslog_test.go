@@ -96,3 +96,17 @@ func TestFormatJobLogDump(t *testing.T) {
 		}
 	}
 }
+
+// f / g work from the live list too, opening the board in that mode.
+func TestQueriesJobsLogKeysFromLive(t *testing.T) {
+	m := NewQueriesModel(160, 60).Refresh(jobsLogSnap())
+	m, _ = m.HandleKey(keyRune('f'))
+	if !m.showSlowest || m.logMode != store.JobsLogFailed {
+		t.Fatalf("f from live: showSlowest=%v mode=%d, want board in failed mode", m.showSlowest, m.logMode)
+	}
+	m, _ = m.HandleKey(keyRune('S'))
+	m, _ = m.HandleKey(keyRune('g'))
+	if !m.showSlowest || m.logMode != store.JobsLogGrouped {
+		t.Fatalf("g from live: showSlowest=%v mode=%d, want board in grouped mode", m.showSlowest, m.logMode)
+	}
+}

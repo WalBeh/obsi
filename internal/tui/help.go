@@ -62,6 +62,8 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 			bindingHelp(km.Yank),
 			bindingHelp(km.Hide),
 			bindingHelp(km.Slowest),
+			bindingHelp(km.Failed),
+			bindingHelp(km.Grouped),
 		}
 	case TabTables:
 		return "Tables", append([]helpEntry{nav, {"f", "unhealthy tables only"}}, search...)

@@ -67,8 +67,8 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52) |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |
-| `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab, slowest view) |
-| `g` | Slowest statements from `sys.jobs_log`, grouped by exact text with count/max/avg (Queries tab, slowest view) |
+| `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab) |
+| `g` | Slowest statements from `sys.jobs_log`, grouped by exact text with count/max/avg (Queries tab) |
 | `t` | Cycle throttle (normal/mild/heavy/paused) |
 | `ctrl+r` / `R` / `F5` | Force refresh current tab |
 | `r` | Reconnect to cluster |

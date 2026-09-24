@@ -183,6 +183,15 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	if m.showSlowest {
 		return m.handleSlowestKey(msg)
 	}
+	// f / g from the live list jump straight into the board's jobs_log views.
+	switch {
+	case key.Matches(msg, km.Failed):
+		m.showSlowest, m.logMode, m.slowSelected = true, store.JobsLogFailed, 0
+		return m, nil
+	case key.Matches(msg, km.Grouped):
+		m.showSlowest, m.logMode, m.slowSelected = true, store.JobsLogGrouped, 0
+		return m, nil
+	}
 
 	visible, _ := m.visibleQueries()
 
@@ -301,7 +310,7 @@ func (m QueriesModel) View() string {
 	}
 
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest)")
+	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest  f: failed  g: grouped)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}

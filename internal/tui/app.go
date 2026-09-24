@@ -56,9 +56,9 @@ type App struct {
 }
 
 // NewApp creates the root TUI model.
-func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx context.Context, tuiCfg config.TUIConfig) *App {
+func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx context.Context, tuiCfg config.TUIConfig, readOnly bool) *App {
 	persistent := tuiCfg.SetGlobalMode != "transient"
-	return &App{
+	a := &App{
 		store:       st,
 		registry:    reg,
 		collectors:  mgr,
@@ -72,6 +72,11 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		shards:      NewShardsModel(0, 0),
 		sql:         NewSQLModel(0, 0, reg, ctx),
 	}
+	a.sql.readOnly = readOnly
+	a.queries.readOnly = readOnly
+	a.overview.editor.readOnly = readOnly
+	a.statusBar.readOnly = readOnly
+	return a
 }
 
 func (a *App) Init() tea.Cmd {

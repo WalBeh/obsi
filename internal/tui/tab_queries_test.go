@@ -223,3 +223,16 @@ func TestQueriesSlowestView(t *testing.T) {
 		}
 	}
 }
+
+func TestKillRefusedInReadOnly(t *testing.T) {
+	m := NewQueriesModel(120, 30)
+	m.readOnly = true
+	m = m.Refresh(store.StoreSnapshot{ActiveQueries: []cratedb.ActiveQuery{{ID: "a", Started: time.Now()}}})
+	m, _ = m.HandleKey(keyRune('K'))
+	if m.killTarget != nil {
+		t.Fatal("K armed a kill in read-only mode")
+	}
+	if !m.killIsError || !strings.Contains(m.killResult, "read-only") {
+		t.Errorf("killResult = %q, want a read-only refusal", m.killResult)
+	}
+}

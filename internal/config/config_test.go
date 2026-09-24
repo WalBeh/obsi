@@ -65,3 +65,12 @@ enabled = true
 		t.Errorf("queries interval = %s, want default %s", got, want)
 	}
 }
+
+func TestLoad_ReadOnly(t *testing.T) {
+	if cfg := loadString(t, "[connection]\nendpoint = \"http://localhost:4200\"\n"); !cfg.Connection.ReadOnly {
+		t.Error("omitted read_only must default to true")
+	}
+	if cfg := loadString(t, "[connection]\nread_only = false\n"); cfg.Connection.ReadOnly {
+		t.Error("explicit read_only = false was overridden")
+	}
+}

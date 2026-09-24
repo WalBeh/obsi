@@ -19,7 +19,7 @@ func newTestApp(t *testing.T) *App {
 	cfg := config.DefaultConfig()
 	st := store.New(cfg.TUI.SparklineHistory, cfg.Collectors)
 	mgr := collector.NewManager(nil, st, collector.NewQueryTracker(cfg.Collectors, cfg.Connection))
-	a := NewApp(st, nil, mgr, context.Background(), cfg.TUI)
+	a := NewApp(st, nil, mgr, context.Background(), cfg.TUI, false)
 	a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return a
 }

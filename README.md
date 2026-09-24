@@ -35,9 +35,14 @@ obsi prod --doctor --skip-verify
 
 # Local dev (empty password auto-detected)
 obsi http://localhost:4200
+
+# Allow writes (SQL tab, KILL, settings editor) for this run only
+obsi prod --read-write
 ```
 
 Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.
+
+obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, `SHOW`, `EXPLAIN` or `WITH`, and `K` (KILL) and `e` (SET GLOBAL) are refused. The status bar shows which mode you're in. Turn it off with `--read-write` for one run or `read_only = false` under `[connection]`. The SQL check looks at the first keyword only; a CrateDB user with just DQL privileges is the real guard.
 
 ## Tabs
 
@@ -48,7 +53,7 @@ Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > 
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview |
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
 | `5` | Shards | Shard allocation problems, recovery progress, relocations |
-| `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results |
+| `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 
 ## Keys
 
@@ -116,6 +121,9 @@ username = "admin"
 [profiles.staging]
 endpoint = "https://staging-cluster:4200"
 username = "crate"
+
+[connection]
+read_only = true     # default; false allows writes, KILL and settings edits
 
 [collectors.nodes]
 interval = "5s"

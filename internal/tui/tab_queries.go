@@ -18,7 +18,7 @@ const killResultDisplayDuration = 3 * time.Second
 // abandoned cursor / runaway query and hidden by default. Long-lived
 // `DECLARE ... CURSOR WITH HOLD` statements dominate the list on busy
 // clusters and drown out the queries an operator actually needs to see.
-const stuckThreshold = 24 * time.Hour
+const stuckThreshold = store.StuckThreshold
 
 type KillQueryMsg struct {
 	ID string
@@ -50,6 +50,11 @@ type QueriesModel struct {
 	yankResult   string
 	yankResultAt time.Time
 	showStuck    bool // when true, queries older than stuckThreshold are listed
+
+	showSlowest     bool // S toggles between the live list and the slowest board
+	slowSelected    int
+	infoFromSlowest bool      // info modal opened from the slowest board
+	infoEnd         time.Time // non-zero when infoTarget has finished
 }
 
 func NewQueriesModel(width, height int) QueriesModel {
@@ -57,7 +62,22 @@ func NewQueriesModel(width, height int) QueriesModel {
 }
 
 func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
+	// The board re-sorts every tick as running jobs age; keep the cursor
+	// on the same job rather than the same row index.
+	var slowAnchor string
+	if m.slowSelected < len(m.snap.SlowestQueries) {
+		slowAnchor = m.snap.SlowestQueries[m.slowSelected].ID
+	}
 	m.snap = snap
+	for i, o := range snap.SlowestQueries {
+		if o.ID == slowAnchor {
+			m.slowSelected = i
+			break
+		}
+	}
+	if m.slowSelected >= len(snap.SlowestQueries) {
+		m.slowSelected = max(len(snap.SlowestQueries)-1, 0)
+	}
 	if m.killResult != "" && time.Since(m.killResultAt) > killResultDisplayDuration {
 		m.killResult = ""
 	}
@@ -70,7 +90,17 @@ func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
 	}
 	// Keep the info modal's data fresh so memory/ops update live while open.
 	// If the job has finished it's gone from sys.jobs — close the modal.
-	if m.infoTarget != nil {
+	// From the board, finished jobs stay until pushed out of the top N.
+	if m.infoTarget != nil && m.infoFromSlowest {
+		id := m.infoTarget.ID
+		m.infoTarget, m.infoEnd = nil, time.Time{}
+		for _, o := range snap.SlowestQueries {
+			if o.ID == id {
+				m.infoTarget, m.infoEnd = infoFromObserved(o)
+				break
+			}
+		}
+	} else if m.infoTarget != nil {
 		updated := false
 		for i := range snap.ActiveQueries {
 			if snap.ActiveQueries[i].ID == m.infoTarget.ID {
@@ -134,14 +164,22 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	if m.infoTarget != nil {
 		switch {
 		case key.Matches(msg, km.Yank):
-			payload := formatQueryDump(*m.infoTarget, time.Now())
+			payload := formatQueryDump(*m.infoTarget, endOrNow(m.infoEnd))
 			return m, func() tea.Msg {
 				return YankResultMsg{Error: writeClipboard(payload)}
 			}
 		case msg.String() == "esc" || key.Matches(msg, km.Info):
-			m.infoTarget = nil
+			m.infoTarget, m.infoFromSlowest, m.infoEnd = nil, false, time.Time{}
 		}
 		return m, nil
+	}
+
+	if key.Matches(msg, km.Slowest) {
+		m.showSlowest = !m.showSlowest
+		return m, nil
+	}
+	if m.showSlowest {
+		return m.handleSlowestKey(msg)
 	}
 
 	visible, _ := m.visibleQueries()
@@ -163,7 +201,7 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	case key.Matches(msg, km.Info):
 		if m.selected < len(visible) {
 			q := visible[m.selected]
-			m.infoTarget = &q
+			m.infoTarget, m.infoFromSlowest, m.infoEnd = &q, false, time.Time{}
 		}
 	case key.Matches(msg, km.Yank):
 		if m.selected < len(visible) {
@@ -192,6 +230,53 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 	return m, nil
 }
 
+// handleSlowestKey covers the slowest board. K and h are deliberately inert
+// here: no killing from a leaderboard, and stuck jobs are always excluded.
+func (m QueriesModel) handleSlowestKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
+	km := m.keyMap
+	board := m.snap.SlowestQueries
+
+	switch {
+	case key.Matches(msg, km.Up):
+		if m.slowSelected > 0 {
+			m.slowSelected--
+		}
+	case key.Matches(msg, km.Down):
+		if m.slowSelected < len(board)-1 {
+			m.slowSelected++
+		}
+	case key.Matches(msg, km.Info):
+		if m.slowSelected < len(board) {
+			m.infoTarget, m.infoEnd = infoFromObserved(board[m.slowSelected])
+			m.infoFromSlowest = true
+		}
+	case key.Matches(msg, km.Yank):
+		if m.slowSelected < len(board) {
+			q, end := infoFromObserved(board[m.slowSelected])
+			payload := formatQueryDump(*q, endOrNow(end))
+			return m, func() tea.Msg {
+				return YankResultMsg{Error: writeClipboard(payload)}
+			}
+		}
+	}
+	return m, nil
+}
+
+func infoFromObserved(o store.ObservedQuery) (*cratedb.ActiveQuery, time.Time) {
+	q := o.ActiveQuery
+	if o.Done {
+		return &q, o.LastSeen
+	}
+	return &q, time.Time{}
+}
+
+func endOrNow(end time.Time) time.Time {
+	if end.IsZero() {
+		return time.Now()
+	}
+	return end
+}
+
 func (m QueriesModel) View() string {
 	// Short-circuit: render modal over dimmed background without building body
 	if m.killTarget != nil {
@@ -200,9 +285,12 @@ func (m QueriesModel) View() string {
 	if m.infoTarget != nil {
 		return m.renderInfoModal()
 	}
+	if m.showSlowest {
+		return m.renderSlowest()
+	}
 
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Active Queries")
+	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}
@@ -355,10 +443,13 @@ func (m QueriesModel) renderInfoModal() string {
 	}
 
 	q := m.infoTarget
-	now := time.Now()
+	now := endOrNow(m.infoEnd)
 
 	header := fmt.Sprintf("Job: %s   User: %s   Duration: %s",
 		q.ID, q.Username, formatDuration(now.Sub(q.Started)))
+	if !m.infoEnd.IsZero() {
+		header += "   (finished)"
+	}
 
 	var sections []string
 	sections = append(sections, styleModalTitle.Render("Operation Details"))
@@ -401,6 +492,105 @@ func (m QueriesModel) renderInfoModal() string {
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, modal,
 		lipgloss.WithWhitespaceBackground(colorOverlayBg))
+}
+
+// renderSlowest draws the slowest-jobs board. Finished durations are frozen
+// at the last poll that saw the job, so they can be short by up to one
+// SampleInterval; the header says so.
+func (m QueriesModel) renderSlowest() string {
+	stale := m.snap.Staleness["queries"]
+	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live)")
+	if stale {
+		title += " " + styleStale.Render("(stale)")
+	}
+
+	now := time.Now()
+	var lines []string
+	if m.yankResult != "" {
+		lines = append(lines, "  "+styleHealthGreen.Render(m.yankResult))
+	}
+	lines = append(lines, title)
+
+	sinceLine := fmt.Sprintf("  since %s (%s observed, sampled every %s)",
+		m.snap.ObservedSince.Format("15:04:05"),
+		formatDuration(now.Sub(m.snap.ObservedSince)),
+		formatDuration(m.snap.SampleInterval))
+	stuck := 0
+	for _, q := range m.snap.ActiveQueries {
+		if now.Sub(q.Started) > stuckThreshold {
+			stuck++
+		}
+	}
+	if stuck > 0 {
+		sinceLine += styleDim.Render(fmt.Sprintf(" (%d stuck excluded)", stuck))
+	}
+	lines = append(lines, sinceLine)
+
+	board := m.snap.SlowestQueries
+	if len(board) == 0 {
+		lines = append(lines, "  No queries observed yet")
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, "")
+
+	lines = append(lines, styleHeader.Render(fmt.Sprintf("  %-3s %-10s %-8s %-10s %-12s %-10s %s",
+		"#", "DURATION", "STATE", "MEM PEAK", "NODE", "USER", "STATEMENT")))
+
+	maxStmtLen := max(m.width-62, 20)
+	for i, o := range board {
+		marker := "  "
+		if i == m.slowSelected {
+			marker = "▸ "
+		}
+		d := o.Duration(now)
+		durStyle := styleValue
+		if d > 30*time.Second {
+			durStyle = styleHighValue
+		} else if d > 10*time.Second {
+			durStyle = styleHealthYellow
+		}
+		state := "running"
+		if o.Done {
+			state = "done"
+		}
+		mem := "—"
+		if o.PeakBytes > 0 {
+			mem = formatBytes(o.PeakBytes)
+		}
+		stmt := truncateString(strings.ReplaceAll(o.Stmt, "\n", " "), maxStmtLen)
+		lines = append(lines, fmt.Sprintf("%s%-3d %s %-8s %-10s %-12s %-10s %s",
+			marker, i+1,
+			durStyle.Render(fmt.Sprintf("%-10s", formatDuration(d))),
+			state, mem,
+			truncateString(o.Node, 12), truncateString(o.Username, 10), stmt))
+	}
+
+	if m.slowSelected < len(board) {
+		o := board[m.slowSelected]
+		state := "running"
+		if o.Done {
+			state = "finished, last seen " + o.LastSeen.Format("15:04:05")
+		}
+		lines = append(lines, "")
+		lines = append(lines, styleTitle.Render("  Query Detail"))
+		lines = append(lines, fmt.Sprintf("    ID:       %s", o.ID))
+		lines = append(lines, fmt.Sprintf("    Node:     %s", o.Node))
+		lines = append(lines, fmt.Sprintf("    User:     %s", o.Username))
+		lines = append(lines, fmt.Sprintf("    Started:  %s", o.Started.Format("15:04:05")))
+		lines = append(lines, fmt.Sprintf("    Duration: %s", formatDuration(o.Duration(now))))
+		lines = append(lines, fmt.Sprintf("    State:    %s", state))
+		lines = append(lines, "")
+		lines = append(lines, "    Statement:")
+		for _, line := range strings.Split(o.Stmt, "\n") {
+			lines = append(lines, "      "+line)
+		}
+	}
+
+	result := strings.Join(lines, "\n")
+	if stale {
+		return styleDim.Render(result)
+	}
+	return result
 }
 
 // formatQueryDump produces the plaintext blob copied to the clipboard via `y`.

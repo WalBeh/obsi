@@ -132,3 +132,94 @@ func TestQueriesYankFromList(t *testing.T) {
 		t.Errorf("unexpected yank error: %s", yr.Error)
 	}
 }
+
+func keyRune(r rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+}
+
+// The slowest board keeps its own cursor, anchored by job ID so re-sorting
+// between ticks doesn't move it to a different job.
+func TestQueriesSlowestToggleAndAnchor(t *testing.T) {
+	now := time.Now()
+	a := store.ObservedQuery{ActiveQuery: cratedb.ActiveQuery{ID: "a", Started: now.Add(-3 * time.Minute)}, LastSeen: now.Add(-time.Minute), Done: true}
+	b := store.ObservedQuery{ActiveQuery: cratedb.ActiveQuery{ID: "b", Started: now.Add(-time.Minute)}}
+	live := cratedb.ActiveQuery{ID: "live-1", Started: now.Add(-time.Second)}
+
+	m := NewQueriesModel(120, 40).Refresh(store.StoreSnapshot{
+		ActiveQueries:  []cratedb.ActiveQuery{live},
+		SlowestQueries: []store.ObservedQuery{a, b},
+	})
+	m, _ = m.HandleKey(keyRune('S'))
+	if !m.showSlowest {
+		t.Fatal("S did not switch to slowest view")
+	}
+	m, _ = m.HandleKey(keyRune('j'))
+	if m.slowSelected != 1 || m.selected != 0 {
+		t.Fatalf("slowSelected=%d selected=%d, want 1/0", m.slowSelected, m.selected)
+	}
+
+	// b overtakes a: cursor follows b to row 0.
+	m = m.Refresh(store.StoreSnapshot{SlowestQueries: []store.ObservedQuery{b, a}})
+	if m.slowSelected != 0 {
+		t.Errorf("slowSelected = %d, want 0 (anchored to b)", m.slowSelected)
+	}
+
+	// K is inert on the board.
+	m, _ = m.HandleKey(keyRune('K'))
+	if m.killTarget != nil {
+		t.Error("K must not arm a kill from the slowest view")
+	}
+
+	m, _ = m.HandleKey(keyRune('S'))
+	if m.showSlowest {
+		t.Error("second S did not return to live view")
+	}
+}
+
+// A finished job's info modal survives refreshes (it's gone from sys.jobs
+// but still on the board) and reports the frozen duration.
+func TestQueriesSlowestInfoFinished(t *testing.T) {
+	t0 := time.Now().Add(-10 * time.Minute)
+	done := store.ObservedQuery{
+		ActiveQuery: cratedb.ActiveQuery{ID: "done-1", Started: t0, Stmt: "SELECT slow"},
+		LastSeen:    t0.Add(4*time.Minute + 12*time.Second),
+		Done:        true,
+	}
+	snap := store.StoreSnapshot{SlowestQueries: []store.ObservedQuery{done}}
+
+	m := NewQueriesModel(120, 40).Refresh(snap)
+	m, _ = m.HandleKey(keyRune('S'))
+	m, _ = m.HandleKey(keyRune('i'))
+	m = m.Refresh(snap)
+	if m.infoTarget == nil || m.infoTarget.ID != "done-1" {
+		t.Fatal("info modal closed for a finished job still on the board")
+	}
+	if got := m.infoEnd; !got.Equal(done.LastSeen) {
+		t.Errorf("infoEnd = %s, want LastSeen", got)
+	}
+	if !strings.Contains(m.View(), "4m12s") {
+		t.Error("info modal should show the frozen 4m12s duration")
+	}
+
+	// Pushed off the board: modal closes.
+	m = m.Refresh(store.StoreSnapshot{})
+	if m.infoTarget != nil {
+		t.Error("info modal should close once the job leaves the board")
+	}
+}
+
+func TestQueriesSlowestView(t *testing.T) {
+	now := time.Now()
+	m := NewQueriesModel(120, 40).Refresh(store.StoreSnapshot{
+		ObservedSince:  now.Add(-time.Hour),
+		SampleInterval: 2 * time.Second,
+		ActiveQueries:  []cratedb.ActiveQuery{{ID: "cursor", Started: now.Add(-48 * time.Hour)}},
+	})
+	m, _ = m.HandleKey(keyRune('S'))
+	v := m.View()
+	for _, want := range []string{"Slowest Queries", "sampled every 2.0s", "1 stuck excluded", "No queries observed yet"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q\n%s", want, v)
+		}
+	}
+}

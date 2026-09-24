@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -44,12 +45,15 @@ func (c *JobsLogCollector) SetView(active bool, mode store.JobsLogMode) bool {
 const jobsLogDuration = `(CAST(ended AS BIGINT) - CAST(started AS BIGINT))`
 
 // Args: observed-since (epoch ms), stuck threshold (ms). Jobs over the stuck
-// threshold (closed WITH HOLD cursors) are left out like everywhere else,
-// and so is obsi's own tagged polling.
-const jobsLogWhere = `ended >= ? AND ` + jobsLogDuration + ` <= ? AND stmt NOT LIKE ` + cratedb.QueryTagLike
+// threshold (closed WITH HOLD cursors) are left out like everywhere else.
+// obsi's own tagged polling is dropped in dropOwn, not here: a stmt NOT LIKE
+// made these queries ~8x (slowest) and ~3.5x (grouped) slower on a 10k-row log.
+const jobsLogWhere = `ended >= ? AND ` + jobsLogDuration + ` <= ?`
 
 var (
-	jobsLogLimit = strconv.Itoa(store.SlowestLimit)
+	// Twice the board so obsi's own rows can be dropped and 20 remain,
+	// unless obsi's polling itself is among the slowest 40.
+	jobsLogLimit = strconv.Itoa(2 * store.SlowestLimit)
 
 	jobsLogSlowestQuery = `SELECT id, node['name'], username, stmt, started, ended, error, classification['type']
 FROM sys.jobs_log
@@ -121,7 +125,7 @@ func (c *JobsLogCollector) collectOnce(ctx context.Context, reg *cratedb.Registr
 			st.SetJobsLogError(err.Error())
 			return err
 		}
-		groups = parseJobLogGroups(resp.Rows)
+		groups = dropOwn(parseJobLogGroups(resp.Rows), func(g cratedb.JobLogGroup) string { return g.Stmt })
 	default:
 		stmt := jobsLogSlowestQuery
 		if mode == store.JobsLogFailed {
@@ -132,10 +136,23 @@ func (c *JobsLogCollector) collectOnce(ctx context.Context, reg *cratedb.Registr
 			st.SetJobsLogError(err.Error())
 			return err
 		}
-		entries = parseJobLogEntries(resp.Rows)
+		entries = dropOwn(parseJobLogEntries(resp.Rows), func(e cratedb.JobLogEntry) string { return e.Stmt })
 	}
 	st.UpdateJobsLog(mode, entries, groups, coverage)
 	return nil
+}
+
+var ownTag = strings.TrimSpace(cratedb.QueryTag)
+
+// dropOwn removes obsi's tagged statements and caps at the board size.
+func dropOwn[T any](rows []T, stmt func(T) string) []T {
+	out := rows[:0]
+	for _, r := range rows {
+		if !strings.HasSuffix(stmt(r), ownTag) {
+			out = append(out, r)
+		}
+	}
+	return out[:min(len(out), store.SlowestLimit)]
 }
 
 func msTime(v interface{}) time.Time {

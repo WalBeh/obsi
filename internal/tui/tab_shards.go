@@ -2,11 +2,9 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
@@ -27,16 +25,10 @@ var shardSortFieldNames = [shardSortFieldCount]string{"table", "state", "recover
 
 // ShardsModel is the Shards tab (Tab 5) showing shard health and allocation info.
 type ShardsModel struct {
-	snap      store.StoreSnapshot
-	sorted    []int // indices into problemShards after sort+filter
-	selected  int
-	scroll    int
-	sortField ShardSortField
-	sortDesc  bool
-	searching bool
-	search    string
-	width     int
-	height    int
+	listState[ShardSortField] // sorted indexes problemShards
+	snap                      store.StoreSnapshot
+	width                     int
+	height                    int
 
 	keyMap KeyMap
 
@@ -80,9 +72,7 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 	}
 
 	m.rebuildSorted()
-	if m.selected >= len(m.sorted) && len(m.sorted) > 0 {
-		m.selected = len(m.sorted) - 1
-	}
+	m.clampSelection()
 	if len(m.sorted) == 0 {
 		m.selected = 0
 	}
@@ -117,42 +107,20 @@ func (m ShardsModel) listHeight() int {
 }
 
 func (m *ShardsModel) clampScroll() {
-	listH := m.listHeight()
-	if m.selected < m.scroll {
-		m.scroll = m.selected
-	}
-	if m.selected >= m.scroll+listH {
-		m.scroll = m.selected - listH + 1
-	}
-	maxScroll := len(m.sorted) - listH
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.scroll > maxScroll {
-		m.scroll = maxScroll
-	}
-	if m.scroll < 0 {
-		m.scroll = 0
-	}
+	m.clampScrollTo(m.listHeight())
 }
 
 func (m *ShardsModel) rebuildSorted() {
 	m.sorted = m.sorted[:0]
 	for i, s := range m.problemShards {
-		if m.search != "" {
-			name := strings.ToLower(s.SchemaName + "." + s.TableName)
-			if !strings.Contains(name, strings.ToLower(m.search)) {
-				continue
-			}
+		if m.matches(s.SchemaName + "." + s.TableName) {
+			m.sorted = append(m.sorted, i)
 		}
-		m.sorted = append(m.sorted, i)
 	}
 
 	ps := m.problemShards
 	sf := m.sortField
-	desc := m.sortDesc
-	sort.Slice(m.sorted, func(a, b int) bool {
-		ia, ib := m.sorted[a], m.sorted[b]
+	m.sortRows(func(ia, ib int) bool {
 		var less bool
 		switch sf {
 		case ShardSortByTable:
@@ -176,80 +144,17 @@ func (m *ShardsModel) rebuildSorted() {
 		default:
 			less = ia < ib
 		}
-		if desc {
-			return !less
-		}
 		return less
 	})
 }
 
 func (m ShardsModel) HandleKey(msg tea.KeyMsg) (ShardsModel, tea.Cmd) {
-	km := m.keyMap
-
-	if m.searching {
-		switch {
-		case key.Matches(msg, km.Escape):
-			m.searching = false
-			m.search = ""
-			m.selected = 0
-			m.scroll = 0
+	if r := m.handleKey(msg, m.keyMap, shardSortFieldCount); r.handled {
+		if r.rebuild {
 			m.rebuildSorted()
-			return m, nil
-		case msg.Type == tea.KeyEnter:
-			m.searching = false
-			return m, nil
-		case msg.Type == tea.KeyBackspace:
-			if len(m.search) > 0 {
-				m.search = m.search[:len(m.search)-1]
-				m.selected = 0
-				m.scroll = 0
-				m.rebuildSorted()
-			}
-			return m, nil
-		case msg.Type == tea.KeyRunes:
-			m.search += string(msg.Runes)
-			m.selected = 0
-			m.scroll = 0
-			m.rebuildSorted()
-			return m, nil
 		}
-		return m, nil
-	}
-
-	switch {
-	case key.Matches(msg, km.Up):
-		if m.selected > 0 {
-			m.selected--
+		if r.moved {
 			m.clampScroll()
-		}
-	case key.Matches(msg, km.Down):
-		if m.selected < len(m.sorted)-1 {
-			m.selected++
-			m.clampScroll()
-		}
-	case key.Matches(msg, km.Search):
-		m.searching = true
-		m.search = ""
-		m.selected = 0
-		m.scroll = 0
-	case key.Matches(msg, km.SortNext):
-		oldField := m.sortField
-		m.sortField = (m.sortField + 1) % shardSortFieldCount
-		if m.sortField == oldField {
-			m.sortDesc = !m.sortDesc
-		}
-		if m.sortField != oldField {
-			m.sortDesc = m.sortField != ShardSortByTable
-		}
-		m.selected = 0
-		m.scroll = 0
-		m.rebuildSorted()
-	case key.Matches(msg, km.Escape):
-		if m.search != "" {
-			m.search = ""
-			m.selected = 0
-			m.scroll = 0
-			m.rebuildSorted()
 		}
 	}
 	return m, nil
@@ -292,12 +197,7 @@ func (m ShardsModel) View() string {
 	}
 
 	// Column header
-	sortIndicator := fmt.Sprintf("sort: %s", shardSortFieldNames[m.sortField])
-	if m.sortDesc {
-		sortIndicator += " ↓"
-	} else {
-		sortIndicator += " ↑"
-	}
+	sortIndicator := m.sortLabel(shardSortFieldNames[:])
 
 	filterInfo := ""
 	if m.search != "" {

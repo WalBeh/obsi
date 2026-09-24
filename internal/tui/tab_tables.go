@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
@@ -28,32 +27,24 @@ var sortFieldNames = [sortFieldCount]string{"name", "size", "shards", "records",
 
 // TablesModel shows tables with shard distribution per node.
 type TablesModel struct {
-	snap            store.StoreSnapshot
-	sorted          []int // indices into snap.Tables after sort+filter
-	selected        int
-	scroll          int // first visible row index
-	sortField       SortField
-	sortDesc        bool
-	searching       bool
-	search          string
-	width           int
-	height          int
-	tableHealth     map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
-	filterUnhealthy bool
-	keyMap          KeyMap
+	listState[SortField] // sorted indexes snap.Tables
+	snap                 store.StoreSnapshot
+	width                int
+	height               int
+	tableHealth          map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
+	filterUnhealthy      bool
+	keyMap               KeyMap
 }
 
 func NewTablesModel(width, height int) TablesModel {
-	return TablesModel{width: width, height: height, sortDesc: false, keyMap: DefaultKeyMap()}
+	return TablesModel{width: width, height: height, keyMap: DefaultKeyMap()}
 }
 
 func (m TablesModel) Refresh(snap store.StoreSnapshot) TablesModel {
 	m.snap = snap
 	m.buildHealthMap()
 	m.rebuildSorted()
-	if m.selected >= len(m.sorted) && len(m.sorted) > 0 {
-		m.selected = len(m.sorted) - 1
-	}
+	m.clampSelection()
 	m.clampScroll()
 	return m
 }
@@ -86,25 +77,7 @@ func (m TablesModel) listHeight() int {
 }
 
 func (m *TablesModel) clampScroll() {
-	listH := m.listHeight()
-	// Ensure selected is visible
-	if m.selected < m.scroll {
-		m.scroll = m.selected
-	}
-	if m.selected >= m.scroll+listH {
-		m.scroll = m.selected - listH + 1
-	}
-	// Clamp scroll to valid range
-	maxScroll := len(m.sorted) - listH
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if m.scroll > maxScroll {
-		m.scroll = maxScroll
-	}
-	if m.scroll < 0 {
-		m.scroll = 0
-	}
+	m.clampScrollTo(m.listHeight())
 }
 
 func (m *TablesModel) buildHealthMap() {
@@ -122,11 +95,8 @@ func (m *TablesModel) buildHealthMap() {
 func (m *TablesModel) rebuildSorted() {
 	m.sorted = m.sorted[:0]
 	for i, t := range m.snap.Tables {
-		if m.search != "" {
-			name := strings.ToLower(t.SchemaName + "." + t.TableName)
-			if !strings.Contains(name, strings.ToLower(m.search)) {
-				continue
-			}
+		if !m.matches(t.SchemaName + "." + t.TableName) {
+			continue
 		}
 		if m.filterUnhealthy {
 			health := m.tableHealth[t.SchemaName+"."+t.TableName]
@@ -139,9 +109,7 @@ func (m *TablesModel) rebuildSorted() {
 
 	tables := m.snap.Tables
 	sf := m.sortField
-	desc := m.sortDesc
-	sort.Slice(m.sorted, func(a, b int) bool {
-		ia, ib := m.sorted[a], m.sorted[b]
+	m.sortRows(func(ia, ib int) bool {
 		var less bool
 		switch sf {
 		case SortByName:
@@ -159,86 +127,24 @@ func (m *TablesModel) rebuildSorted() {
 		default:
 			less = ia < ib
 		}
-		if desc {
-			return !less
-		}
 		return less
 	})
 }
 
 func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
-	km := m.keyMap
-
-	// Search mode: capture typed characters
-	if m.searching {
-		switch {
-		case key.Matches(msg, km.Escape):
-			m.searching = false
-			m.search = ""
-			m.selected = 0
-			m.scroll = 0
+	if r := m.handleKey(msg, m.keyMap, sortFieldCount); r.handled {
+		if r.rebuild {
 			m.rebuildSorted()
-			return m, nil
-		case msg.Type == tea.KeyEnter:
-			m.searching = false
-			return m, nil
-		case msg.Type == tea.KeyBackspace:
-			if len(m.search) > 0 {
-				m.search = m.search[:len(m.search)-1]
-				m.selected = 0
-				m.scroll = 0
-				m.rebuildSorted()
-			}
-			return m, nil
-		case msg.Type == tea.KeyRunes:
-			m.search += string(msg.Runes)
-			m.selected = 0
-			m.scroll = 0
-			m.rebuildSorted()
-			return m, nil
+		}
+		if r.moved {
+			m.clampScroll()
 		}
 		return m, nil
 	}
 
-	switch {
-	case key.Matches(msg, km.Up):
-		if m.selected > 0 {
-			m.selected--
-			m.clampScroll()
-		}
-	case key.Matches(msg, km.Down):
-		if m.selected < len(m.sorted)-1 {
-			m.selected++
-			m.clampScroll()
-		}
-	case key.Matches(msg, km.Search):
-		m.searching = true
-		m.search = ""
-		m.selected = 0
-		m.scroll = 0
-	case key.Matches(msg, km.SortNext):
-		oldField := m.sortField
-		m.sortField = (m.sortField + 1) % sortFieldCount
-		if m.sortField == oldField {
-			m.sortDesc = !m.sortDesc
-		}
-		if m.sortField != oldField {
-			m.sortDesc = m.sortField != SortByName
-		}
-		m.selected = 0
-		m.scroll = 0
-		m.rebuildSorted()
-	case key.Matches(msg, km.Escape):
-		if m.search != "" {
-			m.search = ""
-			m.selected = 0
-			m.scroll = 0
-			m.rebuildSorted()
-		}
-	case msg.Type == tea.KeyRunes && string(msg.Runes) == "f":
+	if msg.Type == tea.KeyRunes && string(msg.Runes) == "f" {
 		m.filterUnhealthy = !m.filterUnhealthy
-		m.selected = 0
-		m.scroll = 0
+		m.resetCursor()
 		m.rebuildSorted()
 	}
 	return m, nil
@@ -259,12 +165,7 @@ func (m TablesModel) View() string {
 	lines = append(lines, title)
 
 	// Summary + sort/search info
-	sortIndicator := fmt.Sprintf("sort: %s", sortFieldNames[m.sortField])
-	if m.sortDesc {
-		sortIndicator += " ↓"
-	} else {
-		sortIndicator += " ↑"
-	}
+	sortIndicator := m.sortLabel(sortFieldNames[:])
 
 	filterInfo := ""
 	if m.search != "" {

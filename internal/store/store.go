@@ -238,6 +238,12 @@ type Store struct {
 	shards        []cratedb.ShardInfo
 	allocations   []cratedb.AllocationInfo
 
+	// Slowest-queries board, observed since the store was created.
+	observedSince   time.Time
+	queriesInterval time.Duration
+	inflight        map[string]*ObservedQuery // non-stuck jobs seen on the last poll
+	slowestDone     []ObservedQuery           // finished jobs, top slowestLimit
+
 	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
 	jmxPods    map[string]*jmx.JMXSnapshot
 	jmxCluster jmx.ClusterJMX
@@ -286,6 +292,14 @@ type StoreSnapshot struct {
 	Shards        []cratedb.ShardInfo
 	Allocations   []cratedb.AllocationInfo
 
+	// SlowestQueries is the top-N by observed duration since ObservedSince,
+	// finished and running jobs mixed. SampleInterval is the effective
+	// queries poll interval (throttle applied), i.e. the error bar on
+	// finished durations.
+	SlowestQueries []ObservedQuery
+	ObservedSince  time.Time
+	SampleInterval time.Duration
+
 	// JMX per-pod snapshots; empty when the JMX collector is disabled or
 	// has not yet produced a successful scrape. Pod-name keys match
 	// NodeInfo.Hostname on CrateDB Cloud.
@@ -326,6 +340,10 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 		sparklineSize: sparklineSize,
 		lastUpdated:   make(map[string]time.Time),
 		staleAfter:    staleAfter,
+
+		observedSince:   time.Now(),
+		queriesInterval: collectors["queries"].Interval.Duration,
+		inflight:        make(map[string]*ObservedQuery),
 	}
 }
 
@@ -620,8 +638,10 @@ func (s *Store) pushHistory(nodes []NodeSnapshot) {
 func (s *Store) UpdateActiveQueries(queries []cratedb.ActiveQuery) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now()
 	s.activeQueries = queries
-	s.lastUpdated["queries"] = time.Now()
+	s.observeQueries(queries, now)
+	s.lastUpdated["queries"] = now
 }
 
 // UpdateTables updates table and shard info.
@@ -737,6 +757,9 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	}
 	if hint.IncludeQueries {
 		snap.ActiveQueries = copySlice(s.activeQueries)
+		snap.SlowestQueries = s.slowestSnapshot(time.Now())
+		snap.ObservedSince = s.observedSince
+		snap.SampleInterval = s.queriesInterval * time.Duration(max(throttleMultiplier, 1))
 	}
 	if hint.IncludeTables || hint.IncludeShards {
 		snap.Tables = copySlice(s.tables)

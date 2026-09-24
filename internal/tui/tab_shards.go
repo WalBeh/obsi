@@ -235,9 +235,7 @@ func (m ShardsModel) View() string {
 			}
 
 			tableName := fmt.Sprintf("%s.%s", s.SchemaName, s.TableName)
-			if len(tableName) > 28 {
-				tableName = tableName[:25] + "..."
-			}
+			tableName = truncateString(tableName, 28)
 
 			pr := "R"
 			if s.Primary {

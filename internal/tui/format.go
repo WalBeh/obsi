@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func formatCPU(pct int16) string {
@@ -89,26 +90,30 @@ func wrapText(s string, width int) []string {
 		width = 10
 	}
 	var out []string
-	for _, line := range strings.Split(s, "\n") {
+	for _, s := range strings.Split(s, "\n") {
+		line := []rune(s) // width is in characters; byte cuts split UTF-8
 		for len(line) > width {
-			cut := strings.LastIndex(line[:width], " ")
+			cut := lastSpace(line[:width])
 			if cut <= 0 {
 				cut = width
 			}
-			out = append(out, line[:cut])
-			line = strings.TrimLeft(line[cut:], " ")
+			out = append(out, string(line[:cut]))
+			line = []rune(strings.TrimLeft(string(line[cut:]), " "))
 		}
-		out = append(out, line)
+		out = append(out, string(line))
 	}
 	return out
 }
 
 // truncateString truncates s to max characters, adding "..." if truncated.
+// Counts runes, not bytes: byte slicing split multi-byte characters in
+// statements and table names, and runes are also what fmt's %-Ns padding
+// counts, so columns stay aligned.
 func truncateString(s string, max int) string {
-	if len(s) > max {
-		return s[:max-3] + "..."
+	if utf8.RuneCountInString(s) <= max {
+		return s
 	}
-	return s
+	return string([]rune(s)[:max-3]) + "..."
 }
 
 func firstLine(s string) string {
@@ -116,4 +121,13 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+func lastSpace(r []rune) int {
+	for i := len(r) - 1; i >= 0; i-- {
+		if r[i] == ' ' {
+			return i
+		}
+	}
+	return -1
 }

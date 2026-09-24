@@ -248,9 +248,7 @@ func (m TablesModel) View() string {
 		}
 
 		tableName := fmt.Sprintf("%s.%s", t.SchemaName, t.TableName)
-		if len(tableName) > 30 {
-			tableName = tableName[:27] + "..."
-		}
+		tableName = truncateString(tableName, 30)
 
 		// Color table name by health status
 		health := m.tableHealth[t.SchemaName+"."+t.TableName]

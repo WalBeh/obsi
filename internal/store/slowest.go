@@ -19,8 +19,7 @@ const slowestLimit = 20
 
 // ObservedQuery is a sys.jobs row as last seen by the queries collector.
 // sys.jobs only lists running jobs, so a job that vanishes between polls is
-// assumed finished (or killed, indistinguishable) and its duration is
-// LastSeen - Started: a lower bound, short by up to one poll interval.
+// assumed finished (or killed, indistinguishable).
 type ObservedQuery struct {
 	cratedb.ActiveQuery
 	LastSeen  time.Time
@@ -28,13 +27,13 @@ type ObservedQuery struct {
 	Done      bool
 }
 
-// Duration is the observed runtime: up to LastSeen for finished jobs, up to
-// now for running ones.
-func (o ObservedQuery) Duration(now time.Time) time.Duration {
-	if o.Done {
-		return o.LastSeen.Sub(o.Started)
-	}
-	return now.Sub(o.Started)
+// Duration is the runtime as of the last poll that saw the job, running or
+// not. A lower bound, short by up to one poll interval. Counting running
+// jobs up to now instead made them climb the board between polls, then drop
+// (often off the top N) once found finished, and credited them with time
+// nobody observed while polling was throttled or failing.
+func (o ObservedQuery) Duration() time.Duration {
+	return o.LastSeen.Sub(o.Started)
 }
 
 // observeQueries folds one successful sys.jobs poll into the in-flight set
@@ -70,7 +69,7 @@ func (s *Store) observeQueries(queries []cratedb.ActiveQuery, now time.Time) {
 		o.Done = true
 		s.slowestDone = append(s.slowestDone, *o)
 	}
-	sortObserved(s.slowestDone, now)
+	sortObserved(s.slowestDone)
 	if len(s.slowestDone) > slowestLimit {
 		s.slowestDone = s.slowestDone[:slowestLimit]
 	}
@@ -88,7 +87,7 @@ func (s *Store) slowestSnapshot(now time.Time) []ObservedQuery {
 		}
 		out = append(out, *o)
 	}
-	sortObserved(out, now)
+	sortObserved(out)
 	if len(out) > slowestLimit {
 		out = out[:slowestLimit]
 	}
@@ -97,9 +96,9 @@ func (s *Store) slowestSnapshot(now time.Time) []ObservedQuery {
 
 // sortObserved orders by duration desc; ID breaks ties so map iteration
 // order doesn't make rows swap places between ticks.
-func sortObserved(qs []ObservedQuery, now time.Time) {
+func sortObserved(qs []ObservedQuery) {
 	sort.Slice(qs, func(i, j int) bool {
-		di, dj := qs[i].Duration(now), qs[j].Duration(now)
+		di, dj := qs[i].Duration(), qs[j].Duration()
 		if di != dj {
 			return di > dj
 		}

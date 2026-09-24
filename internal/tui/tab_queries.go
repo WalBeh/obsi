@@ -494,9 +494,9 @@ func (m QueriesModel) renderInfoModal() string {
 		lipgloss.WithWhitespaceBackground(colorOverlayBg))
 }
 
-// renderSlowest draws the slowest-jobs board. Finished durations are frozen
-// at the last poll that saw the job, so they can be short by up to one
-// SampleInterval; the header says so.
+// renderSlowest draws the slowest-jobs board. Durations are as of the last
+// poll that saw the job, so they can be short by up to one SampleInterval;
+// the header says so.
 func (m QueriesModel) renderSlowest() string {
 	stale := m.snap.Staleness["queries"]
 	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live)")
@@ -542,7 +542,7 @@ func (m QueriesModel) renderSlowest() string {
 		if i == m.slowSelected {
 			marker = "▸ "
 		}
-		d := o.Duration(now)
+		d := o.Duration()
 		durStyle := styleValue
 		if d > 30*time.Second {
 			durStyle = styleHighValue
@@ -577,7 +577,7 @@ func (m QueriesModel) renderSlowest() string {
 		lines = append(lines, fmt.Sprintf("    Node:     %s", o.Node))
 		lines = append(lines, fmt.Sprintf("    User:     %s", o.Username))
 		lines = append(lines, fmt.Sprintf("    Started:  %s", o.Started.Format("15:04:05")))
-		lines = append(lines, fmt.Sprintf("    Duration: %s", formatDuration(o.Duration(now))))
+		lines = append(lines, fmt.Sprintf("    Duration: %s", formatDuration(o.Duration())))
 		lines = append(lines, fmt.Sprintf("    State:    %s", state))
 		lines = append(lines, "")
 		lines = append(lines, "    Statement:")

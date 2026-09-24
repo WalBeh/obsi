@@ -150,7 +150,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
 - Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard. Stuck queries (running longer than 24h, typically abandoned cursors) are hidden by default; press `h` to show them
-- Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration, built from the `sys.jobs` poll. Finished durations can be short by up to one poll interval (2s default), queries faster than that aren't seen, and killed jobs look like finished ones. Stuck queries are always left out
+- Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration, built from the `sys.jobs` poll. Durations are as of the last poll that saw the job, so they step once per poll and can be short by up to one interval (2s default), queries faster than that aren't seen, and killed jobs look like finished ones. Stuck queries are always left out
 - Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)
 
 ## JMX metrics (CrateDB Cloud)

@@ -19,7 +19,7 @@ func NewClusterCollector(cfg config.CollectorConfig, tracker *QueryTracker) *Clu
 	return &ClusterCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
-func (c *ClusterCollector) Name() string           { return "cluster" }
+func (c *ClusterCollector) Name() string            { return "cluster" }
 func (c *ClusterCollector) Interval() time.Duration { return c.interval }
 
 func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {

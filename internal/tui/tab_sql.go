@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	sqlMaxColWidth   = 40
-	sqlHistorySize   = 50
+	sqlMaxColWidth = 40
+	sqlHistorySize = 50
 )
 
 // SQLResultMsg carries the result of an async query back to the TUI.
@@ -41,11 +41,11 @@ type SQLModel struct {
 	// Results
 	limitApplied bool
 	cols         []string
-	rows     [][]string
-	rowCount int64
-	duration float64
-	errMsg   string
-	running  bool
+	rows         [][]string
+	rowCount     int64
+	duration     float64
+	errMsg       string
+	running      bool
 
 	// Column widths (computed from results)
 	colWidths []int
@@ -407,4 +407,3 @@ func formatSQLValue(v interface{}) string {
 		return fmt.Sprintf("%v", val)
 	}
 }
-

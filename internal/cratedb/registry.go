@@ -17,9 +17,9 @@ type RegistryStatus struct {
 	ActiveNode      string // name of the node that last answered a query
 	ClusterName     string
 	TotalNodes      int
-	HealthyNodes    int    // direct nodes reachable (may be 0 for cloud clusters)
-	DirectReachable bool   // whether any direct node is reachable
-	Reconnecting    bool   // whether a reconnect attempt is in progress
+	HealthyNodes    int  // direct nodes reachable (may be 0 for cloud clusters)
+	DirectReachable bool // whether any direct node is reachable
+	Reconnecting    bool // whether a reconnect attempt is in progress
 	Nodes           []NodeHealth
 	Latency         LatencyStats // query latency stats for the active endpoint
 }
@@ -497,5 +497,3 @@ func (r *Registry) queryAny(ctx context.Context, stmt string, args ...interface{
 
 	return nil, fmt.Errorf("no reachable endpoint for query: %w", err)
 }
-
-

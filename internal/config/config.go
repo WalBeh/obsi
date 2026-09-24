@@ -10,13 +10,13 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
-	LastProfile string                      `toml:"last_profile,omitempty"`
-	Connection  ConnectionConfig            `toml:"connection"`
-	Profiles    map[string]ProfileConfig    `toml:"profiles,omitempty"`
-	Collectors  map[string]CollectorConfig  `toml:"collectors"`
-	JMX         JMXConfig                   `toml:"jmx"`
-	TUI         TUIConfig                   `toml:"tui"`
-	Logging     LoggingConfig               `toml:"logging"`
+	LastProfile string                     `toml:"last_profile,omitempty"`
+	Connection  ConnectionConfig           `toml:"connection"`
+	Profiles    map[string]ProfileConfig   `toml:"profiles,omitempty"`
+	Collectors  map[string]CollectorConfig `toml:"collectors"`
+	JMX         JMXConfig                  `toml:"jmx"`
+	TUI         TUIConfig                  `toml:"tui"`
+	Logging     LoggingConfig              `toml:"logging"`
 }
 
 // ProfileConfig holds per-cluster connection details.

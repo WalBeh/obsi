@@ -21,9 +21,9 @@ func TestJMXHistorySnapshot_GCWeightedMean(t *testing.T) {
 	h := newJMXHistory(16)
 	ring := NewRingBuf[gcSample](16)
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	ring.Push(gcSample{Count: 1, Seconds: 0.010, At: t0})                          // 1 × 10ms
-	ring.Push(gcSample{At: t0.Add(30 * time.Second)})                              // quiet
-	ring.Push(gcSample{Count: 10, Seconds: 0.050, At: t0.Add(60 * time.Second)})   // 10 × 5ms
+	ring.Push(gcSample{Count: 1, Seconds: 0.010, At: t0})                        // 1 × 10ms
+	ring.Push(gcSample{At: t0.Add(30 * time.Second)})                            // quiet
+	ring.Push(gcSample{Count: 10, Seconds: 0.050, At: t0.Add(60 * time.Second)}) // 10 × 5ms
 	h.GCDeltas["G1 Young Generation"] = ring
 
 	snap := h.snapshot()

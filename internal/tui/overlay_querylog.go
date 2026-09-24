@@ -12,21 +12,21 @@ import (
 
 var (
 	styleOverlayBorder = lipgloss.NewStyle().
-		BorderTop(true).
-		BorderStyle(lipgloss.DoubleBorder()).
-		BorderForeground(colorDim)
+				BorderTop(true).
+				BorderStyle(lipgloss.DoubleBorder()).
+				BorderForeground(colorDim)
 
 	styleOverlayErr = lipgloss.NewStyle().
-		Foreground(colorRed)
+			Foreground(colorRed)
 
 	styleOverlayDelta = lipgloss.NewStyle().
-		Foreground(colorGreen)
+				Foreground(colorGreen)
 
 	styleOverlayDotActive = lipgloss.NewStyle().
-		Foreground(colorGreen)
+				Foreground(colorGreen)
 
 	styleOverlayDotRecent = lipgloss.NewStyle().
-		Foreground(colorDim)
+				Foreground(colorDim)
 )
 
 // queryActivity tracks per-label change detection for visual cues.

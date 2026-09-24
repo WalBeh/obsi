@@ -29,9 +29,9 @@ type NodeSnapshot struct {
 	LastSeen        time.Time     // when the node was last seen in sys.nodes
 
 	// Derived IO rates (computed from cumulative counter deltas)
-	ReadIOPS       float64 // read ops/sec
-	WriteIOPS      float64 // write ops/sec
-	ReadThroughput float64 // bytes/sec read
+	ReadIOPS        float64 // read ops/sec
+	WriteIOPS       float64 // write ops/sec
+	ReadThroughput  float64 // bytes/sec read
 	WriteThroughput float64 // bytes/sec written
 
 	// Thread pool deltas (new rejections since last poll)
@@ -47,10 +47,10 @@ type ioSample struct {
 
 // nodeHistory holds all time-series ring buffers for a single node.
 type nodeHistory struct {
-	CPU      *RingBuf[float64]
-	Heap     *RingBuf[float64]
-	Load     *RingBuf[float64]
-	LoadSat  *RingBuf[float64]
+	CPU       *RingBuf[float64]
+	Heap      *RingBuf[float64]
+	Load      *RingBuf[float64]
+	LoadSat   *RingBuf[float64]
 	ReadIOPS  *RingBuf[float64]
 	WriteIOPS *RingBuf[float64]
 	ReadTP    *RingBuf[float64] // read throughput bytes/s
@@ -198,10 +198,10 @@ func (h *jmxHistory) snapshot() JMXHistorySnapshot {
 
 // NodeHistorySnapshot is a read-only copy of a node's time-series data.
 type NodeHistorySnapshot struct {
-	CPU      []float64
-	Heap     []float64
-	Load     []float64
-	LoadSat  []float64
+	CPU       []float64
+	Heap      []float64
+	Load      []float64
+	LoadSat   []float64
 	ReadIOPS  []float64
 	WriteIOPS []float64
 	ReadTP    []float64
@@ -231,12 +231,12 @@ type Store struct {
 	summit          cratedb.Summit
 	clusterChecks   []cratedb.ClusterCheck
 	tableHealth     []cratedb.TableHealth
-	nodes         []NodeSnapshot
-	activeQueries []cratedb.ActiveQuery
-	tables        []cratedb.TableInfo
-	viewCount     int
-	shards        []cratedb.ShardInfo
-	allocations   []cratedb.AllocationInfo
+	nodes           []NodeSnapshot
+	activeQueries   []cratedb.ActiveQuery
+	tables          []cratedb.TableInfo
+	viewCount       int
+	shards          []cratedb.ShardInfo
+	allocations     []cratedb.AllocationInfo
 
 	// Slowest-queries board, observed since the store was created.
 	observedSince   time.Time
@@ -285,13 +285,13 @@ type StoreSnapshot struct {
 	Summit          cratedb.Summit
 	ClusterChecks   []cratedb.ClusterCheck
 	TableHealth     []cratedb.TableHealth
-	Nodes         []NodeSnapshot
-	ActiveQueries []cratedb.ActiveQuery
-	Tables        []cratedb.TableInfo
-	ViewCount     int
-	TotalShards   int
-	Shards        []cratedb.ShardInfo
-	Allocations   []cratedb.AllocationInfo
+	Nodes           []NodeSnapshot
+	ActiveQueries   []cratedb.ActiveQuery
+	Tables          []cratedb.TableInfo
+	ViewCount       int
+	TotalShards     int
+	Shards          []cratedb.ShardInfo
+	Allocations     []cratedb.AllocationInfo
 
 	// SlowestQueries is the top-N by observed duration since ObservedSince,
 	// finished and running jobs mixed. SampleInterval is the effective
@@ -722,13 +722,13 @@ func (s *Store) AnyNodeHeapAbove(pct float64) bool {
 // SnapshotHint tells Snapshot which data to include, avoiding expensive copies
 // for tabs that don't need them.
 type SnapshotHint struct {
-	IncludeNodes       bool // node list + history ring buffers
-	IncludeTables      bool // table list + shard count (lightweight)
-	IncludeShards      bool // full shard list + allocations (expensive on large clusters)
-	IncludeQueries     bool // active queries
-	IncludeHealth      bool // cluster checks + table health
-	IncludeCluster     bool // cluster settings + summit
-	IncludeJMX         bool // per-pod JMX snapshots + cluster summary
+	IncludeNodes   bool // node list + history ring buffers
+	IncludeTables  bool // table list + shard count (lightweight)
+	IncludeShards  bool // full shard list + allocations (expensive on large clusters)
+	IncludeQueries bool // active queries
+	IncludeHealth  bool // cluster checks + table health
+	IncludeCluster bool // cluster settings + summit
+	IncludeJMX     bool // per-pod JMX snapshots + cluster summary
 }
 
 // Snapshot returns a read-only copy of the store.

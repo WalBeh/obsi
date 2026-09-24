@@ -18,7 +18,7 @@ func NewHealthCollector(cfg config.CollectorConfig, tracker *QueryTracker) *Heal
 	return &HealthCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
-func (c *HealthCollector) Name() string           { return "health" }
+func (c *HealthCollector) Name() string            { return "health" }
 func (c *HealthCollector) Interval() time.Duration { return c.interval }
 
 func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
@@ -61,4 +61,3 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	st.UpdateClusterHealth(checks, health)
 	return nil
 }
-

@@ -34,15 +34,15 @@ const (
 
 // Slot index constants for type-safe access.
 const (
-	slotWMLow          = 0
-	slotWMHigh         = 1
-	slotWMFlood        = 2
-	slotAlloc          = 3
-	slotRebalance      = 4
-	slotMaxShards      = 5
-	slotRecoveryBytes  = 6
-	slotRecoveryNode   = 7
-	slotRecoveryClust  = 8
+	slotWMLow         = 0
+	slotWMHigh        = 1
+	slotWMFlood       = 2
+	slotAlloc         = 3
+	slotRebalance     = 4
+	slotMaxShards     = 5
+	slotRecoveryBytes = 6
+	slotRecoveryNode  = 7
+	slotRecoveryClust = 8
 )
 
 // editSlot defines one editable cluster setting.

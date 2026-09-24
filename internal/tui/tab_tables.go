@@ -28,17 +28,17 @@ var sortFieldNames = [sortFieldCount]string{"name", "size", "shards", "records",
 
 // TablesModel shows tables with shard distribution per node.
 type TablesModel struct {
-	snap        store.StoreSnapshot
-	sorted      []int // indices into snap.Tables after sort+filter
-	selected    int
-	scroll      int // first visible row index
-	sortField   SortField
-	sortDesc    bool
-	searching   bool
-	search      string
-	width       int
-	height      int
-	tableHealth    map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
+	snap            store.StoreSnapshot
+	sorted          []int // indices into snap.Tables after sort+filter
+	selected        int
+	scroll          int // first visible row index
+	sortField       SortField
+	sortDesc        bool
+	searching       bool
+	search          string
+	width           int
+	height          int
+	tableHealth     map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
 	filterUnhealthy bool
 	keyMap          KeyMap
 }
@@ -446,8 +446,8 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 
 		// Translog settings — show "default" when all defaults, otherwise list non-defaults
 		const (
-			defaultTranslogSyncInterval   int    = 5000      // ms
-			defaultTranslogDurability     string = "REQUEST"
+			defaultTranslogSyncInterval int    = 5000 // ms
+			defaultTranslogDurability   string = "REQUEST"
 		)
 		defaultTranslogFlushThreshold := cratedb.DefaultTranslogFlushThreshold
 		var tlParts []string

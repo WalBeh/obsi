@@ -24,7 +24,7 @@ type JMXSnapshot struct {
 	// cAdvisor — restricted to the "crate" container where labelled
 	ContainerCPUSeconds float64
 	ContainerMemBytes   int64
-	NetRxBytes          int64            // cumulative across all interfaces
+	NetRxBytes          int64 // cumulative across all interfaces
 	NetTxBytes          int64
 	DiskReadBytes       map[string]int64 // device → bytes
 	DiskWriteBytes      map[string]int64

@@ -22,13 +22,13 @@ func fmtMs(d time.Duration) string {
 
 // StatusBarModel renders the connection status bar.
 type StatusBarModel struct {
-	status         cratedb.RegistryStatus
-	throttle       collector.ThrottleLevel
-	heapWarning    bool
-	clusterHealth  string // "GREEN", "YELLOW", "RED", or ""
-	totalShards    int
-	shardQueryDur  time.Duration
-	width          int
+	status        cratedb.RegistryStatus
+	throttle      collector.ThrottleLevel
+	heapWarning   bool
+	clusterHealth string // "GREEN", "YELLOW", "RED", or ""
+	totalShards   int
+	shardQueryDur time.Duration
+	width         int
 }
 
 // NewStatusBarModel creates a new status bar.

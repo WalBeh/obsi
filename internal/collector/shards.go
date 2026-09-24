@@ -14,19 +14,19 @@ import (
 const largeShardThreshold = 10000
 
 type ShardsCollector struct {
-	interval            time.Duration
-	hasUnhealthy        bool
-	hasExplanationsCol  bool // false until first successful query with explanations
-	triedExplanations   bool // true after first allocations attempt
-	warnedLargeCluster  bool // true after first large-cluster warning
-	tracker             *QueryTracker
+	interval           time.Duration
+	hasUnhealthy       bool
+	hasExplanationsCol bool // false until first successful query with explanations
+	triedExplanations  bool // true after first allocations attempt
+	warnedLargeCluster bool // true after first large-cluster warning
+	tracker            *QueryTracker
 }
 
 func NewShardsCollector(cfg config.CollectorConfig, tracker *QueryTracker) *ShardsCollector {
 	return &ShardsCollector{interval: cfg.Interval.Duration, tracker: tracker}
 }
 
-func (c *ShardsCollector) Name() string           { return "shards" }
+func (c *ShardsCollector) Name() string            { return "shards" }
 func (c *ShardsCollector) Interval() time.Duration { return c.interval }
 
 func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
@@ -338,20 +338,20 @@ func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
 	shards := make([]cratedb.ShardInfo, 0, len(rows))
 	for _, row := range rows {
 		shard := cratedb.ShardInfo{
-			ID:              int(cratedb.ToFloat64(row[0])),
-			SchemaName:      cratedb.ToString(row[1]),
-			TableName:       cratedb.ToString(row[2]),
-			PartitionIdent:  cratedb.ToString(row[3]),
-			NumDocs:         cratedb.ToInt64(row[4]),
-			Primary:         cratedb.ToBool(row[5]),
-			State:           cratedb.ToString(row[6]),
-			RoutingState:    cratedb.ToString(row[7]),
-			Relocating:      cratedb.ToBool(row[8]),
-			Size:            cratedb.ToInt64(row[9]),
-			NodeID:          cratedb.ToString(row[10]),
-			NodeName:        cratedb.ToString(row[11]),
-			RecoveryStage:   cratedb.ToString(row[12]),
-			RecoveryPercent: cratedb.ToFloat64(row[13]),
+			ID:                      int(cratedb.ToFloat64(row[0])),
+			SchemaName:              cratedb.ToString(row[1]),
+			TableName:               cratedb.ToString(row[2]),
+			PartitionIdent:          cratedb.ToString(row[3]),
+			NumDocs:                 cratedb.ToInt64(row[4]),
+			Primary:                 cratedb.ToBool(row[5]),
+			State:                   cratedb.ToString(row[6]),
+			RoutingState:            cratedb.ToString(row[7]),
+			Relocating:              cratedb.ToBool(row[8]),
+			Size:                    cratedb.ToInt64(row[9]),
+			NodeID:                  cratedb.ToString(row[10]),
+			NodeName:                cratedb.ToString(row[11]),
+			RecoveryStage:           cratedb.ToString(row[12]),
+			RecoveryPercent:         cratedb.ToFloat64(row[13]),
 			RelocatingNode:          cratedb.ToString(row[14]),
 			TranslogSize:            cratedb.ToInt64(row[15]),
 			TranslogUncommittedSize: cratedb.ToInt64(row[16]),
@@ -376,10 +376,10 @@ func aggregateTables(shards []cratedb.ShardInfo) []cratedb.TableInfo {
 		ti, ok := tableMap[key]
 		if !ok {
 			ti = &cratedb.TableInfo{
-				SchemaName:   s.SchemaName,
-				TableName:    s.TableName,
+				SchemaName:    s.SchemaName,
+				TableName:     s.TableName,
 				ShardsPerNode: make(map[string]int),
-				MinShardSize: -1, // sentinel
+				MinShardSize:  -1, // sentinel
 			}
 			tableMap[key] = ti
 		}

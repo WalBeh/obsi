@@ -212,4 +212,3 @@ func printCheck(ok bool, name, detail string) {
 func printWarn(name, detail string) {
 	fmt.Printf("  \033[33m!\033[0m %-28s %s\n", name, detail)
 }
-

@@ -24,6 +24,10 @@ const (
 	QueryTables          = "shards.tables"
 	QueryViewCount       = "shards.view_count"
 	QueryAllocations     = "shards.allocations"
+	QueryJobsLogCoverage = "jobs_log.coverage"
+	QueryJobsLogEntries  = "jobs_log.entries"
+	QueryJobsLogGroups   = "jobs_log.groups"
+	QueryStatsEnabled    = "jobs_log.stats_enabled"
 	QueryHeartbeat     = cratedb.QueryLabelHeartbeat
 	QueryBootstrap     = cratedb.QueryLabelBootstrap
 	QueryNodeDiscovery = cratedb.QueryLabelNodeDiscovery
@@ -87,6 +91,10 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryTables, "shards", ci("shards")},
 		{QueryViewCount, "shards", ci("shards")},
 		{QueryAllocations, "shards", ci("shards")},
+		{QueryJobsLogCoverage, "jobs_log", ci("jobs_log")},
+		{QueryJobsLogEntries, "jobs_log", ci("jobs_log")},
+		{QueryJobsLogGroups, "jobs_log", ci("jobs_log")},
+		{QueryStatsEnabled, "jobs_log", 0},
 		{QueryHeartbeat, "registry", connCfg.HeartbeatInterval.Duration},
 		{QueryBootstrap, "registry", 0},
 		{QueryNodeDiscovery, "registry", connCfg.NodeRefreshInterval.Duration},

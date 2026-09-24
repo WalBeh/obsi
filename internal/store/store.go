@@ -242,7 +242,8 @@ type Store struct {
 	observedSince   time.Time
 	queriesInterval time.Duration
 	inflight        map[string]*ObservedQuery // non-stuck jobs seen on the last poll
-	slowestDone     []ObservedQuery           // finished jobs, top slowestLimit
+	slowestDone     []ObservedQuery           // finished jobs, top SlowestLimit
+	jobsLog         JobsLogState
 
 	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
 	jmxPods    map[string]*jmx.JMXSnapshot
@@ -299,6 +300,7 @@ type StoreSnapshot struct {
 	SlowestQueries []ObservedQuery
 	ObservedSince  time.Time
 	SampleInterval time.Duration
+	JobsLog        JobsLogState
 
 	// JMX per-pod snapshots; empty when the JMX collector is disabled or
 	// has not yet produced a successful scrape. Pod-name keys match
@@ -760,6 +762,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 		snap.SlowestQueries = s.slowestSnapshot(time.Now())
 		snap.ObservedSince = s.observedSince
 		snap.SampleInterval = s.queriesInterval * time.Duration(max(throttleMultiplier, 1))
+		snap.JobsLog = s.jobsLog.copy()
 	}
 	if hint.IncludeTables || hint.IncludeShards {
 		snap.Tables = copySlice(s.tables)

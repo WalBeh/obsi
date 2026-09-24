@@ -90,11 +90,12 @@ func Load(path string) (*Config, error) {
 	}
 
 	var cfg Config
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+	md, err := toml.DecodeFile(path, &cfg)
+	if err != nil {
 		return nil, fmt.Errorf("decode config %s: %w", path, err)
 	}
 
-	applyDefaults(&cfg)
+	applyDefaults(&cfg, md)
 	return &cfg, nil
 }
 
@@ -110,8 +111,9 @@ func Save(path string, cfg *Config) error {
 	return enc.Encode(cfg)
 }
 
-// applyDefaults fills in zero-value fields with sensible defaults.
-func applyDefaults(cfg *Config) {
+// applyDefaults fills in zero-value fields with sensible defaults. md tells
+// an omitted key from one set to its zero value.
+func applyDefaults(cfg *Config, md toml.MetaData) {
 	defaults := DefaultConfig()
 
 	if cfg.Connection.Endpoint == "" {
@@ -148,10 +150,23 @@ func applyDefaults(cfg *Config) {
 	if cfg.Collectors == nil {
 		cfg.Collectors = defaults.Collectors
 	} else {
+		// A section like `[collectors.queries] interval = "2s"` used to decode
+		// as enabled = false, silently turning the collector off, and one
+		// without interval ran it with a 0s timer, back to back. Fill the
+		// omitted fields per collector instead.
 		for name, dc := range defaults.Collectors {
-			if _, ok := cfg.Collectors[name]; !ok {
+			cc, ok := cfg.Collectors[name]
+			if !ok {
 				cfg.Collectors[name] = dc
+				continue
 			}
+			if !md.IsDefined("collectors", name, "enabled") {
+				cc.Enabled = dc.Enabled
+			}
+			if cc.Interval.Duration <= 0 {
+				cc.Interval = dc.Interval
+			}
+			cfg.Collectors[name] = cc
 		}
 	}
 

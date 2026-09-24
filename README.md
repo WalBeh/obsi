@@ -127,7 +127,6 @@ interval = "2s"
 interval = "30s"
 
 [collectors.jobs_log]
-enabled = true
 interval = "15s"     # only polled while the slowest board is open
 
 [jmx]

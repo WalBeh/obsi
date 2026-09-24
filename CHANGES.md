@@ -80,6 +80,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   cut mid-character when truncated or wrapped, leaving broken glyphs, and
   sometimes shortened although they fit. Truncation and wrapping now count
   characters instead of bytes.
+- A `[collectors.<name>]` section without `enabled` turned that collector
+  off (the README's own example did this), and one without `interval` ran
+  it back to back on a 0s timer. Omitted fields now fall back to the
+  defaults; an explicit `enabled = false` still disables it.
 
 ### Notes
 

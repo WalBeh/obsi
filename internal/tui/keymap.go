@@ -135,7 +135,7 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("q", "quit"),
 		),
 		Help: key.NewBinding(
-			key.WithKeys("?"),
+			key.WithKeys("?", "f1"),
 			key.WithHelp("?", "help"),
 		),
 		DetailDown: key.NewBinding(

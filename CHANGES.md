@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Key help** on every tab. `?` opens a modal listing the keys the active
+  tab handles (the Queries list differs between live and slowest views)
+  plus the global ones. `?` is plain text in the SQL editor and search
+  prompts, so `F1` opens it there too. Status bar now shows `?:help`.
+
 - **Per-query memory accounting** in the Queries tab. The active-queries
   collector now `LEFT JOIN`s `sys.jobs` with `sys.operations` on `job_id`,
   surfacing how much memory each running query holds and which operation

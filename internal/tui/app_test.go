@@ -83,7 +83,7 @@ func TestAppSnapshotHints(t *testing.T) {
 		TabNodes:    {IncludeNodes: true, IncludeJMX: true},
 		TabQueries:  {IncludeQueries: true},
 		TabTables:   {IncludeTables: true, IncludeHealth: true},
-		TabShards:   {IncludeShards: true, IncludeCluster: true},
+		TabShards:   {IncludeShards: true, IncludeCluster: true, IncludeNodes: true},
 		TabSQL:      {},
 	}
 	for tab, h := range want {

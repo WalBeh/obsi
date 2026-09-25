@@ -81,10 +81,17 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 		replicas[t.SchemaName+"."+t.TableName] = t.Settings.NumberOfReplicas
 		filters[t.SchemaName+"."+t.TableName] = t.Settings.AllocationFilters
 	}
+	var gone []string
+	for _, n := range snap.Nodes {
+		if n.Gone {
+			gone = append(gone, n.Name)
+		}
+	}
+	sort.Strings(gone)
 	m.fixes = m.fixes[:0]
 	for _, s := range m.problemShards {
 		a, _ := m.findAllocation(s)
-		m.fixes = append(m.fixes, diagnoseShard(s, a, snap.ClusterSettings, replicas[s.SchemaName+"."+s.TableName]))
+		m.fixes = append(m.fixes, diagnoseShard(s, a, snap.ClusterSettings, replicas[s.SchemaName+"."+s.TableName], gone))
 	}
 	all := append([][]shardFix(nil), m.fixes...)
 	stuckNodes := map[string][]string{}

@@ -208,6 +208,7 @@ type ShardInfo struct {
 	NodeName                string
 	RecoveryStage           string
 	RecoveryPercent         float64
+	RecoveryType            string // STORE, EXISTING_STORE, EMPTY_STORE, PEER, SNAPSHOT, LOCAL_SHARDS
 	TranslogSize            int64
 	TranslogUncommittedSize int64
 	TranslogUncommittedOps  int64

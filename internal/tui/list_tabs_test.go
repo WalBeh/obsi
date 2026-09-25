@@ -246,8 +246,8 @@ func TestNodesTab_DetailScroll(t *testing.T) {
 
 func TestShardsTab_ProblemShardsOnly(t *testing.T) {
 	m := NewShardsModel(120, 24).Refresh(shardsSnap(3))
-	if m.countStarted != 1 || m.countUnassigned != 3 || len(m.sorted) != 3 {
-		t.Fatalf("started=%d unassigned=%d listed=%d", m.countStarted, m.countUnassigned, len(m.sorted))
+	if m.countStarted != 1 || m.buckets[bucketPrimaryUnassigned] != 3 || len(m.sorted) != 3 {
+		t.Fatalf("started=%d unassigned=%d listed=%d", m.countStarted, m.buckets[bucketPrimaryUnassigned], len(m.sorted))
 	}
 	m.selected = 2
 	m = m.Refresh(shardsSnap(0))

@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Shards verdict.** The Shards tab opens with what the non-STARTED
+  shards mean for the data: "Data unavailable: 2 primaries unassigned",
+  "Fewer copies: ...", "Rebalancing: 12 shards moving, all data
+  available". Each shard is bucketed (primary/replica unassigned or
+  recovering, restoring, moving) and the detail panel says what that
+  bucket means and where a moving shard is going. The list now comes
+  from `sys.allocations`: on CrateDB 6.3 `sys.shards` shows a recovering
+  copy as UNASSIGNED without a node and a lost primary as a replica.
+
 - **Snapshots** section on the Overview: the last 10 snapshots with
   state, duration and failures, or "no snapshot repository configured".
   Polled every 15 minutes (`[collectors.snapshots]`) because listing

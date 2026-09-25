@@ -14,6 +14,8 @@ const largeShardThreshold = 10000
 
 type ShardsCollector struct {
 	interval           time.Duration
+	allocInterval      time.Duration
+	lastAllocations    time.Time
 	hasUnhealthy       bool
 	lastStuckCheck     time.Time
 	warnedLargeCluster bool // true after first large-cluster warning
@@ -21,7 +23,7 @@ type ShardsCollector struct {
 }
 
 func NewShardsCollector(cfg config.CollectorConfig, tracker *QueryTracker) *ShardsCollector {
-	return &ShardsCollector{interval: cfg.Interval.Duration, tracker: tracker}
+	return &ShardsCollector{interval: cfg.Interval.Duration, allocInterval: cfg.AllocationsInterval.Duration, tracker: tracker}
 }
 
 func (c *ShardsCollector) Name() string            { return "shards" }
@@ -259,7 +261,9 @@ func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Regi
 	st.UpdateShardsPartial(nonStarted)
 
 	if len(nonStarted) > 0 {
-		c.collectAllocations(ctx, reg, st)
+		if time.Since(c.lastAllocations) >= c.allocInterval {
+			c.collectAllocations(ctx, reg, st)
+		}
 	} else {
 		c.hasUnhealthy = false
 		st.UpdateAllocations(nil)
@@ -293,6 +297,7 @@ AND explanation LIKE 'cannot move shard to another node%'`
 
 // collectAllocations queries sys.allocations for non-STARTED shards.
 func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.Registry, st *store.Store) {
+	c.lastAllocations = time.Now()
 	resp, err := trackedQuery(ctx, c.tracker, QueryAllocations, reg, allocationsQuery)
 	if err != nil {
 		slog.Warn("sys.allocations query failed", "error", err)

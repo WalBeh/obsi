@@ -135,6 +135,7 @@ interval = "2s"
 
 [collectors.shards]
 interval = "30s"
+allocations_interval = "30s"   # sys.allocations poll while shards aren't STARTED
 
 [collectors.jobs_log]
 interval = "15s"     # only polled while the slowest board is open

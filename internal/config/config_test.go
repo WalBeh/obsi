@@ -74,3 +74,14 @@ func TestLoad_ReadOnly(t *testing.T) {
 		t.Error("explicit read_only = false was overridden")
 	}
 }
+
+func TestLoad_AllocationsInterval(t *testing.T) {
+	cfg := loadString(t, "[collectors.shards]\ninterval = \"30s\"\n")
+	if got := cfg.Collectors["shards"].AllocationsInterval.Duration; got != 30*time.Second {
+		t.Errorf("omitted allocations_interval = %s, want the 30s default", got)
+	}
+	cfg = loadString(t, "[collectors.shards]\nallocations_interval = \"15s\"\n")
+	if got := cfg.Collectors["shards"].AllocationsInterval.Duration; got != 15*time.Second {
+		t.Errorf("allocations_interval = %s, want 15s", got)
+	}
+}

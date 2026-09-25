@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Recovery view** on the Shards tab (`v`): running recoveries with
+  source and target node, bytes to copy, how long obsi has seen them and
+  the shortest time the `indices.recovery.max_bytes_per_sec` throttle
+  allows, plus the copies waiting for a slot and each node's incoming /
+  outgoing recoveries against `node_concurrent_recoveries`. CrateDB
+  doesn't report progress for copies recovering from another node, so
+  there's no percentage.
+
 - **Shard fixes.** The Shards tab names the common causes under the
   verdict, one line per cause with the shard count: allocation disabled
   cluster-wide, a table filter keeping shards off nodes, more replicas

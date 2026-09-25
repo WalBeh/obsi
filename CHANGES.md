@@ -96,6 +96,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- obsi crashed about 5s after opening the Shards tab whenever a shard
+  wasn't STARTED: the 5s fast-path query has no translog columns and
+  parsing its rows ran past the end.
 - The Shards tab never showed why a shard wasn't allocated: it asked
   `sys.allocations` for an `explanations` column that doesn't exist and
   quietly fell back to a query without reasons. It now shows the

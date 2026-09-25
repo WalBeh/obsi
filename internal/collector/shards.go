@@ -303,24 +303,27 @@ func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
 	shards := make([]cratedb.ShardInfo, 0, len(rows))
 	for _, row := range rows {
 		shard := cratedb.ShardInfo{
-			ID:                      int(cratedb.ToFloat64(row[0])),
-			SchemaName:              cratedb.ToString(row[1]),
-			TableName:               cratedb.ToString(row[2]),
-			PartitionIdent:          cratedb.ToString(row[3]),
-			NumDocs:                 cratedb.ToInt64(row[4]),
-			Primary:                 cratedb.ToBool(row[5]),
-			State:                   cratedb.ToString(row[6]),
-			RoutingState:            cratedb.ToString(row[7]),
-			Relocating:              cratedb.ToBool(row[8]),
-			Size:                    cratedb.ToInt64(row[9]),
-			NodeID:                  cratedb.ToString(row[10]),
-			NodeName:                cratedb.ToString(row[11]),
-			RecoveryStage:           cratedb.ToString(row[12]),
-			RecoveryPercent:         cratedb.ToFloat64(row[13]),
-			RelocatingNode:          cratedb.ToString(row[14]),
-			TranslogSize:            cratedb.ToInt64(row[15]),
-			TranslogUncommittedSize: cratedb.ToInt64(row[16]),
-			TranslogUncommittedOps:  cratedb.ToInt64(row[17]),
+			ID:              int(cratedb.ToFloat64(row[0])),
+			SchemaName:      cratedb.ToString(row[1]),
+			TableName:       cratedb.ToString(row[2]),
+			PartitionIdent:  cratedb.ToString(row[3]),
+			NumDocs:         cratedb.ToInt64(row[4]),
+			Primary:         cratedb.ToBool(row[5]),
+			State:           cratedb.ToString(row[6]),
+			RoutingState:    cratedb.ToString(row[7]),
+			Relocating:      cratedb.ToBool(row[8]),
+			Size:            cratedb.ToInt64(row[9]),
+			NodeID:          cratedb.ToString(row[10]),
+			NodeName:        cratedb.ToString(row[11]),
+			RecoveryStage:   cratedb.ToString(row[12]),
+			RecoveryPercent: cratedb.ToFloat64(row[13]),
+			RelocatingNode:  cratedb.ToString(row[14]),
+		}
+		// The fast path skips the translog columns.
+		if len(row) > 15 {
+			shard.TranslogSize = cratedb.ToInt64(row[15])
+			shard.TranslogUncommittedSize = cratedb.ToInt64(row[16])
+			shard.TranslogUncommittedOps = cratedb.ToInt64(row[17])
 		}
 		shards = append(shards, shard)
 	}

@@ -1,0 +1,18 @@
+# Throwaway 3-node CrateDB for shard testing. Host ports 44200-44202 only.
+x-node: &node
+  image: crate:6.4.5
+  environment:
+    CRATE_HEAP_SIZE: 512m
+services:
+  lab1:
+    <<: *node
+    ports: ["127.0.0.1:44200:4200"]
+    command: ["crate", "-Ccluster.name=shardlab", "-Cnode.name=lab1", "-Cdiscovery.seed_hosts=lab1,lab2,lab3", "-Ccluster.initial_master_nodes=lab1,lab2,lab3", "-Cgateway.expected_data_nodes=3", "-Cgateway.recover_after_data_nodes=2"]
+  lab2:
+    <<: *node
+    ports: ["127.0.0.1:44201:4200"]
+    command: ["crate", "-Ccluster.name=shardlab", "-Cnode.name=lab2", "-Cdiscovery.seed_hosts=lab1,lab2,lab3", "-Ccluster.initial_master_nodes=lab1,lab2,lab3", "-Cgateway.expected_data_nodes=3", "-Cgateway.recover_after_data_nodes=2"]
+  lab3:
+    <<: *node
+    ports: ["127.0.0.1:44202:4200"]
+    command: ["crate", "-Ccluster.name=shardlab", "-Cnode.name=lab3", "-Cdiscovery.seed_hosts=lab1,lab2,lab3", "-Ccluster.initial_master_nodes=lab1,lab2,lab3", "-Cgateway.expected_data_nodes=3", "-Cgateway.recover_after_data_nodes=2"]

@@ -224,6 +224,13 @@ type AllocationInfo struct {
 	NodeID         string
 	NodeName       string
 	Explanation    string
+	Decisions      []AllocationDecision // per node, why the shard can't go there
+}
+
+// AllocationDecision is one node's entry in sys.allocations.decisions.
+type AllocationDecision struct {
+	NodeName     string
+	Explanations []string
 }
 
 // DefaultTranslogFlushThreshold is CrateDB's default translog flush_threshold_size (512 MiB).

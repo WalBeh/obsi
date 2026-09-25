@@ -96,6 +96,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The Shards tab never showed why a shard wasn't allocated: it asked
+  `sys.allocations` for an `explanations` column that doesn't exist and
+  quietly fell back to a query without reasons. It now shows the
+  explanation plus each node's refusal, nodes with the same reason on one
+  line. Reasons on partitioned tables also no longer mix across
+  partitions.
 - Non-ASCII statements, errors and table names (e.g. `größe`, `表名`) were
   cut mid-character when truncated or wrapped, leaving broken glyphs, and
   sometimes shortened although they fit. Truncation and wrapping now count

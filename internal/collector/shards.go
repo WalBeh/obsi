@@ -3,7 +3,6 @@ package collector
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -16,8 +15,6 @@ const largeShardThreshold = 10000
 type ShardsCollector struct {
 	interval           time.Duration
 	hasUnhealthy       bool
-	hasExplanationsCol bool // false until first successful query with explanations
-	triedExplanations  bool // true after first allocations attempt
 	warnedLargeCluster bool // true after first large-cluster warning
 	tracker            *QueryTracker
 }
@@ -246,78 +243,34 @@ func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Regi
 	return nil
 }
 
+// allocationsQuery must select decisions before explanation: CrateDB 6.3
+// returns decisions as NULL when explanation comes first.
+const allocationsQuery = `SELECT
+	table_schema,
+	table_name,
+	partition_ident,
+	shard_id,
+	"primary",
+	current_state,
+	node_id,
+	decisions,
+	explanation
+FROM sys.allocations
+WHERE current_state != 'STARTED'`
+
 // collectAllocations queries sys.allocations for non-STARTED shards.
-// Fails gracefully on older CrateDB versions that lack sys.allocations
-// or the explanations column.
 func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.Registry, st *store.Store) {
-	useExplanations := !c.triedExplanations || c.hasExplanationsCol
-
-	var resp *cratedb.SQLResponse
-	var err error
-	if useExplanations {
-		resp, err = trackedQuery(ctx, c.tracker, QueryAllocations, reg, `SELECT
-			table_schema,
-			table_name,
-			partition_ident,
-			shard_id,
-			"primary",
-			current_state,
-			node_id,
-			explanations
-		FROM sys.allocations
-		WHERE current_state != 'STARTED'`)
-		if err != nil && strings.Contains(err.Error(), "ColumnUnknownException") {
-			slog.Info("sys.allocations has no explanations column, using fallback query")
-			c.triedExplanations = true
-			c.hasExplanationsCol = false
-			useExplanations = false
-			err = nil // clear so we fall through to the no-explanations query
-		} else {
-			c.triedExplanations = true
-			if err == nil {
-				c.hasExplanationsCol = true
-			}
-		}
-	}
-
-	if !useExplanations && resp == nil {
-		resp, err = trackedQuery(ctx, c.tracker, QueryAllocations, reg, `SELECT
-			table_schema,
-			table_name,
-			partition_ident,
-			shard_id,
-			"primary",
-			current_state,
-			node_id
-		FROM sys.allocations
-		WHERE current_state != 'STARTED'`)
-	}
-
+	resp, err := trackedQuery(ctx, c.tracker, QueryAllocations, reg, allocationsQuery)
 	if err != nil {
-		slog.Warn("sys.allocations query failed (may require CrateDB 4.2+)", "error", err)
+		slog.Warn("sys.allocations query failed", "error", err)
 		return
 	}
+	st.UpdateAllocations(parseAllocations(resp.Rows))
+}
 
-	allocs := make([]cratedb.AllocationInfo, 0, len(resp.Rows))
-	for _, row := range resp.Rows {
-		explanation := ""
-		if useExplanations && len(row) > 7 {
-			// explanations can be an array of strings or a single string
-			switch v := row[7].(type) {
-			case string:
-				explanation = v
-			case []interface{}:
-				for i, e := range v {
-					if s, ok := e.(string); ok {
-						if i > 0 {
-							explanation += "; "
-						}
-						explanation += s
-					}
-				}
-			}
-		}
-
+func parseAllocations(rows [][]interface{}) []cratedb.AllocationInfo {
+	allocs := make([]cratedb.AllocationInfo, 0, len(rows))
+	for _, row := range rows {
 		alloc := cratedb.AllocationInfo{
 			TableSchema:    cratedb.ToString(row[0]),
 			TableName:      cratedb.ToString(row[1]),
@@ -326,12 +279,24 @@ func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.R
 			Primary:        cratedb.ToBool(row[4]),
 			CurrentState:   cratedb.ToString(row[5]),
 			NodeID:         cratedb.ToString(row[6]),
-			Explanation:    explanation,
+			Explanation:    cratedb.ToString(row[8]),
+		}
+		decisions, _ := row[7].([]interface{})
+		for _, d := range decisions {
+			obj, ok := d.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			dec := cratedb.AllocationDecision{NodeName: cratedb.ToString(obj["node_name"])}
+			exps, _ := obj["explanations"].([]interface{})
+			for _, e := range exps {
+				dec.Explanations = append(dec.Explanations, cratedb.ToString(e))
+			}
+			alloc.Decisions = append(alloc.Decisions, dec)
 		}
 		allocs = append(allocs, alloc)
 	}
-
-	st.UpdateAllocations(allocs)
+	return allocs
 }
 
 func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {

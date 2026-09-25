@@ -346,18 +346,14 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 		lines = append(lines, fmt.Sprintf("    Relocating to: %s", s.RelocatingNode))
 	}
 
-	// Find allocation reasons for this specific shard
-	shardAllocs := m.findAllocations(s)
-	if len(shardAllocs) > 0 {
+	if a, ok := m.findAllocation(s); ok {
 		lines = append(lines, "")
-		lines = append(lines, "    Allocation reasons:")
-
-		// Deduplicate: group by explanation, count occurrences
-		groups := deduplicateExplanations(shardAllocs)
-		for _, g := range groups {
-			prefix := styleHealthRed.Render("    x")
-			lines = append(lines, fmt.Sprintf("%s %s (%d node%s)",
-				prefix, g.explanation, g.count, pluralS(g.count)))
+		if a.Explanation != "" {
+			lines = append(lines, "    Why: "+a.Explanation)
+		}
+		for _, g := range groupDecisions(a.Decisions) {
+			lines = append(lines, fmt.Sprintf("%s %s: %s",
+				styleHealthRed.Render("    x"), strings.Join(g.nodes, ", "), g.explanation))
 		}
 	} else if len(m.snap.Allocations) == 0 && len(m.problemShards) > 0 {
 		lines = append(lines, "")
@@ -367,52 +363,45 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m ShardsModel) findAllocations(s cratedb.ShardInfo) []cratedb.AllocationInfo {
-	var result []cratedb.AllocationInfo
+// findAllocation returns the sys.allocations row for s. Copies of one shard
+// share the reasons, so the first match is enough.
+func (m ShardsModel) findAllocation(s cratedb.ShardInfo) (cratedb.AllocationInfo, bool) {
 	for _, a := range m.snap.Allocations {
 		if a.TableSchema == s.SchemaName &&
 			a.TableName == s.TableName &&
+			a.PartitionIdent == s.PartitionIdent &&
 			a.ShardID == s.ID &&
 			a.Primary == s.Primary {
-			result = append(result, a)
+			return a, true
 		}
 	}
-	return result
+	return cratedb.AllocationInfo{}, false
 }
 
-type explanationGroup struct {
+type decisionGroup struct {
 	explanation string
-	count       int
+	nodes       []string
 }
 
-func deduplicateExplanations(allocs []cratedb.AllocationInfo) []explanationGroup {
-	counts := make(map[string]int)
-	order := make([]string, 0)
-
-	for _, a := range allocs {
-		exp := a.Explanation
-		if exp == "" {
-			continue
+// groupDecisions folds nodes that refuse for the same reason into one line.
+// Explanations end in a node-specific shard routing dump ("... [[.partitioned
+// .t.04166][0], node[...], ...]]"), which is cut so equal reasons match.
+func groupDecisions(decisions []cratedb.AllocationDecision) []decisionGroup {
+	var groups []decisionGroup
+	idx := map[string]int{}
+	for _, d := range decisions {
+		for _, e := range d.Explanations {
+			if i := strings.Index(e, " [["); i > 0 {
+				e = e[:i]
+			}
+			i, ok := idx[e]
+			if !ok {
+				i = len(groups)
+				idx[e] = i
+				groups = append(groups, decisionGroup{explanation: e})
+			}
+			groups[i].nodes = append(groups[i].nodes, d.NodeName)
 		}
-		if counts[exp] == 0 {
-			order = append(order, exp)
-		}
-		counts[exp]++
-	}
-
-	groups := make([]explanationGroup, 0, len(order))
-	for _, exp := range order {
-		groups = append(groups, explanationGroup{
-			explanation: exp,
-			count:       counts[exp],
-		})
 	}
 	return groups
-}
-
-func pluralS(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
 }

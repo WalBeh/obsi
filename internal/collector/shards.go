@@ -44,6 +44,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		s.recovery['stage'] AS recovery_stage,
 		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent,
 		s.relocating_node,
+		s.recovery['type'] AS recovery_type,
 		COALESCE(s.translog_stats['size'], 0) AS translog_size,
 		COALESCE(s.translog_stats['uncommitted_size'], 0) AS translog_uncommitted_size,
 		COALESCE(s.translog_stats['uncommitted_operations'], 0) AS translog_uncommitted_ops
@@ -222,7 +223,8 @@ func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Regi
 		s.node['name'] AS node_name,
 		s.recovery['stage'] AS recovery_stage,
 		COALESCE(s.recovery['size']['percent'], 0.0) AS recovery_percent,
-		s.relocating_node
+		s.relocating_node,
+		s.recovery['type'] AS recovery_type
 	FROM sys.shards s
 	WHERE s.routing_state != 'STARTED'
 	ORDER BY s.schema_name, s.table_name, s.id`)
@@ -318,12 +320,13 @@ func parseShardRows(rows [][]interface{}) []cratedb.ShardInfo {
 			RecoveryStage:   cratedb.ToString(row[12]),
 			RecoveryPercent: cratedb.ToFloat64(row[13]),
 			RelocatingNode:  cratedb.ToString(row[14]),
+			RecoveryType:    cratedb.ToString(row[15]),
 		}
 		// The fast path skips the translog columns.
-		if len(row) > 15 {
-			shard.TranslogSize = cratedb.ToInt64(row[15])
-			shard.TranslogUncommittedSize = cratedb.ToInt64(row[16])
-			shard.TranslogUncommittedOps = cratedb.ToInt64(row[17])
+		if len(row) > 16 {
+			shard.TranslogSize = cratedb.ToInt64(row[16])
+			shard.TranslogUncommittedSize = cratedb.ToInt64(row[17])
+			shard.TranslogUncommittedOps = cratedb.ToInt64(row[18])
 		}
 		shards = append(shards, shard)
 	}

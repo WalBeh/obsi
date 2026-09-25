@@ -33,11 +33,10 @@ type ShardsModel struct {
 	keyMap KeyMap
 
 	// Derived data recomputed on each Refresh
-	countStarted      int
-	countInitializing int
-	countUnassigned   int
-	countRelocating   int
-	problemShards     []cratedb.ShardInfo
+	countStarted  int
+	buckets       [bucketCount]int
+	problemShards []cratedb.ShardInfo
+	nodeNames     map[string]string // node id -> name, from the shards themselves
 }
 
 func NewShardsModel(width, height int) ShardsModel {
@@ -47,28 +46,25 @@ func NewShardsModel(width, height int) ShardsModel {
 func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 	m.snap = snap
 
-	// Count shards by routing state
 	m.countStarted = 0
-	m.countInitializing = 0
-	m.countUnassigned = 0
-	m.countRelocating = 0
+	m.buckets = [bucketCount]int{}
 	m.problemShards = m.problemShards[:0]
+	m.nodeNames = make(map[string]string)
 
 	for _, s := range snap.Shards {
-		switch s.RoutingState {
-		case "STARTED":
+		if s.NodeID != "" {
+			m.nodeNames[s.NodeID] = s.NodeName
+		}
+		if s.RoutingState == "STARTED" {
 			m.countStarted++
-		case "INITIALIZING":
-			m.countInitializing++
-		case "UNASSIGNED":
-			m.countUnassigned++
-		case "RELOCATING":
-			m.countRelocating++
 		}
-
-		if s.RoutingState != "STARTED" {
-			m.problemShards = append(m.problemShards, s)
+	}
+	for _, s := range problemShards(snap.Shards, snap.Allocations) {
+		if s.NodeName == "" && s.NodeID != "" {
+			s.NodeName = m.nodeName(s.NodeID)
 		}
+		m.buckets[classifyShard(s)]++
+		m.problemShards = append(m.problemShards, s)
 	}
 
 	m.rebuildSorted()
@@ -88,8 +84,8 @@ func (m ShardsModel) SetSize(width, height int) ShardsModel {
 }
 
 func (m ShardsModel) listHeight() int {
-	// title(1) + summary(1) + blank(1) + column header(1)
-	headerLines := 4
+	// title(1) + verdict(1) + counts(1) + blank(1) + column header(1)
+	headerLines := 5
 	if m.searching {
 		headerLines++
 	}
@@ -132,10 +128,11 @@ func (m *ShardsModel) rebuildSorted() {
 				less = na < nb
 			}
 		case ShardSortByState:
-			if ps[ia].RoutingState == ps[ib].RoutingState {
+			ba, bb := classifyShard(ps[ia]), classifyShard(ps[ib])
+			if ba == bb {
 				less = ps[ia].SchemaName+"."+ps[ia].TableName < ps[ib].SchemaName+"."+ps[ib].TableName
 			} else {
-				less = ps[ia].RoutingState < ps[ib].RoutingState
+				less = ba < bb
 			}
 		case ShardSortByRecovery:
 			less = ps[ia].RecoveryPercent < ps[ib].RecoveryPercent
@@ -182,8 +179,6 @@ func (m ShardsModel) View() string {
 
 	// Happy path: all healthy
 	if len(m.problemShards) == 0 {
-		lines = append(lines, styleHealthGreen.Render(
-			fmt.Sprintf("  All %d shards healthy", totalShards)))
 		result := strings.Join(lines, "\n")
 		if stale {
 			return styleDim.Render(result)
@@ -242,15 +237,7 @@ func (m ShardsModel) View() string {
 				pr = "P"
 			}
 
-			stateStyle := styleDim
-			switch s.RoutingState {
-			case "UNASSIGNED":
-				stateStyle = styleHealthRed
-			case "INITIALIZING":
-				stateStyle = styleHealthYellow
-			case "RELOCATING":
-				stateStyle = styleHealthYellow
-			}
+			b := classifyShard(s)
 
 			node := s.NodeName
 			if node == "" {
@@ -270,7 +257,7 @@ func (m ShardsModel) View() string {
 
 			row := fmt.Sprintf("%s%-28s %5d  %s  %s %21s %10s %s",
 				marker, tableName, s.ID, pr,
-				stateStyle.Render(fmt.Sprintf("%-14s", s.RoutingState)),
+				bucketStyle(b).Render(fmt.Sprintf("%-14s", bucketState(b))),
 				recovery, formatBytes(s.Size), node)
 			lines = append(lines, row)
 		}
@@ -294,6 +281,7 @@ func (m ShardsModel) View() string {
 	return result
 }
 
+// renderSummary is the verdict line plus the per-bucket counts.
 func (m ShardsModel) renderSummary() string {
 	lastRefresh := ""
 	if t, ok := m.snap.LastUpdated["shards"]; ok && !t.IsZero() {
@@ -301,20 +289,22 @@ func (m ShardsModel) renderSummary() string {
 		lastRefresh = fmt.Sprintf(" | updated %s ago", ago)
 	}
 
-	parts := []string{
-		fmt.Sprintf("%d STARTED", m.countStarted),
+	verdict, style := shardVerdict(m.buckets)
+	if verdict == "" {
+		return fmt.Sprintf("  %s%s", styleHealthGreen.Render(fmt.Sprintf("All %d shards started", m.countStarted)), styleDim.Render(lastRefresh))
 	}
-	if m.countInitializing > 0 {
-		parts = append(parts, styleHealthYellow.Render(fmt.Sprintf("%d INITIALIZING", m.countInitializing)))
+	counts := fmt.Sprintf("%d started", m.countStarted)
+	if c := bucketCounts(m.buckets); c != "" {
+		counts += " · " + c
 	}
-	if m.countUnassigned > 0 {
-		parts = append(parts, styleHealthRed.Render(fmt.Sprintf("%d UNASSIGNED", m.countUnassigned)))
-	}
-	if m.countRelocating > 0 {
-		parts = append(parts, styleHealthYellow.Render(fmt.Sprintf("%d RELOCATING", m.countRelocating)))
-	}
+	return fmt.Sprintf("  %s%s\n  %s", style.Render(verdict), styleDim.Render(lastRefresh), counts)
+}
 
-	return fmt.Sprintf("  %s%s", strings.Join(parts, " | "), styleDim.Render(lastRefresh))
+func (m ShardsModel) nodeName(id string) string {
+	if n, ok := m.nodeNames[id]; ok && n != "" {
+		return n
+	}
+	return id
 }
 
 func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
@@ -327,9 +317,14 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 	lines = append(lines, styleTitle.Render(fmt.Sprintf("  Allocation: %s.%s shard %d (%s)",
 		s.SchemaName, s.TableName, s.ID, pr)))
 
+	if s.PartitionIdent != "" {
+		lines = append(lines, fmt.Sprintf("    Partition: %s", s.PartitionIdent))
+	}
 	if s.NodeName != "" {
 		lines = append(lines, fmt.Sprintf("    Node: %s", s.NodeName))
 	}
+	b := classifyShard(s)
+	lines = append(lines, "    What: "+bucketStyle(b).Render(bucketMeaning(s, b, m.nodeName)))
 	lines = append(lines, fmt.Sprintf("    State: %s | Size: %s | Docs: %s",
 		s.RoutingState, formatBytes(s.Size), formatRecords(s.NumDocs)))
 
@@ -340,10 +335,6 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 		}
 		bar := metricBar(pct, 20)
 		lines = append(lines, fmt.Sprintf("    Recovery: %s %5.1f%%  stage: %s", bar, pct, s.RecoveryStage))
-	}
-
-	if s.Relocating && s.RelocatingNode != "" {
-		lines = append(lines, fmt.Sprintf("    Relocating to: %s", s.RelocatingNode))
 	}
 
 	if a, ok := m.findAllocation(s); ok {

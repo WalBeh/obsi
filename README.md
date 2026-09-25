@@ -52,7 +52,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview |
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
-| `5` | Shards | Shard allocation problems, recovery progress, relocations |
+| `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 
 ## Keys

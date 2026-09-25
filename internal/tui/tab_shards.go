@@ -74,10 +74,14 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 		m.buckets[classifyShard(s)]++
 		m.problemShards = append(m.problemShards, s)
 	}
+	replicas := make(map[string]string, len(snap.Tables))
+	for _, t := range snap.Tables {
+		replicas[t.SchemaName+"."+t.TableName] = t.Settings.NumberOfReplicas
+	}
 	m.fixes = m.fixes[:0]
 	for _, s := range m.problemShards {
 		a, _ := m.findAllocation(s)
-		m.fixes = append(m.fixes, diagnoseShard(s, a, snap.ClusterSettings))
+		m.fixes = append(m.fixes, diagnoseShard(s, a, snap.ClusterSettings, replicas[s.SchemaName+"."+s.TableName]))
 	}
 	m.diagnoses = diagnose(m.fixes)
 	if m.noticeText != "" && time.Since(m.noticeAt) > 5*time.Second {

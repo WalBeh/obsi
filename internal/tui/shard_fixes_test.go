@@ -53,7 +53,7 @@ func TestDiagnoseShard(t *testing.T) {
 			stmt: retryFailedStmt,
 		},
 	} {
-		fixes := diagnoseShard(replica, tc.a, tc.cs)
+		fixes := diagnoseShard(replica, tc.a, tc.cs, "3")
 		var keys []string
 		stmt := ""
 		for _, f := range fixes {
@@ -108,5 +108,17 @@ func TestRunFixReadOnly(t *testing.T) {
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	if m.fixTarget != nil {
 		t.Error("esc did not cancel")
+	}
+}
+
+func TestReplicasCause(t *testing.T) {
+	for replicas, want := range map[string]string{
+		"3":   "doc.events: 3 replicas + primary = 4 copies per shard, but only 3 nodes (one copy per node)",
+		"0-5": "doc.events: number_of_replicas = 0-5 needs more than 3 nodes (one copy per node)",
+		"":    "doc.events: more copies per shard than 3 nodes (one copy per node)",
+	} {
+		if got := replicasCause("doc.events", replicas, 3); got != want {
+			t.Errorf("replicas %q: got %q", replicas, got)
+		}
 	}
 }

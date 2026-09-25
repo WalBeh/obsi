@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Config changes board** on the Queries tab (`c`): every `SET/RESET
+  GLOBAL`, `ALTER CLUSTER`, `ALTER TABLE ... SET/RESET/OPEN/CLOSE/REROUTE`
+  and user/role/privilege statement from `sys.jobs_log`, newest first, with
+  who, where, failed attempts and old → new values read from `sys.cluster`
+  and `information_schema.tables`. On start it also shows what the log
+  still holds from before, below an "obsi started" line. Polled every 10s
+  (`[collectors.changes]`) because the log is a ring per node; when a node's
+  log rotated past the last poll the board says so. A cluster setting that
+  changed without a statement in the log shows up too. Passwords and keys
+  in statements are shown as `***` everywhere in the Queries tab, and config
+  statements have their own colour in all Queries views. Changes obsi makes
+  itself (settings editor, shard fixes, recovery throttle) are marked `obsi`.
+
 - **Recovery view** on the Shards tab (`v`): running recoveries with
   source and target node, bytes to copy, how long obsi has seen them and
   the shortest time the `indices.recovery.max_bytes_per_sec` throttle

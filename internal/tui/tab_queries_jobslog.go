@@ -157,7 +157,7 @@ func (m QueriesModel) failedRows() []string {
 			formatDuration(e.Ended.Sub(e.Started)),
 			truncateString(e.Node, 12), truncateString(e.Username, 10),
 			styleHealthRed.Render(fmt.Sprintf("%-30s", truncateString(firstLine(e.Error), 30))),
-			truncateString(strings.ReplaceAll(e.Stmt, "\n", " "), maxStmtLen)))
+			stmtCell(e.Stmt, maxStmtLen)))
 	}
 
 	if m.slowSelected < len(rows) {
@@ -198,7 +198,7 @@ func (m QueriesModel) groupRows() []string {
 		}
 		lines = append(lines, fmt.Sprintf("%s%-3d %-10s %-10s %-7d %s %s",
 			marker, i+1, formatDuration(g.Max), formatDuration(g.Avg), g.Count, failed,
-			truncateString(strings.ReplaceAll(g.Stmt, "\n", " "), maxStmtLen)))
+			stmtCell(g.Stmt, maxStmtLen)))
 	}
 
 	if m.slowSelected < len(groups) {

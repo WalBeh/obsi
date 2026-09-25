@@ -36,6 +36,7 @@ type Store struct {
 	inflight        map[string]*ObservedQuery // non-stuck jobs seen on the last poll
 	slowestDone     []ObservedQuery           // finished jobs, top SlowestLimit
 	jobsLog         JobsLogState
+	changes         ChangesState
 
 	alerts    alertLog
 	snapshots SnapshotsState
@@ -97,6 +98,7 @@ type StoreSnapshot struct {
 	ObservedSince  time.Time
 	SampleInterval time.Duration
 	JobsLog        JobsLogState
+	Changes        ChangesState
 
 	Snapshots SnapshotsState
 
@@ -253,6 +255,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 		snap.ObservedSince = s.observedSince
 		snap.SampleInterval = s.queriesInterval * time.Duration(max(throttleMultiplier, 1))
 		snap.JobsLog = s.jobsLog.copy()
+		snap.Changes = s.changes.copy()
 	}
 	if hint.IncludeTables || hint.IncludeShards {
 		snap.Tables = copySlice(s.tables)

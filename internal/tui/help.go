@@ -20,9 +20,9 @@ func bindingHelp(b key.Binding) helpEntry {
 
 // tabHelp lists the keys a tab handles itself. Labels come from the keymap
 // where a binding exists; the rest are keys tabs match inline (f on Tables,
-// enter in SQL and the settings editor). slowest selects the Queries board
-// variant, where K and h do nothing.
-func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
+// enter in SQL and the settings editor). view selects the Queries variant;
+// K and h only work on the live list.
+func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 	nav := helpEntry{km.Up.Help().Key + " " + km.Down.Help().Key, "navigate"}
 	search := []helpEntry{
 		bindingHelp(km.Search),
@@ -45,7 +45,16 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 			{km.DetailDown.Help().Key + " " + km.DetailUp.Help().Key, "scroll detail panel"},
 		}, search...)
 	case TabQueries:
-		if slowest {
+		switch view {
+		case queriesChanges:
+			return "Queries (config changes)", []helpEntry{
+				nav,
+				{km.Yank.Help().Key, "yank change to clipboard"},
+				{km.Changes.Help().Key, "back"},
+				bindingHelp(km.Slowest),
+				bindingHelp(km.Failed),
+			}
+		case queriesSlowest:
 			return "Queries (slowest)", []helpEntry{
 				nav,
 				bindingHelp(km.Info),
@@ -53,6 +62,7 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 				bindingHelp(km.Failed),
 				bindingHelp(km.Grouped),
 				bindingHelp(km.Slowest),
+				bindingHelp(km.Changes),
 			}
 		}
 		return "Queries (live)", []helpEntry{
@@ -64,6 +74,7 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 			bindingHelp(km.Slowest),
 			bindingHelp(km.Failed),
 			bindingHelp(km.Grouped),
+			bindingHelp(km.Changes),
 		}
 	case TabTables:
 		return "Tables", append([]helpEntry{nav, {"f", "unhealthy tables only"}}, search...)
@@ -99,8 +110,8 @@ func globalHelp(km KeyMap) []helpEntry {
 }
 
 // renderHelp draws the key list for the active tab as a centered modal.
-func renderHelp(tab Tab, km KeyMap, slowest bool, width, height int) string {
-	title, local := tabHelp(tab, km, slowest)
+func renderHelp(tab Tab, km KeyMap, view queriesView, width, height int) string {
+	title, local := tabHelp(tab, km, view)
 	global := globalHelp(km)
 
 	keyWidth := 0

@@ -59,7 +59,7 @@ func aggregateActiveQueries(rows [][]interface{}) []cratedb.ActiveQuery {
 			q := cratedb.ActiveQuery{
 				ID:       id,
 				Node:     cratedb.ToString(row[1]),
-				Stmt:     cratedb.ToString(row[3]),
+				Stmt:     cratedb.Redact(cratedb.ToString(row[3])),
 				Username: cratedb.ToString(row[4]),
 			}
 			if ts := cratedb.ToFloat64(row[2]); ts > 0 {

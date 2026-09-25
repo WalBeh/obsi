@@ -21,7 +21,9 @@ recoveries to 500kb/s so `move` and `recover` stay visible for a while;
 copies for timing the allocation queries.
 
 `go test -tags shardlab -run Shardlab -v ./internal/tui` prints the Shards
-tab for the current lab state without starting the TUI.
+tab for the current lab state without starting the TUI. `-run Changeslab`
+runs a few SET GLOBAL / ALTER TABLE / CREATE USER statements and prints the
+Queries tab's changes board.
 
 What the lab showed about CrateDB 6.3 and 6.4.5, and why the tab reads
 `sys.allocations` rather than trusting `sys.shards`:

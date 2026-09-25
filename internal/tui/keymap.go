@@ -28,6 +28,7 @@ type KeyMap struct {
 	Slowest   key.Binding
 	Failed    key.Binding
 	Grouped   key.Binding
+	Changes   key.Binding
 	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
@@ -138,6 +139,10 @@ func DefaultKeyMap() KeyMap {
 		Grouped: key.NewBinding(
 			key.WithKeys("g"),
 			key.WithHelp("g", "group by statement (jobs_log)"),
+		),
+		Changes: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "config changes (sys.jobs_log)"),
 		),
 		Recovery: key.NewBinding(
 			key.WithKeys("v"),

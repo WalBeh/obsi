@@ -81,6 +81,11 @@ var (
 	styleValue = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFFFFF"))
 
+	// Config statements (SET GLOBAL, ALTER TABLE SET, GRANT, ...) in the
+	// Queries tab.
+	styleChange = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#C792EA"))
+
 	styleHighValue = lipgloss.NewStyle().
 			Foreground(colorRed).
 			Bold(true)

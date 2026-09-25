@@ -70,6 +70,7 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 	case TabShards:
 		return "Shards", append([]helpEntry{nav}, append(search,
 			bindingHelp(km.Recovery),
+			helpEntry{km.Edit.Help().Key, "recovery view: edit the recovery throttle (also in read-only)"},
 			helpEntry{km.Yank.Help().Key, "copy the suggested fix"},
 			bindingHelp(km.RunFix))...)
 	case TabSQL:

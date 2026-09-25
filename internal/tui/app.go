@@ -235,10 +235,34 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return ShardNoticeMsg{Text: "ran: " + stmt, Ran: true}
 		}
 
+	case ApplyThrottleMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg {
+			for i, s := range msg.Stmts {
+				var err error
+				if s.arg != "" {
+					_, err = reg.Query(ctx, s.sql, s.arg)
+				} else {
+					_, err = reg.Query(ctx, s.sql)
+				}
+				if err != nil {
+					text := "throttle not changed: " + err.Error()
+					if i > 0 {
+						text = fmt.Sprintf("throttle: %d of %d applied, then: %s", i, len(msg.Stmts), err.Error())
+					}
+					return ShardNoticeMsg{Text: text, IsErr: true, Throttle: i > 0}
+				}
+			}
+			return ShardNoticeMsg{Text: "recovery throttle updated", Throttle: true}
+		}
+
 	case ShardNoticeMsg:
 		a.shards = a.shards.notice(msg.Text, msg.IsErr)
 		if msg.Ran {
 			a.collectors.TriggerCollector(a.ctx, "shards")
+		}
+		if msg.Throttle {
+			a.collectors.TriggerCollector(a.ctx, "cluster")
 		}
 		return a, nil
 

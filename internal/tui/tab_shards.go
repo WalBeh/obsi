@@ -43,6 +43,7 @@ type ShardsModel struct {
 	diagnoses     []shardDiagnosis
 
 	showRecovery bool
+	throttle     *throttleForm // e in the recovery view
 	recoveries   []recovery
 	recoverySeen map[string]time.Time // recovery key -> first seen, for RUNNING
 	queued       int                  // copies waiting for a recovery slot
@@ -197,6 +198,13 @@ func (m *ShardsModel) rebuildSorted() {
 }
 
 func (m ShardsModel) HandleKey(msg tea.KeyMsg) (ShardsModel, tea.Cmd) {
+	if m.throttle != nil {
+		return m.handleThrottleKey(msg)
+	}
+	if m.showRecovery && key.Matches(msg, m.keyMap.Edit) {
+		m.throttle = m.newThrottleForm()
+		return m, nil
+	}
 	if !m.searching {
 		if m, cmd, ok := m.handleFixKey(msg); ok {
 			return m, cmd
@@ -235,6 +243,9 @@ func (m ShardsModel) View() string {
 	if m.fixTarget != nil {
 		return m.renderFixModal()
 	}
+	if m.throttle != nil {
+		return m.renderThrottleForm()
+	}
 
 	// Summary line with counts by state
 	summary := m.renderSummary()
@@ -244,7 +255,7 @@ func (m ShardsModel) View() string {
 
 	if m.showRecovery {
 		lines = append(lines, m.renderRecovery(time.Now(), m.height-len(lines))...)
-		lines = append(lines, "", styleDim.Render("  v: back to shards  y:copy fix  x:run fix"))
+		lines = append(lines, "", styleDim.Render("  v: back to shards  e: recovery throttle  y:copy fix  x:run fix"))
 		result := strings.Join(lines, "\n")
 		if stale {
 			return styleDim.Render(result)

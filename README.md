@@ -42,7 +42,7 @@ obsi prod --read-write
 
 Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.
 
-obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, `SHOW`, `EXPLAIN` or `WITH`, and `e` (SET GLOBAL) is refused. `K` still kills the selected query after its confirm; `KILL` typed in the SQL tab stays blocked. The status bar shows which mode you're in. Turn it off with `--read-write` for one run or `read_only = false` under `[connection]`. The SQL check looks at the first keyword only; a CrateDB user with just DQL privileges is the real guard.
+obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, `SHOW`, `EXPLAIN` or `WITH`, and `e` (SET GLOBAL) is refused. `K` still kills the selected query after its confirm, and the recovery throttle can be changed from the Shards recovery view; `KILL` typed in the SQL tab stays blocked. The status bar shows which mode you're in. Turn it off with `--read-write` for one run or `read_only = false` under `[connection]`. The SQL check looks at the first keyword only; a CrateDB user with just DQL privileges is the real guard.
 
 ## Tabs
 
@@ -79,7 +79,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `r` | Reconnect to cluster |
 | `L` | Toggle query log |
 | `a` | Alerts raised since obsi started, firing and cleared |
-| `v` | Shards tab: recovery view — running recoveries (from → to, size, time at the throttle limit), queued copies, recovery slots per node |
+| `v` | Shards tab: recovery view — running recoveries (from → to, size, time at the throttle limit), queued copies, recovery slots per node; `e` there edits the recovery throttle (set TRANSIENT, allowed in read-only mode) |
 | `y` / `x` | Shards tab: copy / run the suggested fix. `x` asks first; in read-only mode it only runs `ALTER CLUSTER REROUTE RETRY FAILED` |
 | `pgdn` / `pgup` (or `shift+↓` / `shift+↑`) | Scroll detail panel (Nodes tab) |
 | `?` / `F1` | Keys for the active tab (`F1` also works while typing in the SQL editor or a search) |

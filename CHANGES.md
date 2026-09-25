@@ -14,7 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   allows, plus the copies waiting for a slot and each node's incoming /
   outgoing recoveries against `node_concurrent_recoveries`. CrateDB
   doesn't report progress for copies recovering from another node, so
-  there's no percentage.
+  there's no percentage. `e` there edits `max_bytes_per_sec`,
+  `node_concurrent_recoveries` and `cluster_concurrent_rebalance` with an
+  old → new confirm, `ctrl+r` resets them. Set TRANSIENT, so a bump made
+  during an incident is gone after a full cluster restart, and allowed in
+  read-only mode.
 
 - **Shard fixes.** The Shards tab names the common causes under the
   verdict, one line per cause with the shard count: allocation disabled

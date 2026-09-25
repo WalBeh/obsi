@@ -44,6 +44,9 @@ type ConnectionConfig struct {
 type CollectorConfig struct {
 	Enabled  bool     `toml:"enabled"`
 	Interval Duration `toml:"interval"`
+	// AllocationsInterval (shards only) spaces out the sys.allocations
+	// polls the Shards tab makes while shards aren't STARTED.
+	AllocationsInterval Duration `toml:"allocations_interval,omitempty"`
 }
 
 // JMXConfig configures ingestion of JVM/cAdvisor/operator metrics served by
@@ -173,6 +176,9 @@ func applyDefaults(cfg *Config, md toml.MetaData) {
 			}
 			if cc.Interval.Duration <= 0 {
 				cc.Interval = dc.Interval
+			}
+			if cc.AllocationsInterval.Duration <= 0 {
+				cc.AllocationsInterval = dc.AllocationsInterval
 			}
 			cfg.Collectors[name] = cc
 		}

@@ -31,9 +31,13 @@ func DefaultConfig() *Config {
 				Enabled:  true,
 				Interval: Duration{2 * time.Second},
 			},
+			// sys.allocations carries every node's decision text per shard,
+			// ~1.5MB for 1200 unassigned copies, so it's polled less often
+			// than the 5s fast path.
 			"shards": {
-				Enabled:  true,
-				Interval: Duration{1 * time.Minute},
+				Enabled:             true,
+				Interval:            Duration{1 * time.Minute},
+				AllocationsInterval: Duration{30 * time.Second},
 			},
 			// sys.snapshots lists the repository (S3, Azure) on every read.
 			"snapshots": {

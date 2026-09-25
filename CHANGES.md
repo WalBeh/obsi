@@ -28,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   bucket means and where a moving shard is going. The list now comes
   from `sys.allocations`: on CrateDB 6.3 `sys.shards` shows a recovering
   copy as UNASSIGNED without a node and a lost primary as a replica.
+  `sys.allocations` is polled every 30s (`allocations_interval` under
+  `[collectors.shards]`): its per-node texts ran to 1.5MB per poll with
+  1200 unassigned copies.
 
 - **Snapshots** section on the Overview: the last 10 snapshots with
   state, duration and failures, or "no snapshot repository configured".

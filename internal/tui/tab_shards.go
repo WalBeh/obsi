@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -75,15 +76,30 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 		m.problemShards = append(m.problemShards, s)
 	}
 	replicas := make(map[string]string, len(snap.Tables))
+	filters := make(map[string]map[string]string, len(snap.Tables))
 	for _, t := range snap.Tables {
 		replicas[t.SchemaName+"."+t.TableName] = t.Settings.NumberOfReplicas
+		filters[t.SchemaName+"."+t.TableName] = t.Settings.AllocationFilters
 	}
 	m.fixes = m.fixes[:0]
 	for _, s := range m.problemShards {
 		a, _ := m.findAllocation(s)
 		m.fixes = append(m.fixes, diagnoseShard(s, a, snap.ClusterSettings, replicas[s.SchemaName+"."+s.TableName]))
 	}
-	m.diagnoses = diagnose(m.fixes)
+	all := append([][]shardFix(nil), m.fixes...)
+	stuckNodes := map[string][]string{}
+	for _, a := range snap.StuckShards {
+		t, n := a.TableSchema+"."+a.TableName, m.nodeName(a.NodeID)
+		if !contains(stuckNodes[t], n) {
+			stuckNodes[t] = append(stuckNodes[t], n)
+			sort.Strings(stuckNodes[t])
+		}
+	}
+	for _, a := range snap.StuckShards {
+		t := a.TableSchema + "." + a.TableName
+		all = append(all, []shardFix{stuckFix(a, filters[t], strings.Join(stuckNodes[t], ", "))})
+	}
+	m.diagnoses = diagnose(all)
 	if m.noticeText != "" && time.Since(m.noticeAt) > 5*time.Second {
 		m.noticeText = ""
 	}

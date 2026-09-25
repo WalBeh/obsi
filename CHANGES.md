@@ -16,7 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`RESET GLOBAL "cluster.routing.allocation.enable"`, `ALTER TABLE ...
   RESET (...)`, `ALTER CLUSTER REROUTE RETRY FAILED`, ...) it's shown
   below; `y` copies it, `x` runs it after a confirm. Read-only mode only
-  runs RETRY FAILED.
+  runs RETRY FAILED. While the tab is open it also checks, once a minute,
+  for STARTED shards that a table filter sends away from their node with
+  nowhere to go, which otherwise looks all green.
 
 - **Shards verdict.** The Shards tab opens with what the non-STARTED
   shards mean for the data: "Data unavailable: 2 primaries unassigned",

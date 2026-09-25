@@ -15,6 +15,7 @@ const largeShardThreshold = 10000
 type ShardsCollector struct {
 	interval           time.Duration
 	hasUnhealthy       bool
+	lastStuckCheck     time.Time
 	warnedLargeCluster bool // true after first large-cluster warning
 	tracker            *QueryTracker
 }
@@ -95,7 +96,10 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		settings['codec'] AS codec,
 		settings['translog']['flush_threshold_size'] AS translog_flush_threshold_size,
 		settings['translog']['sync_interval'] AS translog_sync_interval,
-		settings['translog']['durability'] AS translog_durability
+		settings['translog']['durability'] AS translog_durability,
+		settings['routing']['allocation']['require'] AS alloc_require,
+		settings['routing']['allocation']['include'] AS alloc_include,
+		settings['routing']['allocation']['exclude'] AS alloc_exclude
 	FROM information_schema.tables
 	WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
 	AND table_type = 'BASE TABLE'
@@ -147,6 +151,17 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 			TranslogFlushThreshold: int64(cratedb.ToFloat64(row[9])),
 			TranslogSyncInterval:   int(cratedb.ToFloat64(row[10])),
 			TranslogDurability:     cratedb.ToString(row[11]),
+		}
+		for i, kind := range []string{"require", "include", "exclude"} {
+			attrs, _ := row[12+i].(map[string]interface{})
+			for attr, v := range attrs {
+				if val := cratedb.ToString(v); val != "" {
+					if ts.AllocationFilters == nil {
+						ts.AllocationFilters = map[string]string{}
+					}
+					ts.AllocationFilters["routing.allocation."+kind+"."+attr] = val
+				}
+			}
 		}
 		if arr, ok := row[5].([]interface{}); ok {
 			for _, v := range arr {
@@ -204,6 +219,14 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 // CollectFastPath runs a lightweight query for only non-STARTED shards.
 // Called at high frequency (5s) when the user is on the Shards tab.
 func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
+	if time.Since(c.lastStuckCheck) >= c.interval {
+		c.lastStuckCheck = time.Now()
+		if resp, err := trackedQuery(ctx, c.tracker, QueryStuckShards, reg, stuckQuery); err != nil {
+			slog.Warn("stuck shards query failed", "error", err)
+		} else {
+			st.UpdateStuckShards(parseAllocations(resp.Rows))
+		}
+	}
 	if !c.hasUnhealthy {
 		return nil
 	}
@@ -245,9 +268,9 @@ func (c *ShardsCollector) CollectFastPath(ctx context.Context, reg *cratedb.Regi
 	return nil
 }
 
-// allocationsQuery must select decisions before explanation: CrateDB 6.3
+// allocationsColumns must put decisions before explanation: CrateDB 6.3
 // returns decisions as NULL when explanation comes first.
-const allocationsQuery = `SELECT
+const allocationsColumns = `SELECT
 	table_schema,
 	table_name,
 	partition_ident,
@@ -258,7 +281,15 @@ const allocationsQuery = `SELECT
 	decisions,
 	explanation
 FROM sys.allocations
-WHERE current_state != 'STARTED'`
+`
+
+const allocationsQuery = allocationsColumns + `WHERE current_state != 'STARTED'`
+
+// stuckQuery finds STARTED copies a rule says must leave their node while
+// no other node can take them. It runs the deciders for every shard, so it
+// only runs while the Shards tab is open, once per interval.
+const stuckQuery = allocationsColumns + `WHERE current_state = 'STARTED'
+AND explanation LIKE 'cannot move shard to another node%'`
 
 // collectAllocations queries sys.allocations for non-STARTED shards.
 func (c *ShardsCollector) collectAllocations(ctx context.Context, reg *cratedb.Registry, st *store.Store) {

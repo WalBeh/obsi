@@ -38,6 +38,8 @@ obsi http://localhost:4200
 
 # Allow writes (SQL tab, settings editor) for this run only
 obsi prod --read-write
+
+obsi --version
 ```
 
 Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.

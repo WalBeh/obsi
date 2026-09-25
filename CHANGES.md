@@ -4,6 +4,13 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-09-25
+
+### Added
+
+- `obsi --version` (or `-v`). The release builds always set the version,
+  but nothing read it.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added

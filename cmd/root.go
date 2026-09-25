@@ -54,8 +54,10 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
-func Execute() {
-	if err := newRootCmd().Execute(); err != nil {
+func Execute(version string) {
+	root := newRootCmd()
+	root.Version = version
+	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

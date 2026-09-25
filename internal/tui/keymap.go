@@ -32,6 +32,7 @@ type KeyMap struct {
 	Quit      key.Binding
 	Help      key.Binding
 	Alerts    key.Binding
+	RunFix    key.Binding
 
 	// Detail-panel scrolling (Nodes detail; will extend to other tabs as needed).
 	DetailDown key.Binding
@@ -136,6 +137,10 @@ func DefaultKeyMap() KeyMap {
 		Grouped: key.NewBinding(
 			key.WithKeys("g"),
 			key.WithHelp("g", "group by statement (jobs_log)"),
+		),
+		RunFix: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "run suggested fix (asks first)"),
 		),
 		Alerts: key.NewBinding(
 			key.WithKeys("a"),

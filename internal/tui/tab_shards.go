@@ -37,6 +37,14 @@ type ShardsModel struct {
 	buckets       [bucketCount]int
 	problemShards []cratedb.ShardInfo
 	nodeNames     map[string]string // node id -> name, from the shards themselves
+	fixes         [][]shardFix      // per problemShards entry
+	diagnoses     []shardDiagnosis
+
+	readOnly    bool
+	fixTarget   *shardFix // x confirm modal
+	noticeText  string
+	noticeIsErr bool
+	noticeAt    time.Time
 }
 
 func NewShardsModel(width, height int) ShardsModel {
@@ -66,6 +74,15 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 		m.buckets[classifyShard(s)]++
 		m.problemShards = append(m.problemShards, s)
 	}
+	m.fixes = m.fixes[:0]
+	for _, s := range m.problemShards {
+		a, _ := m.findAllocation(s)
+		m.fixes = append(m.fixes, diagnoseShard(s, a, snap.ClusterSettings))
+	}
+	m.diagnoses = diagnose(m.fixes)
+	if m.noticeText != "" && time.Since(m.noticeAt) > 5*time.Second {
+		m.noticeText = ""
+	}
 
 	m.rebuildSorted()
 	m.clampSelection()
@@ -84,8 +101,8 @@ func (m ShardsModel) SetSize(width, height int) ShardsModel {
 }
 
 func (m ShardsModel) listHeight() int {
-	// title(1) + verdict(1) + counts(1) + blank(1) + column header(1)
-	headerLines := 5
+	// title(1) + verdict(1) + counts(1) + diagnoses + blank(1) + column header(1)
+	headerLines := 5 + len(m.renderDiagnoses())
 	if m.searching {
 		headerLines++
 	}
@@ -146,6 +163,11 @@ func (m *ShardsModel) rebuildSorted() {
 }
 
 func (m ShardsModel) HandleKey(msg tea.KeyMsg) (ShardsModel, tea.Cmd) {
+	if !m.searching {
+		if m, cmd, ok := m.handleFixKey(msg); ok {
+			return m, cmd
+		}
+	}
 	if r := m.handleKey(msg, m.keyMap, shardSortFieldCount); r.handled {
 		if r.rebuild {
 			m.rebuildSorted()
@@ -172,9 +194,14 @@ func (m ShardsModel) View() string {
 	var lines []string
 	lines = append(lines, title)
 
+	if m.fixTarget != nil {
+		return m.renderFixModal()
+	}
+
 	// Summary line with counts by state
 	summary := m.renderSummary()
 	lines = append(lines, summary)
+	lines = append(lines, m.renderDiagnoses()...)
 	lines = append(lines, "")
 
 	// Happy path: all healthy
@@ -201,7 +228,7 @@ func (m ShardsModel) View() string {
 
 	lines = append(lines, fmt.Sprintf("  Shards (%d) | %s%s | %s",
 		len(m.problemShards), sortIndicator, filterInfo,
-		styleDim.Render("s:sort  /:search  R:refresh")))
+		styleDim.Render("s:sort  /:search  y:copy fix  x:run fix")))
 
 	header := styleHeader.Render(fmt.Sprintf("  %-3s %-28s %5s %3s %-14s %21s %10s %s",
 		"", "TABLE", "SHARD", "P/R", "STATE", "RECOVERY", "SIZE", "NODE"))
@@ -300,6 +327,15 @@ func (m ShardsModel) renderSummary() string {
 	return fmt.Sprintf("  %s%s\n  %s", style.Render(verdict), styleDim.Render(lastRefresh), counts)
 }
 
+func (m ShardsModel) fixesFor(s cratedb.ShardInfo) []shardFix {
+	for i, p := range m.problemShards {
+		if p == s {
+			return m.fixes[i]
+		}
+	}
+	return nil
+}
+
 func (m ShardsModel) nodeName(id string) string {
 	if n, ok := m.nodeNames[id]; ok && n != "" {
 		return n
@@ -345,6 +381,12 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 		for _, g := range groupDecisions(a.Decisions) {
 			lines = append(lines, fmt.Sprintf("%s %s: %s",
 				styleHealthRed.Render("    x"), strings.Join(g.nodes, ", "), g.explanation))
+		}
+		for _, f := range m.fixesFor(s) {
+			lines = append(lines, "    → "+f.cause)
+			if f.stmt != "" {
+				lines = append(lines, "      fix: "+styleValue.Render(f.stmt))
+			}
 		}
 	} else if len(m.snap.Allocations) == 0 && len(m.problemShards) > 0 {
 		lines = append(lines, "")

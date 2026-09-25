@@ -178,9 +178,10 @@ type RunFixMsg struct{ Stmt string }
 
 // ShardNoticeMsg reports the outcome of y or x on the Shards tab.
 type ShardNoticeMsg struct {
-	Text  string
-	IsErr bool
-	Ran   bool // a fix ran, refresh the shards
+	Text     string
+	IsErr    bool
+	Ran      bool // a fix ran, refresh the shards
+	Throttle bool // the recovery throttle changed, refresh cluster settings
 }
 
 // chosenFix is what y and x act on: the selected shard's first runnable

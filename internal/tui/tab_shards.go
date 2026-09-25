@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
@@ -40,6 +41,11 @@ type ShardsModel struct {
 	nodeNames     map[string]string // node id -> name, from the shards themselves
 	fixes         [][]shardFix      // per problemShards entry
 	diagnoses     []shardDiagnosis
+
+	showRecovery bool
+	recoveries   []recovery
+	recoverySeen map[string]time.Time // recovery key -> first seen, for RUNNING
+	queued       int                  // copies waiting for a recovery slot
 
 	readOnly    bool
 	fixTarget   *shardFix // x confirm modal
@@ -107,6 +113,7 @@ func (m ShardsModel) Refresh(snap store.StoreSnapshot) ShardsModel {
 		all = append(all, []shardFix{stuckFix(a, filters[t], strings.Join(stuckNodes[t], ", "))})
 	}
 	m.diagnoses = diagnose(all)
+	m.buildRecoveries(time.Now())
 	if m.noticeText != "" && time.Since(m.noticeAt) > 5*time.Second {
 		m.noticeText = ""
 	}
@@ -194,6 +201,10 @@ func (m ShardsModel) HandleKey(msg tea.KeyMsg) (ShardsModel, tea.Cmd) {
 		if m, cmd, ok := m.handleFixKey(msg); ok {
 			return m, cmd
 		}
+		if key.Matches(msg, m.keyMap.Recovery) {
+			m.showRecovery = !m.showRecovery
+			return m, nil
+		}
 	}
 	if r := m.handleKey(msg, m.keyMap, shardSortFieldCount); r.handled {
 		if r.rebuild {
@@ -231,6 +242,16 @@ func (m ShardsModel) View() string {
 	lines = append(lines, m.renderDiagnoses()...)
 	lines = append(lines, "")
 
+	if m.showRecovery {
+		lines = append(lines, m.renderRecovery(time.Now(), m.height-len(lines))...)
+		lines = append(lines, "", styleDim.Render("  v: back to shards  y:copy fix  x:run fix"))
+		result := strings.Join(lines, "\n")
+		if stale {
+			return styleDim.Render(result)
+		}
+		return result
+	}
+
 	// Happy path: all healthy
 	if len(m.problemShards) == 0 {
 		result := strings.Join(lines, "\n")
@@ -255,7 +276,7 @@ func (m ShardsModel) View() string {
 
 	lines = append(lines, fmt.Sprintf("  Shards (%d) | %s%s | %s",
 		len(m.problemShards), sortIndicator, filterInfo,
-		styleDim.Render("s:sort  /:search  y:copy fix  x:run fix")))
+		styleDim.Render("s:sort  /:search  v:recovery  y:copy fix  x:run fix")))
 
 	header := styleHeader.Render(fmt.Sprintf("  %-3s %-28s %5s %3s %-14s %21s %10s %s",
 		"", "TABLE", "SHARD", "P/R", "STATE", "RECOVERY", "SIZE", "NODE"))

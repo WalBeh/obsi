@@ -33,6 +33,7 @@ type KeyMap struct {
 	Help      key.Binding
 	Alerts    key.Binding
 	RunFix    key.Binding
+	Recovery  key.Binding
 
 	// Detail-panel scrolling (Nodes detail; will extend to other tabs as needed).
 	DetailDown key.Binding
@@ -137,6 +138,10 @@ func DefaultKeyMap() KeyMap {
 		Grouped: key.NewBinding(
 			key.WithKeys("g"),
 			key.WithHelp("g", "group by statement (jobs_log)"),
+		),
+		Recovery: key.NewBinding(
+			key.WithKeys("v"),
+			key.WithHelp("v", "recovery view: running, queued, slots, throttle"),
 		),
 		RunFix: key.NewBinding(
 			key.WithKeys("x"),

@@ -39,8 +39,9 @@ func quoteTable(schema, table string) string {
 
 // diagnoseShard matches the explanation texts CrateDB 6.3 gives in
 // sys.allocations against the common causes. replicas is the table's
-// number_of_replicas setting, "" when unknown.
-func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.ClusterSettings, replicas string) []shardFix {
+// number_of_replicas setting, "" when unknown; gone names nodes that left
+// in the last few minutes.
+func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.ClusterSettings, replicas string, gone []string) []shardFix {
 	table := s.SchemaName + "." + s.TableName
 	texts := []string{a.Explanation}
 	allHoldCopy := len(a.Decisions) > 0
@@ -80,8 +81,15 @@ func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.Clu
 	}
 	if allHoldCopy && !s.Primary {
 		n := len(a.Decisions)
-		add(shardFix{key: "replicas/" + table, cause: replicasCause(table, replicas, n),
-			stmt: fmt.Sprintf("ALTER TABLE %s SET (number_of_replicas = %d)", quoteTable(s.SchemaName, s.TableName), n-1)})
+		if len(gone) > 0 {
+			// Lowering replicas for a node that is likely coming back would
+			// cut redundancy for good.
+			add(shardFix{key: "replicas/" + table, cause: fmt.Sprintf("%s: only %d nodes left while %s is gone (one copy per node)",
+				table, n, strings.Join(gone, ", "))})
+		} else {
+			add(shardFix{key: "replicas/" + table, cause: replicasCause(table, replicas, n),
+				stmt: fmt.Sprintf("ALTER TABLE %s SET (number_of_replicas = %d)", quoteTable(s.SchemaName, s.TableName), n-1)})
+		}
 	}
 	if len(watermarkNodes) > 0 {
 		sort.Strings(watermarkNodes)

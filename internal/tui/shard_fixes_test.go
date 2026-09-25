@@ -53,7 +53,7 @@ func TestDiagnoseShard(t *testing.T) {
 			stmt: retryFailedStmt,
 		},
 	} {
-		fixes := diagnoseShard(replica, tc.a, tc.cs, "3")
+		fixes := diagnoseShard(replica, tc.a, tc.cs, "3", nil)
 		var keys []string
 		stmt := ""
 		for _, f := range fixes {
@@ -146,5 +146,18 @@ func TestStuckShards(t *testing.T) {
 	// Without a table filter there's no statement to offer.
 	if f := stuckFix(stuck, nil, "lab2"); f.stmt != "" || !strings.Contains(f.cause, "cluster allocation filter or high watermark") {
 		t.Errorf("no-filter fix = %+v", f)
+	}
+}
+
+// Seen on 6.4.5 with lab2 stopped: doc.big's third copy has 2 nodes left.
+// Suggesting fewer replicas would cut redundancy for a node that's coming
+// back.
+func TestReplicasWhileNodeGone(t *testing.T) {
+	const holds = "a copy of this shard is already allocated to this node"
+	a := cratedb.AllocationInfo{Decisions: []cratedb.AllocationDecision{decision("lab1", holds), decision("lab3", holds)}}
+	s := cratedb.ShardInfo{SchemaName: "doc", TableName: "big", RoutingState: "UNASSIGNED"}
+	fixes := diagnoseShard(s, a, cratedb.ClusterSettings{}, "2", []string{"lab2"})
+	if len(fixes) != 1 || fixes[0].stmt != "" || fixes[0].cause != "doc.big: only 2 nodes left while lab2 is gone (one copy per node)" {
+		t.Errorf("fixes = %+v", fixes)
 	}
 }

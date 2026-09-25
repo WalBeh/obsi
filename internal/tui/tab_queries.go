@@ -56,6 +56,27 @@ type QueriesModel struct {
 	infoFromSlowest bool      // info modal opened from the slowest board
 	infoEnd         time.Time // non-zero when infoTarget has finished
 	logMode         store.JobsLogMode
+
+	showChanges bool // c: config changes board, over either of the above
+	chgSelected int
+}
+
+type queriesView int
+
+const (
+	queriesLive queriesView = iota
+	queriesSlowest
+	queriesChanges
+)
+
+func (m QueriesModel) view() queriesView {
+	switch {
+	case m.showChanges:
+		return queriesChanges
+	case m.showSlowest:
+		return queriesSlowest
+	}
+	return queriesLive
 }
 
 func NewQueriesModel(width, height int) QueriesModel {
@@ -69,6 +90,7 @@ func (m QueriesModel) Refresh(snap store.StoreSnapshot) QueriesModel {
 	if keys := m.slowKeys(m.snap); m.slowSelected < len(keys) {
 		slowAnchor = keys[m.slowSelected]
 	}
+	m.chgSelected = anchorChange(m.snap.Changes.Changes, snap.Changes.Changes, m.chgSelected)
 	m.snap = snap
 	keys := m.slowKeys(snap)
 	for i, k := range keys {
@@ -176,6 +198,16 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 		return m, nil
 	}
 
+	if key.Matches(msg, km.Changes) {
+		m.showChanges = !m.showChanges
+		return m, nil
+	}
+	if m.showChanges {
+		if !key.Matches(msg, km.Slowest, km.Failed, km.Grouped) {
+			return m.handleChangesKey(msg)
+		}
+		m.showChanges = false
+	}
 	if key.Matches(msg, km.Slowest) {
 		m.showSlowest = !m.showSlowest
 		return m, nil
@@ -305,12 +337,15 @@ func (m QueriesModel) View() string {
 	if m.infoTarget != nil {
 		return m.renderInfoModal()
 	}
+	if m.showChanges {
+		return m.renderChanges()
+	}
 	if m.showSlowest {
 		return m.renderSlowest()
 	}
 
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest  f: failed  g: grouped)")
+	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest  f: failed  g: grouped  c: changes)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}
@@ -375,7 +410,7 @@ func (m QueriesModel) View() string {
 		if maxStmtLen < 20 {
 			maxStmtLen = 20
 		}
-		stmt = truncateString(stmt, maxStmtLen)
+		stmt = stmtCell(stmt, maxStmtLen)
 
 		durStyle := durationStyle(duration)
 
@@ -500,7 +535,7 @@ func (m QueriesModel) renderSlowest() string {
 		return m.renderJobsLog()
 	}
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live  f: failed  g: grouped)")
+	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live  f: failed  g: grouped  c: changes)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}
@@ -559,7 +594,7 @@ func (m QueriesModel) renderSlowest() string {
 		if o.PeakBytes > 0 {
 			mem = formatBytes(o.PeakBytes)
 		}
-		stmt := truncateString(strings.ReplaceAll(o.Stmt, "\n", " "), maxStmtLen)
+		stmt := stmtCell(o.Stmt, maxStmtLen)
 		lines = append(lines, fmt.Sprintf("%s%-3d %s %-8s %-10s %-12s %-10s %s",
 			marker, i+1,
 			durStyle.Render(fmt.Sprintf("%-10s", durStr)),

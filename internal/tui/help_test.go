@@ -19,25 +19,25 @@ func helpKeys(entries []helpEntry) string {
 func TestTabHelp(t *testing.T) {
 	km := DefaultKeyMap()
 	for tab := TabOverview; tab <= TabSQL; tab++ {
-		title, entries := tabHelp(tab, km, false)
+		title, entries := tabHelp(tab, km, queriesLive)
 		if title == "" || len(entries) == 0 {
 			t.Errorf("tab %d: empty help", tab)
 		}
 	}
 
-	_, live := tabHelp(TabQueries, km, false)
+	_, live := tabHelp(TabQueries, km, queriesLive)
 	for _, k := range []string{"K", "i", "y", "h", "S", "f", "g"} {
 		if !strings.Contains(helpKeys(live), k+" ") {
 			t.Errorf("live queries help missing %q", k)
 		}
 	}
 	// K and h are inert on the slowest board; don't advertise them.
-	_, slow := tabHelp(TabQueries, km, true)
+	_, slow := tabHelp(TabQueries, km, queriesSlowest)
 	if keys := helpKeys(slow); strings.Contains(keys, "K ") || strings.Contains(keys, "h ") {
 		t.Errorf("slowest help lists inert keys: %s", keys)
 	}
 
-	_, tables := tabHelp(TabTables, km, false)
+	_, tables := tabHelp(TabTables, km, queriesLive)
 	if !strings.Contains(helpKeys(tables), "f ") {
 		t.Error("tables help missing f")
 	}

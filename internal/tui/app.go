@@ -219,7 +219,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		stmt := fmt.Sprintf(`SET GLOBAL %s "%s" = ?`, persistence, msg.SettingPath)
 		slotIdx := msg.SlotIndex
 		return a, func() tea.Msg {
-			_, err := reg.Query(ctx, stmt, msg.Value)
+			_, err := reg.Query(ctx, stmt+cratedb.ChangeTag, msg.Value)
 			if err != nil {
 				return SetSettingResultMsg{SlotIndex: slotIdx, Error: err.Error()}
 			}
@@ -229,7 +229,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RunFixMsg:
 		reg, ctx, stmt := a.registry, a.ctx, msg.Stmt
 		return a, func() tea.Msg {
-			if _, err := reg.Query(ctx, stmt); err != nil {
+			if _, err := reg.Query(ctx, stmt+cratedb.ChangeTag); err != nil {
 				return ShardNoticeMsg{Text: "fix failed: " + err.Error(), IsErr: true}
 			}
 			return ShardNoticeMsg{Text: "ran: " + stmt, Ran: true}
@@ -241,9 +241,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for i, s := range msg.Stmts {
 				var err error
 				if s.arg != "" {
-					_, err = reg.Query(ctx, s.sql, s.arg)
+					_, err = reg.Query(ctx, s.sql+cratedb.ChangeTag, s.arg)
 				} else {
-					_, err = reg.Query(ctx, s.sql)
+					_, err = reg.Query(ctx, s.sql+cratedb.ChangeTag)
 				}
 				if err != nil {
 					text := "throttle not changed: " + err.Error()
@@ -261,6 +261,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Ran {
 			a.collectors.TriggerCollector(a.ctx, "shards")
 		}
+		if msg.Ran || msg.Throttle {
+			a.collectors.TriggerCollector(a.ctx, "changes")
+		}
 		if msg.Throttle {
 			a.collectors.TriggerCollector(a.ctx, "cluster")
 		}
@@ -270,6 +273,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.overview.editor.handleResult(msg)
 		if msg.Error == "" {
 			a.collectors.TriggerCollector(a.ctx, "cluster")
+			a.collectors.TriggerCollector(a.ctx, "changes")
 		}
 		return a, nil
 
@@ -320,7 +324,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.queryLog.Refresh(a.collectors.QueryTracker(), throttle)
 		}
 		// jobs_log is only polled while the slowest board is on screen.
-		a.collectors.SetJobsLogView(a.ctx, a.activeTab == TabQueries && a.queries.showSlowest, a.queries.logMode)
+		a.collectors.SetJobsLogView(a.ctx, a.activeTab == TabQueries && a.queries.view() == queriesSlowest, a.queries.logMode)
 		return a, tea.Batch(a.doStoreTick(), ring)
 	}
 
@@ -336,7 +340,7 @@ func (a *App) View() string {
 
 	body := a.current().View()
 	if a.showHelp {
-		body = renderHelp(a.activeTab, a.keyMap, a.queries.showSlowest, a.width, a.bodyHeight())
+		body = renderHelp(a.activeTab, a.keyMap, a.queries.view(), a.width, a.bodyHeight())
 	}
 	if a.showAlerts {
 		body = renderAlerts(a.alerts, a.alertScroll, a.width, a.bodyHeight())

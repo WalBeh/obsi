@@ -44,6 +44,12 @@ func DefaultConfig() *Config {
 				Enabled:  true,
 				Interval: Duration{15 * time.Minute},
 			},
+			// sys.jobs_log is a ring per node; a longer interval misses
+			// more changes on busy clusters.
+			"changes": {
+				Enabled:  true,
+				Interval: Duration{10 * time.Second},
+			},
 			// Only polls while the slowest board is open.
 			"jobs_log": {
 				Enabled:  true,

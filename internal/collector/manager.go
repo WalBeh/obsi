@@ -290,6 +290,7 @@ func DefaultCollectors(cfg map[string]config.CollectorConfig, jmxCfg config.JMXC
 		{"nodes", func() Collector { return NewNodesCollector(cfg["nodes"], tracker) }},
 		{"queries", func() Collector { return NewQueriesCollector(cfg["queries"], tracker) }},
 		{"jobs_log", func() Collector { return NewJobsLogCollector(cfg["jobs_log"], tracker) }},
+		{"changes", func() Collector { return NewChangesCollector(cfg["changes"], tracker) }},
 		{"shards", func() Collector { return NewShardsCollector(cfg["shards"], tracker) }},
 		{"snapshots", func() Collector { return NewSnapshotsCollector(cfg["snapshots"], tracker) }},
 	}

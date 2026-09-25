@@ -169,7 +169,7 @@ func parseJobLogEntries(rows [][]interface{}) []cratedb.JobLogEntry {
 			ID:       cratedb.ToString(row[0]),
 			Node:     cratedb.ToString(row[1]),
 			Username: cratedb.ToString(row[2]),
-			Stmt:     cratedb.ToString(row[3]),
+			Stmt:     cratedb.Redact(cratedb.ToString(row[3])),
 			Started:  msTime(row[4]),
 			Ended:    msTime(row[5]),
 			Error:    cratedb.ToString(row[6]),
@@ -183,7 +183,7 @@ func parseJobLogGroups(rows [][]interface{}) []cratedb.JobLogGroup {
 	out := make([]cratedb.JobLogGroup, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, cratedb.JobLogGroup{
-			Stmt:      cratedb.ToString(row[0]),
+			Stmt:      cratedb.Redact(cratedb.ToString(row[0])),
 			Count:     cratedb.ToInt64(row[1]),
 			Failed:    cratedb.ToInt64(row[2]),
 			Max:       time.Duration(cratedb.ToInt64(row[3])) * time.Millisecond,

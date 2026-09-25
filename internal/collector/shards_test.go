@@ -36,3 +36,13 @@ func TestParseAllocations(t *testing.T) {
 		t.Errorf("decisions = %+v", a.Decisions)
 	}
 }
+
+// The fast-path query has no translog columns; parsing its rows used to
+// index past the end and crash obsi 5s after opening the Shards tab.
+func TestParseShardRowsFastPath(t *testing.T) {
+	row := []interface{}{float64(0), "doc", "t", "", float64(0), false, "UNASSIGNED", "UNASSIGNED", false, float64(0), nil, nil, nil, float64(0), nil}
+	got := parseShardRows([][]interface{}{row})
+	if len(got) != 1 || got[0].RoutingState != "UNASSIGNED" || got[0].TranslogSize != 0 {
+		t.Fatalf("got %+v", got)
+	}
+}

@@ -122,3 +122,29 @@ func TestReplicasCause(t *testing.T) {
 		}
 	}
 }
+
+// Every shard STARTED, but doc.big sits on lab2 against its own exclude
+// filter with nowhere to go: the tab says so and offers the reset.
+func TestStuckShards(t *testing.T) {
+	stuck := cratedb.AllocationInfo{TableSchema: "doc", TableName: "big", ShardID: 2, NodeID: "n2", CurrentState: "STARTED"}
+	m := NewShardsModel(160, 40).Refresh(store.StoreSnapshot{
+		Shards: []cratedb.ShardInfo{{SchemaName: "doc", TableName: "big", ID: 2, Primary: true, RoutingState: "STARTED", NodeID: "n2", NodeName: "lab2"}},
+		Tables: []cratedb.TableInfo{{SchemaName: "doc", TableName: "big",
+			Settings: cratedb.TableSettings{AllocationFilters: map[string]string{"routing.allocation.exclude._name": "lab2"}}}},
+		StuckShards: []cratedb.AllocationInfo{stuck},
+	})
+	v := m.View()
+	for _, want := range []string{"All 1 shards started", "doc.big can't stay on lab2", `ALTER TABLE "doc"."big" RESET ("routing.allocation.exclude._name")`} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q:\n%s", want, v)
+		}
+	}
+	if f, ok := m.chosenFix(); !ok || !strings.HasPrefix(f.stmt, `ALTER TABLE "doc"."big" RESET`) {
+		t.Errorf("chosenFix = %+v %v", f, ok)
+	}
+
+	// Without a table filter there's no statement to offer.
+	if f := stuckFix(stuck, nil, "lab2"); f.stmt != "" || !strings.Contains(f.cause, "cluster allocation filter or high watermark") {
+		t.Errorf("no-filter fix = %+v", f)
+	}
+}

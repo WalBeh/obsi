@@ -96,6 +96,32 @@ func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.Clu
 	return fixes
 }
 
+// stuckFix explains a STARTED copy that a rule sends away from its node
+// while no other node can take it. CrateDB gives no per-node decisions for
+// these, so the table's own allocation filters are the only lead.
+func stuckFix(a cratedb.AllocationInfo, filters map[string]string, node string) shardFix {
+	table := a.TableSchema + "." + a.TableName
+	f := shardFix{key: "stuck/" + table}
+	if len(filters) == 0 {
+		f.cause = fmt.Sprintf("%s can't stay on %s and no other node takes it (cluster allocation filter or high watermark?)", table, node)
+		return f
+	}
+	keys := make([]string, 0, len(filters))
+	for k := range filters {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var set, quoted []string
+	for _, k := range keys {
+		set = append(set, k+" = "+filters[k])
+		quoted = append(quoted, `"`+k+`"`)
+	}
+	f.cause = fmt.Sprintf("%s can't stay on %s and no other node takes it: %s (reset it, lower number_of_replicas or add a node)",
+		table, node, strings.Join(set, ", "))
+	f.stmt = fmt.Sprintf("ALTER TABLE %s RESET (%s)", quoteTable(a.TableSchema, a.TableName), strings.Join(quoted, ", "))
+	return f
+}
+
 // diagnose folds the per-shard fixes into one line per cause, most shards
 // first.
 func diagnose(fixesPerShard [][]shardFix) []shardDiagnosis {

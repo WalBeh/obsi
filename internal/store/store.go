@@ -28,6 +28,7 @@ type Store struct {
 	viewCount       int
 	shards          []cratedb.ShardInfo
 	allocations     []cratedb.AllocationInfo
+	stuckShards     []cratedb.AllocationInfo
 
 	// Slowest-queries board, observed since the store was created.
 	observedSince   time.Time
@@ -86,6 +87,7 @@ type StoreSnapshot struct {
 	TotalShards     int
 	Shards          []cratedb.ShardInfo
 	Allocations     []cratedb.AllocationInfo
+	StuckShards     []cratedb.AllocationInfo // STARTED copies that must move but can't
 
 	// SlowestQueries is the top-N by observed duration since ObservedSince,
 	// finished and running jobs mixed. SampleInterval is the effective
@@ -260,6 +262,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeShards {
 		snap.Shards = copySlice(s.shards)
 		snap.Allocations = copySlice(s.allocations)
+		snap.StuckShards = copySlice(s.stuckShards)
 	}
 	if hint.IncludeJMX && len(s.jmxPods) > 0 {
 		snap.JMX = make(map[string]*jmx.JMXSnapshot, len(s.jmxPods))

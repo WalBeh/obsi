@@ -249,6 +249,7 @@ type TableSettings struct {
 	TranslogFlushThreshold int64 // bytes
 	TranslogSyncInterval   int   // ms
 	TranslogDurability     string
+	AllocationFilters      map[string]string // e.g. "routing.allocation.exclude._name" -> "lab2"
 }
 
 // TableInfo is an aggregated view of a table with shard distribution.

@@ -23,6 +23,13 @@ func (s *Store) UpdateAllocations(allocs []cratedb.AllocationInfo) {
 	s.allocations = allocs
 }
 
+// UpdateStuckShards stores the STARTED copies that can't stay nor move.
+func (s *Store) UpdateStuckShards(stuck []cratedb.AllocationInfo) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stuckShards = stuck
+}
+
 // UpdateShardsPartial replaces only non-STARTED shards in the existing list,
 // keeping STARTED shards from the last full collection intact.
 func (s *Store) UpdateShardsPartial(nonStarted []cratedb.ShardInfo) {

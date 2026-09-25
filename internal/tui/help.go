@@ -68,7 +68,9 @@ func tabHelp(tab Tab, km KeyMap, slowest bool) (string, []helpEntry) {
 	case TabTables:
 		return "Tables", append([]helpEntry{nav, {"f", "unhealthy tables only"}}, search...)
 	case TabShards:
-		return "Shards", append([]helpEntry{nav}, search...)
+		return "Shards", append([]helpEntry{nav}, append(search,
+			helpEntry{km.Yank.Help().Key, "copy the suggested fix"},
+			bindingHelp(km.RunFix))...)
 	case TabSQL:
 		return "SQL", []helpEntry{
 			{"enter", "run query"},

@@ -80,6 +80,7 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 	}
 	a.sql.readOnly = readOnly
 	a.overview.editor.readOnly = readOnly
+	a.shards.readOnly = readOnly
 	a.statusBar.readOnly = readOnly
 	return a
 }
@@ -224,6 +225,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return SetSettingResultMsg{SlotIndex: slotIdx}
 		}
+
+	case RunFixMsg:
+		reg, ctx, stmt := a.registry, a.ctx, msg.Stmt
+		return a, func() tea.Msg {
+			if _, err := reg.Query(ctx, stmt); err != nil {
+				return ShardNoticeMsg{Text: "fix failed: " + err.Error(), IsErr: true}
+			}
+			return ShardNoticeMsg{Text: "ran: " + stmt, Ran: true}
+		}
+
+	case ShardNoticeMsg:
+		a.shards = a.shards.notice(msg.Text, msg.IsErr)
+		if msg.Ran {
+			a.collectors.TriggerCollector(a.ctx, "shards")
+		}
+		return a, nil
 
 	case SetSettingResultMsg:
 		a.overview.editor.handleResult(msg)

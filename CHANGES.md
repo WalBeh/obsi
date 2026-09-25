@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Shard fixes.** The Shards tab names the common causes under the
+  verdict, one line per cause with the shard count: allocation disabled
+  cluster-wide, a table filter keeping shards off nodes, more replicas
+  than nodes, the retry limit, disk watermarks, a node that left and is
+  still waited for, recovery throttling. Where a statement fixes it
+  (`RESET GLOBAL "cluster.routing.allocation.enable"`, `ALTER TABLE ...
+  RESET (...)`, `ALTER CLUSTER REROUTE RETRY FAILED`, ...) it's shown
+  below; `y` copies it, `x` runs it after a confirm. Read-only mode only
+  runs RETRY FAILED.
+
 - **Shards verdict.** The Shards tab opens with what the non-STARTED
   shards mean for the data: "Data unavailable: 2 primaries unassigned",
   "Fewer copies: ...", "Rebalancing: 12 shards moving, all data

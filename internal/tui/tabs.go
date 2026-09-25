@@ -84,8 +84,8 @@ func (a *App) tabs() []tabModel {
 		TabShards: tab[ShardsModel]{
 			m: &a.shards, refresh: ShardsModel.Refresh, setSize: ShardsModel.SetSize,
 			handleKey: ShardsModel.HandleKey, view: ShardsModel.View,
-			inputMode:  func(m ShardsModel) bool { return m.searching },
-			hint:       store.SnapshotHint{IncludeShards: true},
+			inputMode:  func(m ShardsModel) bool { return m.searching || m.fixTarget != nil },
+			hint:       store.SnapshotHint{IncludeShards: true, IncludeCluster: true},
 			collectors: []string{"shards"},
 		},
 		TabSQL: tab[SQLModel]{

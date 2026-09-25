@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,8 +38,9 @@ func quoteTable(schema, table string) string {
 }
 
 // diagnoseShard matches the explanation texts CrateDB 6.3 gives in
-// sys.allocations against the common causes.
-func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.ClusterSettings) []shardFix {
+// sys.allocations against the common causes. replicas is the table's
+// number_of_replicas setting, "" when unknown.
+func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.ClusterSettings, replicas string) []shardFix {
 	table := s.SchemaName + "." + s.TableName
 	texts := []string{a.Explanation}
 	allHoldCopy := len(a.Decisions) > 0
@@ -78,7 +80,7 @@ func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.Clu
 	}
 	if allHoldCopy && !s.Primary {
 		n := len(a.Decisions)
-		add(shardFix{key: "replicas/" + table, cause: fmt.Sprintf("%s wants more copies than %d nodes can hold", table, n),
+		add(shardFix{key: "replicas/" + table, cause: replicasCause(table, replicas, n),
 			stmt: fmt.Sprintf("ALTER TABLE %s SET (number_of_replicas = %d)", quoteTable(s.SchemaName, s.TableName), n-1)})
 	}
 	if len(watermarkNodes) > 0 {
@@ -112,6 +114,18 @@ func diagnose(fixesPerShard [][]shardFix) []shardDiagnosis {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].shards > out[j].shards })
 	return out
+}
+
+// replicasCause spells out the arithmetic: CrateDB puts at most one copy of
+// a shard on a node.
+func replicasCause(table, replicas string, nodes int) string {
+	if r, err := strconv.Atoi(replicas); err == nil {
+		return fmt.Sprintf("%s: %d replicas + primary = %d copies per shard, but only %d nodes (one copy per node)", table, r, r+1, nodes)
+	}
+	if replicas != "" {
+		return fmt.Sprintf("%s: number_of_replicas = %s needs more than %d nodes (one copy per node)", table, replicas, nodes)
+	}
+	return fmt.Sprintf("%s: more copies per shard than %d nodes (one copy per node)", table, nodes)
 }
 
 func contains(ss []string, s string) bool {

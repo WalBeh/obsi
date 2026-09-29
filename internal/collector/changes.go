@@ -50,6 +50,15 @@ func NewChangesCollector(cfg config.CollectorConfig, tracker *QueryTracker) *Cha
 	}
 }
 
+func (c *ChangesCollector) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.polled, c.since = false, time.Time{}
+	c.seen = make(map[string]time.Time)
+	c.newest = make(map[string]time.Time)
+	c.cluster, c.tables, c.unpaired = nil, nil, nil
+}
+
 func (c *ChangesCollector) Name() string            { return "changes" }
 func (c *ChangesCollector) Interval() time.Duration { return c.interval }
 

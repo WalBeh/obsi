@@ -143,6 +143,16 @@ func (m *Manager) SetJobsLogView(ctx context.Context, active bool, mode store.Jo
 	}
 }
 
+// ResetCollectors drops what collectors remember about the cluster, before
+// obsi switches to another one.
+func (m *Manager) ResetCollectors() {
+	for _, c := range m.collectors {
+		if r, ok := c.(Resetter); ok {
+			r.Reset()
+		}
+	}
+}
+
 // TriggerCollector runs a named collector once immediately in the background.
 // Blocked in ThrottleMax mode — all collectors are paused.
 func (m *Manager) TriggerCollector(ctx context.Context, name string) {

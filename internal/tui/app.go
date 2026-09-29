@@ -58,11 +58,16 @@ type App struct {
 	width        int
 	height       int
 	ready        bool
+
+	readOnly   bool
+	persistent bool
+	// foreign is set while the endpoint answers as another cluster; the
+	// switch notice takes over until the user quits or switches.
+	foreign *cratedb.ClusterIdentity
 }
 
 // NewApp creates the root TUI model.
 func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx context.Context, tuiCfg config.TUIConfig, readOnly bool) *App {
-	persistent := tuiCfg.SetGlobalMode != "transient"
 	a := &App{
 		store:       st,
 		registry:    reg,
@@ -71,18 +76,41 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		keyMap:      DefaultKeyMap(),
 		refreshRate: tuiCfg.RefreshRate.Duration,
 		alertBell:   tuiCfg.AlertBell,
-		overview:    NewOverviewModel(0, 0, persistent),
-		nodes:       NewNodesModel(0, 0),
-		queries:     NewQueriesModel(0, 0),
-		tables:      NewTablesModel(0, 0),
-		shards:      NewShardsModel(0, 0),
-		sql:         NewSQLModel(0, 0, reg, ctx),
+		readOnly:    readOnly,
+		persistent:  tuiCfg.SetGlobalMode != "transient",
 	}
-	a.sql.readOnly = readOnly
-	a.overview.editor.readOnly = readOnly
-	a.shards.readOnly = readOnly
+	a.newTabModels()
 	a.statusBar.readOnly = readOnly
 	return a
+}
+
+// newTabModels starts every tab from scratch: at startup, and after a
+// switch to another cluster so no selection, open confirm or first-seen
+// time carries over.
+func (a *App) newTabModels() {
+	a.overview = NewOverviewModel(0, 0, a.persistent)
+	a.nodes = NewNodesModel(0, 0)
+	a.queries = NewQueriesModel(0, 0)
+	a.tables = NewTablesModel(0, 0)
+	a.shards = NewShardsModel(0, 0)
+	a.sql = NewSQLModel(0, 0, a.registry, a.ctx)
+	a.sql.readOnly = a.readOnly
+	a.overview.editor.readOnly = a.readOnly
+	a.shards.readOnly = a.readOnly
+}
+
+// switchCluster makes the cluster now behind the endpoint the one obsi
+// runs against, dropping everything obsi kept about the old one.
+func (a *App) switchCluster() {
+	st := a.registry.Status()
+	from := cratedb.ClusterIdentity{ID: st.ClusterID, Name: st.ClusterName}
+	a.collectors.ResetCollectors()
+	a.store.Reset(from.String(), a.foreign.String())
+	a.newTabModels()
+	a.resizeTabs()
+	a.showHelp, a.showAlerts = false, false
+	a.foreign = nil
+	a.registry.AcceptCluster(a.ctx)
 }
 
 func (a *App) Init() tea.Cmd {
@@ -100,6 +128,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		if a.foreign != nil {
+			switch {
+			case msg.Type == tea.KeyCtrlC, key.Matches(msg, a.keyMap.Quit):
+				return a, tea.Quit
+			case msg.Type == tea.KeyEnter:
+				a.switchCluster()
+			}
+			return a, nil
+		}
 		// Help modal swallows everything but its close keys and ctrl+c.
 		if a.showHelp {
 			switch {
@@ -302,6 +339,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		throttle := a.collectors.Throttle()
 		status := a.registry.Status()
 		a.store.ObserveConnection(status.Connected)
+		a.store.ObserveCluster(status)
+		a.foreign = status.Foreign
 		hint := a.snapshotHint()
 		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
 		a.current().Refresh(snap)
@@ -344,6 +383,9 @@ func (a *App) View() string {
 	}
 	if a.showAlerts {
 		body = renderAlerts(a.alerts, a.alertScroll, a.width, a.bodyHeight())
+	}
+	if a.foreign != nil {
+		body = renderClusterSwitch(a.statusBar.status, *a.foreign, a.width, a.bodyHeight())
 	}
 
 	status := a.statusBar.View()

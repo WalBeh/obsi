@@ -101,6 +101,21 @@ func (c *Client) Ping(ctx context.Context) (time.Duration, error) {
 	return time.Since(start), err
 }
 
+// Identify returns sys.cluster's id and name. The id is random per cluster
+// and survives restarts; names repeat across clusters (e.g. "crate" on k8s).
+func (c *Client) Identify(ctx context.Context) (ClusterIdentity, time.Duration, error) {
+	start := time.Now()
+	resp, err := c.Query(ctx, "SELECT id, name FROM sys.cluster"+QueryTag)
+	if err != nil {
+		return ClusterIdentity{}, time.Since(start), err
+	}
+	var id ClusterIdentity
+	if len(resp.Rows) > 0 {
+		id = ClusterIdentity{ID: ToString(resp.Rows[0][0]), Name: ToString(resp.Rows[0][1])}
+	}
+	return id, time.Since(start), nil
+}
+
 // BaseURL returns the client's base URL.
 func (c *Client) BaseURL() string {
 	return c.baseURL

@@ -10,12 +10,34 @@ import (
 	"time"
 )
 
+// ClusterIdentity is who answers behind the endpoint.
+type ClusterIdentity struct {
+	ID, Name string
+}
+
+// String is the name plus the start of the id, since clusters behind k8s
+// port-forwards are often all called "crate".
+func (c ClusterIdentity) String() string {
+	id := c.ID
+	if len(id) > 8 {
+		id = id[:8]
+	}
+	return c.Name + " (" + id + ")"
+}
+
+// ErrClusterChanged is returned for every query while the endpoint answers
+// as a different cluster than obsi started with (a k8s port-forward
+// restarted against another cluster) and the user hasn't switched yet.
+var ErrClusterChanged = errors.New("the endpoint answers as a different cluster; paused")
+
 // RegistryStatus represents the current connection state for display.
 type RegistryStatus struct {
 	Connected       bool
 	PrimaryOK       bool   // whether the primary/LB endpoint is reachable
 	ActiveNode      string // name of the node that last answered a query
 	ClusterName     string
+	ClusterID       string
+	Foreign         *ClusterIdentity // set while a different cluster answers
 	TotalNodes      int
 	HealthyNodes    int  // direct nodes reachable (may be 0 for cloud clusters)
 	DirectReachable bool // whether any direct node is reachable
@@ -63,6 +85,8 @@ type Registry struct {
 	primary     *Client
 	nodes       map[string]*nodeEntry
 	clusterName string
+	clusterID   string
+	foreign     *ClusterIdentity
 	lastActive  string // name of node that last answered successfully
 
 	primaryOK    bool // whether primary/LB is reachable
@@ -113,22 +137,16 @@ func (r *Registry) OnRecovery(fn func()) {
 
 // Bootstrap connects to CrateDB and discovers all nodes.
 func (r *Registry) Bootstrap(ctx context.Context) error {
-	// Get cluster name
-	start := time.Now()
-	resp, err := r.primary.Query(ctx, "SELECT name FROM sys.cluster"+QueryTag)
+	id, dur, err := r.primary.Identify(ctx)
 	if err != nil {
-		r.recordQuery(QueryLabelBootstrap, time.Since(start), 0, err)
+		r.recordQuery(QueryLabelBootstrap, dur, 0, err)
 		return fmt.Errorf("bootstrap cluster name: %w", err)
 	}
-	r.recordQuery(QueryLabelBootstrap, time.Since(start), int64(len(resp.Rows)), nil)
-	if len(resp.Rows) > 0 {
-		if name, ok := resp.Rows[0][0].(string); ok {
-			r.mu.Lock()
-			r.clusterName = name
-			r.primaryOK = true
-			r.mu.Unlock()
-		}
-	}
+	r.recordQuery(QueryLabelBootstrap, dur, 1, nil)
+	r.mu.Lock()
+	r.clusterName, r.clusterID = id.Name, id.ID
+	r.primaryOK = true
+	r.mu.Unlock()
 
 	// Discover nodes
 	return r.Refresh(ctx)
@@ -157,19 +175,66 @@ func (r *Registry) Reconnect(ctx context.Context) {
 		pingCtx, cancel := context.WithTimeout(ctx, r.pingTimeout)
 		defer cancel()
 
-		_, err := r.primary.Ping(pingCtx)
+		id, _, err := r.primary.Identify(pingCtx)
 		r.mu.Lock()
 		r.primaryOK = err == nil
 		r.mu.Unlock()
 
-		if err == nil {
+		if err != nil {
+			slog.Warn("reconnect failed", "error", err)
+			return
+		}
+		if r.checkIdentity(id) {
 			slog.Info("primary endpoint reconnected")
 			_ = r.Refresh(ctx)
 			if r.onRecovery != nil {
 				r.onRecovery()
 			}
-		} else {
-			slog.Warn("reconnect failed", "error", err)
+		}
+	}()
+}
+
+// checkIdentity compares who answered with the cluster obsi runs against
+// and records a foreign one. Returns true when it's the same cluster.
+func (r *Registry) checkIdentity(id ClusterIdentity) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.clusterID == "" {
+		r.clusterID = id.ID
+	}
+	if id.ID == r.clusterID {
+		if r.foreign != nil {
+			slog.Info("original cluster is back behind the endpoint", "cluster", id.Name)
+			r.foreign = nil
+		}
+		return true
+	}
+	if r.foreign == nil || r.foreign.ID != id.ID {
+		slog.Warn("endpoint answers as a different cluster", "was", r.clusterName, "now", id.Name)
+	}
+	r.foreign = &id
+	return false
+}
+
+// AcceptCluster makes the foreign cluster the one obsi runs against: node
+// list rediscovered, queries allowed again, collectors triggered via
+// OnRecovery. The caller resets whatever it kept about the old cluster
+// first.
+func (r *Registry) AcceptCluster(ctx context.Context) {
+	r.mu.Lock()
+	if r.foreign == nil {
+		r.mu.Unlock()
+		return
+	}
+	r.clusterID, r.clusterName = r.foreign.ID, r.foreign.Name
+	r.foreign = nil
+	r.nodes = make(map[string]*nodeEntry)
+	r.latency = NewLatencyTracker(latencyBufferSize)
+	r.mu.Unlock()
+	go func() {
+		_ = r.Refresh(ctx)
+		if r.onRecovery != nil {
+			r.onRecovery()
 		}
 	}()
 }
@@ -178,6 +243,12 @@ func (r *Registry) Reconnect(ctx context.Context) {
 // Only fetches the columns needed for node discovery and failover —
 // full node metrics are collected by the nodes collector.
 func (r *Registry) Refresh(ctx context.Context) error {
+	r.mu.RLock()
+	foreign := r.foreign != nil
+	r.mu.RUnlock()
+	if foreign {
+		return ErrClusterChanged
+	}
 	start := time.Now()
 	resp, err := r.queryAny(ctx, `SELECT id, name, hostname, rest_url FROM sys.nodes`+QueryTag)
 	dur := time.Since(start)
@@ -245,6 +316,13 @@ func (r *Registry) Stop() {
 // CrateDB application errors (4xx/5xx) are returned immediately without failover,
 // since they indicate a query-level problem that won't resolve on a different node.
 func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) (*SQLResponse, error) {
+	r.mu.RLock()
+	foreign := r.foreign != nil
+	r.mu.RUnlock()
+	if foreign {
+		return nil, ErrClusterChanged
+	}
+
 	// Try primary first
 	resp, err := r.primary.Query(ctx, stmt, args...)
 	if err == nil {
@@ -331,6 +409,7 @@ func (r *Registry) Status() RegistryStatus {
 
 	status := RegistryStatus{
 		ClusterName:  r.clusterName,
+		ClusterID:    r.clusterID,
 		TotalNodes:   len(r.nodes),
 		ActiveNode:   r.lastActive,
 		PrimaryOK:    r.primaryOK,
@@ -344,6 +423,10 @@ func (r *Registry) Status() RegistryStatus {
 		status.Nodes = append(status.Nodes, e.Health)
 	}
 
+	if r.foreign != nil {
+		f := *r.foreign
+		status.Foreign = &f
+	}
 	status.DirectReachable = status.HealthyNodes > 0
 	status.Connected = r.primaryOK || status.DirectReachable
 	status.Latency = r.latency.Stats()
@@ -374,7 +457,9 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 		pingCtx, cancel := context.WithTimeout(ctx, r.pingTimeout)
 		defer cancel()
 
-		latency, err := r.primary.Ping(pingCtx)
+		// Identifying on every beat also catches a port-forward restarted
+		// against another cluster between two beats, with no outage seen.
+		id, latency, err := r.primary.Identify(pingCtx)
 		if err != nil {
 			r.recordQuery(QueryLabelHeartbeat, latency, 0, err)
 		} else {
@@ -383,11 +468,14 @@ func (r *Registry) runHeartbeat(ctx context.Context) {
 		r.mu.Lock()
 		wasPrimaryOK := r.primaryOK
 		r.primaryOK = err == nil
+		wasForeign := r.foreign != nil
 		r.mu.Unlock()
 
 		if err != nil {
 			slog.Debug("primary heartbeat failed", "error", err)
-		} else if !wasPrimaryOK {
+		} else if !r.checkIdentity(id) {
+			return
+		} else if !wasPrimaryOK || wasForeign {
 			slog.Info("primary endpoint recovered")
 			// Re-discover nodes on recovery
 			_ = r.Refresh(ctx)

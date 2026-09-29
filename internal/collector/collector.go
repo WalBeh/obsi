@@ -15,6 +15,12 @@ type Collector interface {
 	Interval() time.Duration
 }
 
+// Resetter is implemented by collectors that keep state about the cluster
+// between polls, dropped when obsi switches to another cluster.
+type Resetter interface {
+	Reset()
+}
+
 // FastPathCollector is an optional interface for collectors that support
 // a lightweight, high-frequency collection mode for active monitoring.
 type FastPathCollector interface {

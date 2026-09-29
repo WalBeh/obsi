@@ -4,6 +4,17 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-09-29
+
+### Added
+
+- **Notices a different cluster behind the endpoint**, e.g. a k8s
+  port-forward restarted against another cluster. The heartbeat reads
+  `sys.cluster`'s id (names like `crate` repeat), and on a mismatch obsi
+  stops polling and refuses writes, raises an alert and asks: `enter`
+  switches to the new cluster and drops what obsi kept about the old one,
+  `q` quits. If the old cluster comes back first, obsi carries on.
+
 ## [0.3.1] - 2026-09-25
 
 ### Added

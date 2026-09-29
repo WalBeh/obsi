@@ -16,7 +16,12 @@ const stalenessMultiplier = 3
 // All writes come from collectors; all reads come from the TUI via Snapshot().
 type Store struct {
 	mu sync.RWMutex
+	data
+}
 
+// data is everything the store knows about one cluster, kept apart from mu
+// so Reset can replace it in one assignment.
+type data struct {
 	// Latest snapshots
 	clusterSettings cratedb.ClusterSettings
 	summit          cratedb.Summit
@@ -133,7 +138,7 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 		staleAfter[name] = cc.Interval.Duration * stalenessMultiplier
 	}
 
-	return &Store{
+	return &Store{data: data{
 		knownNodes:    make(map[string]NodeSnapshot),
 		prevIOSample:  make(map[string]ioSample),
 		prevRejected:  make(map[string]map[string]int64),
@@ -149,7 +154,7 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 		observedSince:   time.Now(),
 		queriesInterval: collectors["queries"].Interval.Duration,
 		inflight:        make(map[string]*ObservedQuery),
-	}
+	}}
 }
 
 // RegisterCollectorStaleness adds a collector to the staleness-tracking map

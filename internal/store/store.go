@@ -27,6 +27,8 @@ type data struct {
 	summit          cratedb.Summit
 	clusterChecks   []cratedb.ClusterCheck
 	tableHealth     []cratedb.TableHealth
+	clusterStatus   *cratedb.ClusterHealth
+	nodeChecks      []cratedb.NodeCheck
 	nodes           []NodeSnapshot
 	activeQueries   []cratedb.ActiveQuery
 	tables          []cratedb.TableInfo
@@ -86,6 +88,8 @@ type StoreSnapshot struct {
 	Summit          cratedb.Summit
 	ClusterChecks   []cratedb.ClusterCheck
 	TableHealth     []cratedb.TableHealth
+	ClusterStatus   *cratedb.ClusterHealth // nil until sys.cluster_health answered
+	NodeChecks      []cratedb.NodeCheck
 	Nodes           []NodeSnapshot
 	ActiveQueries   []cratedb.ActiveQuery
 	Tables          []cratedb.TableInfo
@@ -194,6 +198,16 @@ func (s *Store) UpdateClusterHealth(checks []cratedb.ClusterCheck, health []crat
 	s.alerts.sync("health", time.Now(), healthAlerts(checks, health))
 }
 
+// UpdateClusterStatus stores sys.cluster_health (nil when it didn't answer)
+// and sys.node_checks.
+func (s *Store) UpdateClusterStatus(cluster *cratedb.ClusterHealth, nodeChecks []cratedb.NodeCheck) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clusterStatus = cluster
+	s.nodeChecks = nodeChecks
+	s.alerts.sync("clusterstatus", time.Now(), clusterStatusAlerts(cluster, nodeChecks))
+}
+
 // ClusterHealth returns the worst table health across the cluster: "RED", "YELLOW", "GREEN", or "" if unknown.
 func (s *Store) ClusterHealth() string {
 	s.mu.RLock()
@@ -246,6 +260,11 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeHealth {
 		snap.ClusterChecks = copySlice(s.clusterChecks)
 		snap.TableHealth = copySlice(s.tableHealth)
+		if s.clusterStatus != nil {
+			cs := *s.clusterStatus
+			snap.ClusterStatus = &cs
+		}
+		snap.NodeChecks = copySlice(s.nodeChecks)
 	}
 	if hint.IncludeNodes {
 		snap.Nodes = copySlice(s.nodes)

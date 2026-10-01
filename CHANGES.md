@@ -4,6 +4,25 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.3] - 2026-10-01
+
+### Added
+
+- **Node checks and cluster health on the Overview.** `sys.node_checks`
+  is folded over the nodes: each failing check is listed once with the
+  nodes it fails on, e.g. the shard limit (90% of
+  `cluster.max_shards_per_node`) or a disk watermark, with a hint for what
+  to do. A `Cluster` block shows `sys.cluster_health`: health, pending
+  cluster-state tasks, missing and underreplicated shards (`unknown` when
+  CrateDB can't count them). A RED cluster and failing node checks raise
+  alerts; the disk checks don't, obsi already alerts on disk usage.
+  Acknowledged checks are left out. `--doctor` checks both tables.
+
+### Fixed
+
+- Check severities were labelled INFO/WARN/CRIT; CrateDB's are LOW,
+  MEDIUM and HIGH, so level 1 is now shown as LOW.
+
 ## [0.3.2] - 2026-09-29
 
 ### Added

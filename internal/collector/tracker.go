@@ -17,6 +17,8 @@ const (
 	QuerySummit          = "cluster.summit"
 	QueryClusterChecks   = "health.checks"
 	QueryTableHealth     = "health.tables"
+	QueryClusterHealth   = "health.cluster"
+	QueryNodeChecks      = "health.node_checks"
 	QueryNodes           = "nodes.info"
 	QueryActiveJobs      = "queries.active_jobs"
 	QueryShards          = "shards.all"
@@ -91,6 +93,8 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QuerySummit, "cluster", SummitRefreshInterval},
 		{QueryClusterChecks, "health", ci("health")},
 		{QueryTableHealth, "health", ci("health")},
+		{QueryClusterHealth, "health", ci("health")},
+		{QueryNodeChecks, "health", ci("health")},
 		{QueryNodes, "nodes", ci("nodes")},
 		{QueryActiveJobs, "queries", ci("queries")},
 		{QueryShards, "shards", ci("shards")},

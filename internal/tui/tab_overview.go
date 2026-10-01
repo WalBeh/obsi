@@ -34,7 +34,11 @@ func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 	// Re-render all sections into lines
 	var sections []string
 	sections = append(sections, m.renderClusterSettings())
+	if s := m.renderClusterStatus(); s != "" {
+		sections = append(sections, s)
+	}
 	sections = append(sections, m.renderChecks())
+	sections = append(sections, m.renderNodeChecks())
 	if s := m.renderCircuitBreakers(); s != "" {
 		sections = append(sections, s)
 	}
@@ -139,20 +143,8 @@ func (m OverviewModel) renderChecks() string {
 			passedCount++
 			continue
 		}
-		sev := "?"
-		style := styleDim
-		switch c.Severity {
-		case 1:
-			sev = "INFO"
-			style = styleHealthGreen
-		case 2:
-			sev = "WARN"
-			style = styleHealthYellow
-		case 3:
-			sev = "CRIT"
-			style = styleHealthRed
-		}
-		failed = append(failed, fmt.Sprintf("  %s %s", style.Render(fmt.Sprintf("[%s]", sev)), c.Description))
+		label, style := checkSeverity(c.Severity)
+		failed = append(failed, fmt.Sprintf("  %s %s", style.Render(fmt.Sprintf("[%s]", label)), c.Description))
 	}
 
 	var lines []string

@@ -156,6 +156,51 @@ func healthAlerts(checks []cratedb.ClusterCheck, health []cratedb.TableHealth) [
 	return out
 }
 
+// diskNodeChecks are the watermark checks (high, low, flood stage). nodeAlerts
+// already raises these from the node's disk usage, so they stay out of here.
+var diskNodeChecks = map[int]bool{5: true, 6: true, 7: true}
+
+// clusterStatusAlerts raises an alert while the cluster is RED and one per
+// failing, unacknowledged sys.node_checks entry, folded over all nodes.
+func clusterStatusAlerts(cluster *cratedb.ClusterHealth, nodeChecks []cratedb.NodeCheck) []Alert {
+	var out []Alert
+	if cluster != nil && cluster.Health == "RED" {
+		msg := "cluster health RED"
+		if d := firstLine(cluster.Description); d != "" {
+			msg += ": " + d
+		}
+		out = append(out, Alert{Key: "cluster-health", Level: AlertCrit, Message: msg})
+	}
+	type agg struct {
+		desc     string
+		severity int
+		failed   int
+	}
+	byID := map[int]*agg{}
+	for _, c := range nodeChecks {
+		if c.Passed || c.Acknowledged || diskNodeChecks[c.ID] {
+			continue
+		}
+		a := byID[c.ID]
+		if a == nil {
+			a = &agg{desc: firstLine(c.Description)}
+			byID[c.ID] = a
+		}
+		a.severity = max(a.severity, c.Severity)
+		a.failed++
+	}
+	for id, a := range byID {
+		level := AlertWarn
+		if a.severity >= 3 {
+			level = AlertCrit
+		}
+		out = append(out, Alert{Key: "nodecheck/" + strconv.Itoa(id), Level: level,
+			Message: fmt.Sprintf("node check failed on %d node(s): %s", a.failed, a.desc)})
+	}
+	sortAlerts(out)
+	return out
+}
+
 // nodeAlerts covers nodes that left, heap above heapAlertPct and disk past a
 // percentage watermark. A node alert only clears when the node is back:
 // the store forgets gone nodes after nodeDisappearanceTimeout.

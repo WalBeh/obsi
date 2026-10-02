@@ -59,5 +59,53 @@ func (c *HealthCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 	}
 
 	st.UpdateClusterHealth(checks, health)
+
+	// Both tables are extra: a failure here (missing table on an old version,
+	// no privilege) leaves the checks and table health above intact.
+	var cluster *cratedb.ClusterHealth
+	if resp, err := trackedQuery(ctx, c.tracker, QueryClusterHealth, reg, clusterHealthQuery); err == nil {
+		cluster = parseClusterHealth(resp.Rows)
+	}
+	var nodeChecks []cratedb.NodeCheck
+	if resp, err := trackedQuery(ctx, c.tracker, QueryNodeChecks, reg, nodeChecksQuery); err == nil {
+		nodeChecks = parseNodeChecks(resp.Rows)
+	}
+	st.UpdateClusterStatus(cluster, nodeChecks)
 	return nil
+}
+
+const clusterHealthQuery = `SELECT health, description, pending_tasks, missing_shards, underreplicated_shards FROM sys.cluster_health`
+
+const nodeChecksQuery = `SELECT id, node_id, severity, description, passed, acknowledged FROM sys.node_checks ORDER BY id, node_id`
+
+func parseClusterHealth(rows [][]interface{}) *cratedb.ClusterHealth {
+	if len(rows) == 0 || len(rows[0]) < 5 {
+		return nil
+	}
+	r := rows[0]
+	return &cratedb.ClusterHealth{
+		Health:          cratedb.ToString(r[0]),
+		Description:     cratedb.ToString(r[1]),
+		PendingTasks:    cratedb.ToInt64(r[2]),
+		MissingShards:   cratedb.ToInt64(r[3]),
+		UnderReplicated: cratedb.ToInt64(r[4]),
+	}
+}
+
+func parseNodeChecks(rows [][]interface{}) []cratedb.NodeCheck {
+	out := make([]cratedb.NodeCheck, 0, len(rows))
+	for _, r := range rows {
+		if len(r) < 6 {
+			continue
+		}
+		out = append(out, cratedb.NodeCheck{
+			ID:           int(cratedb.ToInt64(r[0])),
+			NodeID:       cratedb.ToString(r[1]),
+			Severity:     int(cratedb.ToInt64(r[2])),
+			Description:  cratedb.ToString(r[3]),
+			Passed:       cratedb.ToBool(r[4]),
+			Acknowledged: cratedb.ToBool(r[5]),
+		})
+	}
+	return out
 }

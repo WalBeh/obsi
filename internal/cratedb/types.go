@@ -128,6 +128,27 @@ type ClusterCheck struct {
 	Passed      bool
 }
 
+// NodeCheck represents a row from sys.node_checks: one check on one node.
+type NodeCheck struct {
+	ID           int
+	NodeID       string
+	Severity     int
+	Description  string
+	Passed       bool
+	Acknowledged bool // a failed check the user acknowledged, see sys.node_checks
+}
+
+// ClusterHealth represents the row from sys.cluster_health. Missing and
+// underreplicated shards are -1 when CrateDB can't count them, e.g. while no
+// master is elected.
+type ClusterHealth struct {
+	Health          string // GREEN, YELLOW, RED
+	Description     string
+	PendingTasks    int64
+	MissingShards   int64
+	UnderReplicated int64
+}
+
 // TableHealth represents a row from sys.health.
 type TableHealth struct {
 	TableSchema     string

@@ -167,6 +167,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 
 - Failover-aware connection: works through load balancers, falls back to direct node IPs
 - Node disappearance detection with "last seen" tracking
+- Node checks and cluster health on the Overview: `sys.node_checks` folded over the nodes (shard limit, disk watermarks, recovery settings) with the nodes each failing check hits, and `sys.cluster_health` with pending tasks and missing/underreplicated shards. A RED cluster or a failing check raises an alert
 - Cluster identity check: the heartbeat reads `sys.cluster`'s id, so a port-forward that comes back pointing at another cluster (same name or not) is noticed within one heartbeat. Polling and writes pause behind a notice until you switch (`enter`, clears obsi's history of the old cluster) or quit (`q`); if the original cluster comes back, obsi just continues
 - Disk watermark visualization (low/high/flood markers on disk bars)
 - Inline cluster settings editor (allocation, rebalance, recovery, watermarks, max shards)

@@ -111,3 +111,29 @@ func TestSnapshotAlerts(t *testing.T) {
 		t.Errorf("firing = %v, want none after a good snapshot", firing(st))
 	}
 }
+
+func TestClusterStatusAlerts(t *testing.T) {
+	s := New(10, nil)
+	checks := []cratedb.NodeCheck{
+		{ID: 8, NodeID: "a", Severity: 2, Description: "shards reach 90%\nmore", Passed: false},
+		{ID: 8, NodeID: "b", Severity: 2, Description: "shards reach 90%", Passed: false},
+		{ID: 8, NodeID: "c", Severity: 2, Description: "shards reach 90%", Passed: true},
+		{ID: 5, NodeID: "a", Severity: 3, Description: "high watermark", Passed: false}, // nodeAlerts covers disks
+		{ID: 3, NodeID: "a", Severity: 2, Description: "acked", Passed: false, Acknowledged: true},
+	}
+	s.UpdateClusterStatus(&cratedb.ClusterHealth{Health: "RED", Description: "no master", MissingShards: -1}, checks)
+	got := strings.Join(firing(s.Snapshot(1, SnapshotHint{}).Alerts), "|")
+	for _, want := range []string{"cluster health RED: no master", "node check failed on 2 node(s): shards reach 90%"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("alerts %q lack %q", got, want)
+		}
+	}
+	if strings.Contains(got, "high watermark") || strings.Contains(got, "acked") {
+		t.Errorf("disk or acknowledged check raised an alert: %q", got)
+	}
+
+	s.UpdateClusterStatus(&cratedb.ClusterHealth{Health: "GREEN"}, nil)
+	if f := firing(s.Snapshot(1, SnapshotHint{}).Alerts); len(f) != 0 {
+		t.Errorf("still firing after recovery: %v", f)
+	}
+}

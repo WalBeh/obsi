@@ -74,6 +74,14 @@ func runDoctorChecks(ctx context.Context, registry *cratedb.Registry) {
 		"SELECT count(*) FROM sys.health",
 		"Required for table health (Overview tab)")
 
+	// 5b. sys.cluster_health, sys.node_checks
+	checkTable(ctx, registry, "sys.cluster_health",
+		"SELECT count(*) FROM sys.cluster_health",
+		"Used for cluster health and pending tasks (Overview tab)")
+	checkTable(ctx, registry, "sys.node_checks",
+		"SELECT count(*) FROM sys.node_checks",
+		"Used for node checks such as the shard limit (Overview tab)")
+
 	// 6. sys.shards
 	checkTable(ctx, registry, "sys.shards",
 		"SELECT count(*) FROM sys.shards",

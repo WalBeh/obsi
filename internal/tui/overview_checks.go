@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
 // checkSeverity names sys.checks and sys.node_checks severities: CrateDB's
@@ -22,15 +23,8 @@ func checkSeverity(sev int) (string, lipgloss.Style) {
 	return "?", styleDim
 }
 
-// nodeCheckTitles and nodeCheckFixes cover the checks whose description is a
-// paragraph. Other checks fall back to the first line of the description.
-var nodeCheckTitles = map[int]string{
-	5: "high disk watermark exceeded",
-	6: "low disk watermark exceeded",
-	7: "flood stage disk watermark exceeded",
-	8: "shards reach 90% of cluster.max_shards_per_node",
-}
-
+// nodeCheckFixes says what to do about the checks where that isn't obvious
+// from cratedb.NodeCheckTitle.
 var nodeCheckFixes = map[int]string{
 	5: "free space or add a node; raising the watermark only buys time",
 	6: "free space or add a node before the high watermark stops allocation",
@@ -95,7 +89,7 @@ func (m OverviewModel) renderNodeChecks() string {
 		nodes[c.NodeID] = true
 		g := groups[c.ID]
 		if g == nil {
-			g = &group{desc: firstLine(c.Description)}
+			g = &group{desc: cratedb.NodeCheckTitle(c.ID, c.Description)}
 			groups[c.ID] = g
 		}
 		if c.Passed {
@@ -129,12 +123,8 @@ func (m OverviewModel) renderNodeChecks() string {
 		failedIDs++
 		sort.Strings(g.failed)
 		label, style := checkSeverity(g.severity)
-		text := g.desc
-		if t, ok := nodeCheckTitles[id]; ok {
-			text = t
-		}
 		detail = append(detail, fmt.Sprintf("  %s #%d %s on %d of %d nodes",
-			style.Render("["+label+"]"), id, text, len(g.failed), len(nodes)))
+			style.Render("["+label+"]"), id, g.desc, len(g.failed), len(nodes)))
 		detail = append(detail, "         "+strings.Join(g.failed, "  "))
 		if fix, ok := nodeCheckFixes[id]; ok {
 			detail = append(detail, "         "+styleDim.Render("fix: "+fix))

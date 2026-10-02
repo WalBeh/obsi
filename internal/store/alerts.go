@@ -183,7 +183,7 @@ func clusterStatusAlerts(cluster *cratedb.ClusterHealth, nodeChecks []cratedb.No
 		}
 		a := byID[c.ID]
 		if a == nil {
-			a = &agg{desc: firstLine(c.Description)}
+			a = &agg{desc: cratedb.NodeCheckTitle(c.ID, c.Description)}
 			byID[c.ID] = a
 		}
 		a.severity = max(a.severity, c.Severity)

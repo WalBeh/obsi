@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,16 +116,22 @@ func TestSnapshotAlerts(t *testing.T) {
 func TestClusterStatusAlerts(t *testing.T) {
 	s := New(10, nil)
 	checks := []cratedb.NodeCheck{
-		{ID: 8, NodeID: "a", Severity: 2, Description: "shards reach 90%\nmore", Passed: false},
-		{ID: 8, NodeID: "b", Severity: 2, Description: "shards reach 90%", Passed: false},
-		{ID: 8, NodeID: "c", Severity: 2, Description: "shards reach 90%", Passed: true},
+		{ID: 8, NodeID: "a", Severity: 2, Description: "The amount of shards on the node reached 90 % of the limit. Creating new tables ... https://cr8.is/d-node-check-8", Passed: false},
+		{ID: 8, NodeID: "b", Severity: 2, Description: "The amount of shards on the node reached 90 % of the limit.", Passed: false},
+		{ID: 8, NodeID: "c", Severity: 2, Description: "The amount of shards on the node reached 90 % of the limit.", Passed: true},
+		{ID: 42, NodeID: "a", Severity: 1, Description: "Something new is off. Long explanation follows.", Passed: false},
 		{ID: 5, NodeID: "a", Severity: 3, Description: "high watermark", Passed: false}, // nodeAlerts covers disks
 		{ID: 3, NodeID: "a", Severity: 2, Description: "acked", Passed: false, Acknowledged: true},
 	}
 	s.UpdateClusterStatus(&cratedb.ClusterHealth{Health: "RED", Description: "no master", MissingShards: -1}, checks)
-	got := strings.Join(firing(s.Snapshot(1, SnapshotHint{}).Alerts), "|")
-	for _, want := range []string{"cluster health RED: no master", "node check failed on 2 node(s): shards reach 90%"} {
-		if !strings.Contains(got, want) {
+	fired := firing(s.Snapshot(1, SnapshotHint{}).Alerts)
+	got := strings.Join(fired, "|")
+	for _, want := range []string{
+		"cluster health RED: no master",
+		"node check failed on 2 node(s): shards reach 90% of cluster.max_shards_per_node",
+		"node check failed on 1 node(s): Something new is off",
+	} {
+		if !slices.Contains(fired, want) {
 			t.Errorf("alerts %q lack %q", got, want)
 		}
 	}

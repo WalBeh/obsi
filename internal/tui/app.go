@@ -247,21 +247,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case SetSettingMsg:
-		reg := a.registry
-		ctx := a.ctx
-		persistence := "PERSISTENT"
-		if !msg.Persistent {
-			persistence = "TRANSIENT"
-		}
-		stmt := fmt.Sprintf(`SET GLOBAL %s "%s" = ?`, persistence, msg.SettingPath)
-		slotIdx := msg.SlotIndex
-		return a, func() tea.Msg {
-			_, err := reg.Query(ctx, stmt+cratedb.ChangeTag, msg.Value)
-			if err != nil {
-				return SetSettingResultMsg{SlotIndex: slotIdx, Error: err.Error()}
-			}
-			return SetSettingResultMsg{SlotIndex: slotIdx}
-		}
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return applySetting(ctx, reg, msg) }
 
 	case RunFixMsg:
 		reg, ctx, stmt := a.registry, a.ctx, msg.Stmt

@@ -18,10 +18,13 @@ type SetSettingMsg struct {
 	Persistent  bool
 }
 
-// SetSettingResultMsg carries the result back.
+// SetSettingResultMsg carries the result back. Note says what else obsi had
+// to do, e.g. also set a TRANSIENT value that was overriding the PERSISTENT
+// one.
 type SetSettingResultMsg struct {
 	SlotIndex int
 	Error     string
+	Note      string
 }
 
 // slotKind determines how a slot is edited.
@@ -70,6 +73,8 @@ type settingsEditor struct {
 	errorSlot   int
 	errorMsg    string
 	errorAt     time.Time
+	note        string
+	noteAt      time.Time
 
 	// Config
 	persistent bool // SET GLOBAL PERSISTENT vs TRANSIENT
@@ -126,6 +131,9 @@ func (e *settingsEditor) syncFromSettings(cs cratedb.ClusterSettings) {
 	if e.errorSlot >= 0 && time.Since(e.errorAt) > 5*time.Second {
 		e.errorSlot = -1
 		e.errorMsg = ""
+	}
+	if e.note != "" && time.Since(e.noteAt) > 10*time.Second {
+		e.note = ""
 	}
 }
 
@@ -283,6 +291,7 @@ func (e *settingsEditor) handleResult(msg SetSettingResultMsg) {
 		e.errorSlot = -1
 		e.errorMsg = ""
 	}
+	e.note, e.noteAt = msg.Note, time.Now()
 }
 
 // renderValue renders a single slot value with appropriate styling for edit mode.
@@ -355,10 +364,14 @@ func (e *settingsEditor) renderEditHint() string {
 	return styleDim.Render(fmt.Sprintf("  [↑↓] navigate  [Enter] edit  [Esc] exit  (%s)", mode))
 }
 
-// renderError returns the error message if one is active.
+// renderError returns the error message if one is active, else the note
+// from the last change.
 func (e *settingsEditor) renderError() string {
-	if e.errorSlot < 0 {
-		return ""
+	if e.errorSlot >= 0 {
+		return "  " + styleHealthRed.Render("Error: "+e.errorMsg)
 	}
-	return "  " + styleHealthRed.Render("Error: "+e.errorMsg)
+	if e.note != "" {
+		return "  " + styleHealthYellow.Render(e.note)
+	}
+	return ""
 }

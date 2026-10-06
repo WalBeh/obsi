@@ -4,6 +4,17 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.4] - 2026-10-06
+
+### Fixed
+
+- Changing a setting in the Overview editor (`e`) could say ✓ and change
+  nothing: a TRANSIENT value wins over the PERSISTENT one obsi sets, e.g.
+  a `max_bytes_per_sec` left by the recovery throttle form. obsi now
+  compares the value in effect before and after; if it didn't move, it
+  sets the value TRANSIENT as well and says which transient value was in
+  the way.
+
 ## [0.3.3] - 2026-10-02
 
 ### Added

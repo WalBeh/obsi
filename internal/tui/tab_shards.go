@@ -45,8 +45,11 @@ type ShardsModel struct {
 	showRecovery bool
 	throttle     *throttleForm // e in the recovery view
 	recoveries   []recovery
-	recoverySeen map[string]time.Time // recovery key -> first seen, for RUNNING
+	recoverySeen map[string]time.Time // recovery key -> first seen, for ELAPSED
+	minShare     map[string]int64     // recovery key -> smallest throttle share seen
 	queued       int                  // copies waiting for a recovery slot
+	finished     []finishedRecovery   // newest first, with the new copy's own record
+	pending      []finishedRecovery   // gone from the running list, record not read yet
 
 	readOnly    bool
 	fixTarget   *shardFix // x confirm modal

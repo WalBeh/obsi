@@ -4,6 +4,15 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- A moving shard's detail on the Shards tab showed a recovery bar such as
+  "0.0% stage: DONE". That was the source copy's own, long finished
+  recovery; CrateDB doesn't list the receiving copy while a shard moves.
+  The detail now says no progress is reported for a move.
+
 ## [0.3.4] - 2026-10-06
 
 ### Fixed

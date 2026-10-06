@@ -280,6 +280,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return ShardNoticeMsg{Text: "recovery throttle updated", Throttle: true}
 		}
 
+	case FinishedRecoveriesMsg:
+		a.shards = a.shards.addFinished(msg)
+		return a, nil
+
 	case ShardNoticeMsg:
 		a.shards = a.shards.notice(msg.Text, msg.IsErr)
 		if msg.Ran {
@@ -331,6 +335,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		hint := a.snapshotHint()
 		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
 		a.current().Refresh(snap)
+		finished := a.shards.takePending(a.ctx, a.registry)
 		var ring tea.Cmd
 		if a.alertBell && snap.Alerts.Raised > a.alerts.Raised {
 			ring = bell
@@ -351,7 +356,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// jobs_log is only polled while the slowest board is on screen.
 		a.collectors.SetJobsLogView(a.ctx, a.activeTab == TabQueries && a.queries.view() == queriesSlowest, a.queries.logMode)
-		return a, tea.Batch(a.doStoreTick(), ring)
+		return a, tea.Batch(a.doStoreTick(), ring, finished)
 	}
 
 	return a, nil

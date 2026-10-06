@@ -4,6 +4,29 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- **Recovery view says whether the throttle is the bottleneck.** RUNNING
+  and AT LIMIT are now ELAPSED (since obsi first saw the recovery) and
+  FASTEST (the size at the copy's share of `max_bytes_per_sec`), with a
+  STATUS: once ELAPSED passes FASTEST it says the copy is slower than the
+  throttle, i.e. disk, network or replay limit it and raising the throttle
+  won't help. Below the running list, recoveries that finished while the
+  Shards tab was open show what the new copy recorded: time taken, bytes
+  copied, the actual MB/s against its share, and whether it was rebuilt
+  from operations instead of files.
+
+### Fixed
+
+- The recovery view split `max_bytes_per_sec` over the receiving node's
+  recoveries only. It caps a node's incoming and outgoing recovery traffic
+  together, so a node sending one copy and receiving another gives each
+  half (seen on the shardlab); the busier of the two nodes counts now.
+- A moving replica was shown copying from the node it leaves. It copies
+  from the primary, so FROM and SIZE are the primary's now.
+
 ## [0.3.5] - 2026-10-06
 
 ### Fixed

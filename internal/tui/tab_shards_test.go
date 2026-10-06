@@ -103,7 +103,8 @@ func TestProblemShardsFromAllocations(t *testing.T) {
 	shards := []cratedb.ShardInfo{
 		{SchemaName: "doc", TableName: "big", ID: 1, Primary: true, RoutingState: "STARTED", NodeID: "n3", NodeName: "lab3", Size: 1000},
 		{SchemaName: "doc", TableName: "big", ID: 1, RoutingState: "UNASSIGNED"},
-		{SchemaName: "doc", TableName: "t", ID: 0, Primary: true, RoutingState: "RELOCATING", NodeID: "n1", NodeName: "lab1", RelocatingNode: "n3", Size: 50},
+		{SchemaName: "doc", TableName: "t", ID: 0, Primary: true, RoutingState: "RELOCATING", NodeID: "n1", NodeName: "lab1", RelocatingNode: "n3", Size: 50,
+			RecoveryStage: "DONE", RecoveryPercent: 0}, // the source copy's own, finished recovery
 		{SchemaName: "doc", TableName: "x", ID: 0, NodeID: "n2", NodeName: "lab2", RoutingState: "STARTED"},
 	}
 	allocs := []cratedb.AllocationInfo{
@@ -118,7 +119,8 @@ func TestProblemShardsFromAllocations(t *testing.T) {
 	if rec.NodeName != "lab2" || rec.Size != 1000 {
 		t.Errorf("recovering replica = %+v, want on lab2 with the primary's size", rec)
 	}
-	if d := m.renderDetail(m.problemShards[1]); !strings.Contains(d, "moving to lab3") {
+	d := m.renderDetail(m.problemShards[1])
+	if !strings.Contains(d, "moving to lab3") || !strings.Contains(d, "no progress for a move") || strings.Contains(d, "stage: DONE") {
 		t.Errorf("detail:\n%s", d)
 	}
 }

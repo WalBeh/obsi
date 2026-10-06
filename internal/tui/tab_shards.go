@@ -332,7 +332,7 @@ func (m ShardsModel) View() string {
 
 			// Show inline recovery progress for recovering shards
 			recovery := ""
-			if s.RecoveryStage != "" && s.RecoveryStage != "DONE" {
+			if s.RecoveryStage != "" && s.RecoveryStage != "DONE" && b != bucketMoving {
 				pct := s.RecoveryPercent
 				if pct > 100 {
 					pct = 100
@@ -423,7 +423,11 @@ func (m ShardsModel) renderDetail(s cratedb.ShardInfo) string {
 	lines = append(lines, fmt.Sprintf("    State: %s | Size: %s | Docs: %s",
 		s.RoutingState, formatBytes(s.Size), formatRecords(s.NumDocs)))
 
-	if s.RecoveryStage != "" {
+	// A moving shard's recovery columns belong to the source copy (its own
+	// recovery, long DONE); the target isn't in sys.shards at all.
+	if b == bucketMoving {
+		lines = append(lines, "    Recovery: "+styleDim.Render("no progress for a move, CrateDB doesn't list the target copy; v shows how long it runs vs. the throttle"))
+	} else if s.RecoveryStage != "" {
 		pct := s.RecoveryPercent
 		if pct > 100 {
 			pct = 100

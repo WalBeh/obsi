@@ -31,7 +31,10 @@ obsi https://admin:password@cluster:4200 --profile prod
 obsi prod
 
 # Flags can appear anywhere
-obsi prod --doctor --skip-verify
+obsi --skip-verify prod
+
+# Check connectivity and permissions, then exit
+obsi doctor prod
 
 # Local dev (empty password auto-detected)
 obsi http://localhost:4200
@@ -42,7 +45,7 @@ obsi prod --read-write
 obsi --version
 ```
 
-Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt.
+Password resolution: `--password` flag > `OBSI_PASSWORD` env var > OS keyring > empty password > interactive prompt. The prompt only comes when the server refuses the login (401/403); a timeout or refused connection is reported as such.
 
 obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, `SHOW`, `EXPLAIN` or `WITH`, and `e` (SET GLOBAL) is refused. `K` still kills the selected query after its confirm, and the recovery throttle can be changed from the Shards recovery view; `KILL` typed in the SQL tab stays blocked. The status bar shows which mode you're in. Turn it off with `--read-write` for one run or `read_only = false` under `[connection]`. The SQL check looks at the first keyword only; a CrateDB user with just DQL privileges is the real guard.
 
@@ -93,7 +96,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 Check connectivity and permissions before launching:
 
 ```bash
-obsi https://admin:pass@cluster:4200 --doctor
+obsi doctor https://admin:pass@cluster:4200
 ```
 
 ## Profiles

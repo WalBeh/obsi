@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -343,8 +345,15 @@ func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExpl
 	// Try with resolved password first (may be empty if nothing was found)
 	reg := makeRegistry(pw)
 	slog.Info("connecting to CrateDB", "endpoint", cfg.Connection.Endpoint)
-	if err := reg.Bootstrap(ctx); err == nil {
+	err := reg.Bootstrap(ctx)
+	if err == nil {
 		return reg, nil
+	}
+	// Only a refused login is a password problem. A timeout or refused
+	// connection (e.g. a port-forward to a pod that restarted) used to end
+	// in a password prompt too.
+	if !isAuthError(err) {
+		return nil, err
 	}
 
 	// If resolved password was non-empty, also try empty password
@@ -371,4 +380,9 @@ func tryConnect(ctx context.Context, cfg *config.Config, pw string, passwordExpl
 	}
 
 	return nil, fmt.Errorf("authentication failed and no terminal available for password prompt")
+}
+
+func isAuthError(err error) bool {
+	var crateErr *cratedb.CrateDBError
+	return errors.As(err, &crateErr) && (crateErr.StatusCode == http.StatusUnauthorized || crateErr.StatusCode == http.StatusForbidden)
 }

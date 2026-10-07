@@ -4,6 +4,15 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- obsi asked for a password whenever it couldn't connect, also when the
+  endpoint timed out or refused the connection, e.g. a k8s port-forward
+  still bound to a pod that had restarted. It now only asks after a 401 or
+  403 and otherwise says why the connection failed.
+
 ## [0.3.6] - 2026-10-07
 
 ### Added

@@ -89,8 +89,17 @@ func (m ShardsModel) addFinished(msg FinishedRecoveriesMsg) ShardsModel {
 	m.pending = append(m.pending, msg.Retry...)
 	for _, f := range msg.Done {
 		m.finished = append([]finishedRecovery{f}, m.finished...)
+		m.history = append(m.history, f)
 	}
 	m.finished = m.finished[:min(len(m.finished), finishedLimit)]
+	cut := time.Now().Add(-historyWindow)
+	kept := m.history[:0]
+	for _, h := range m.history {
+		if h.ended.After(cut) {
+			kept = append(kept, h)
+		}
+	}
+	m.history = kept
 	return m
 }
 
@@ -139,7 +148,11 @@ func (m ShardsModel) renderFinished() []string {
 		if f.reused > 0 {
 			verdict += styleDim.Render(fmt.Sprintf(" · %s already there", formatBytes(f.reused)))
 		}
-		lines = append(lines, fmt.Sprintf("  %-28s %5d  %s  %-29s %10s %9s %10s  %s",
+		mark := "  "
+		if _, ok := m.movedBack(f.recovery, f.ended.Add(-f.took)); ok {
+			mark = styleHealthYellow.Render("↩ ")
+		}
+		lines = append(lines, fmt.Sprintf("%s%-28s %5d  %s  %-29s %10s %9s %10s  %s", mark,
 			truncateString(f.shard.SchemaName+"."+f.shard.TableName, 28), f.shard.ID, pr,
 			truncateString(from+" → "+f.to, 29), formatBytes(f.recovered),
 			formatDuration(f.took), rate, verdict))

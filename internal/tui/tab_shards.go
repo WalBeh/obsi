@@ -50,6 +50,7 @@ type ShardsModel struct {
 	queued       int                  // copies waiting for a recovery slot
 	finished     []finishedRecovery   // newest first, with the new copy's own record
 	pending      []finishedRecovery   // gone from the running list, record not read yet
+	history      []finishedRecovery   // finished within historyWindow, for node peaks and moves back
 
 	readOnly    bool
 	fixTarget   *shardFix // x confirm modal

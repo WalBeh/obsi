@@ -82,7 +82,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `r` | Reconnect to cluster |
 | `L` | Toggle query log |
 | `a` | Alerts raised since obsi started, firing and cleared |
-| `v` | Shards tab: recovery view — running recoveries (from → to, size, elapsed vs. the fastest time the throttle allows, and whether something else is slower), recoveries finished while the tab was open with their actual MB/s, queued copies, recovery slots per node; `e` there edits the recovery throttle (set TRANSIENT, allowed in read-only mode) |
+| `v` | Shards tab: recovery view — running recoveries (from → to, size, elapsed vs. the fastest time the throttle allows, and whether something else is slower), recoveries finished while the tab was open with their actual MB/s, per node what it moved while busy and whether the node (not the throttle) is the limit, shards moved back to a node they left (`↩`), queued copies, recovery slots per node; `e` there edits the recovery throttle (set TRANSIENT, allowed in read-only mode) |
 | `y` / `x` | Shards tab: copy / run the suggested fix. `x` asks first; in read-only mode it only runs `ALTER CLUSTER REROUTE RETRY FAILED` |
 | `pgdn` / `pgup` (or `shift+↓` / `shift+↑`) | Scroll detail panel (Nodes tab) |
 | `?` / `F1` | Keys for the active tab (`F1` also works while typing in the SQL editor or a search) |

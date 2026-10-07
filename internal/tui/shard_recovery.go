@@ -15,8 +15,10 @@ import (
 type recovery struct {
 	shard    cratedb.ShardInfo
 	from, to string // node names; from is "" for a primary recovering locally
+	left     string // node a moving copy leaves; "" for a new copy
 	size     int64
 	since    time.Time // first seen by obsi
+	doneAt   time.Time // sys.shards showed it done while sys.allocations still lists it
 	share    int64     // bytes/s of max_bytes_per_sec this copy gets, 0 if unknown
 }
 
@@ -76,7 +78,7 @@ func (m *ShardsModel) buildRecoveries(now time.Time) {
 				fromPrimary(&r)
 			}
 		case "RELOCATING":
-			r = recovery{shard: s, from: s.NodeName, to: m.nodeName(s.RelocatingNode), size: s.Size}
+			r = recovery{shard: s, from: s.NodeName, left: s.NodeName, to: m.nodeName(s.RelocatingNode), size: s.Size}
 			if !s.Primary {
 				fromPrimary(&r)
 			}
@@ -84,6 +86,18 @@ func (m *ShardsModel) buildRecoveries(now time.Time) {
 			continue
 		}
 		k := recoveryKey(s)
+		// sys.shards (5s) shows a finished move before sys.allocations (30s)
+		// does; until then the shard is still listed but its target is gone.
+		if r.to == "" {
+			for _, p := range prev {
+				if recoveryKey(p.shard) == k {
+					r.from, r.left, r.to, r.size, r.doneAt = p.from, p.left, p.to, p.size, p.doneAt
+				}
+			}
+			if r.doneAt.IsZero() {
+				r.doneAt = now
+			}
+		}
 		seen[k] = true
 		if _, ok := m.recoverySeen[k]; !ok {
 			m.recoverySeen[k] = now
@@ -112,7 +126,11 @@ func (m *ShardsModel) buildRecoveries(now time.Time) {
 	}
 	for _, r := range prev {
 		if !seen[recoveryKey(r.shard)] {
-			m.pending = append(m.pending, finishedRecovery{recovery: r, ended: now})
+			ended := now
+			if !r.doneAt.IsZero() {
+				ended = r.doneAt
+			}
+			m.pending = append(m.pending, finishedRecovery{recovery: r, ended: ended})
 		}
 	}
 }
@@ -187,18 +205,45 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		}
 	}
 	sort.Strings(nodes)
-	lines = append(lines, "", styleHeader.Render(fmt.Sprintf("  %-20s %7s %7s", "NODE", "IN", "OUT")))
+	throttle := parseByteRate(cs.RecoveryMaxBytesPerSec)
+	peaks := nodePeaks(m.history)
+	lines = append(lines, "", styleHeader.Render(fmt.Sprintf("  %-20s %7s %7s  %-18s", "NODE", "IN", "OUT", "MOVED, LAST HOUR")))
 	for _, n := range nodes {
 		row := fmt.Sprintf("  %-20s %7s %7s", truncateString(n, 20), fmt.Sprintf("%d/%s", in[n], slots), fmt.Sprintf("%d/%s", out[n], slots))
 		if cs.NodeConcurrentRecoveries > 0 && (in[n] >= cs.NodeConcurrentRecoveries || out[n] >= cs.NodeConcurrentRecoveries) {
 			row = styleHealthYellow.Render(row)
 		}
-		lines = append(lines, row)
+		peak := styleDim.Render("—")
+		if p, ok := peaks[n]; ok && p.rate > 0 {
+			peak = fmt.Sprintf("%s/s, ≤%d at once", formatBytes(p.rate), p.copies)
+			if capped(p, throttle) {
+				peak = styleHealthYellow.Render(peak)
+			}
+		}
+		lines = append(lines, row+"  "+peak)
+	}
+	if b := bottleneck(peaks, throttle, cs.RecoveryMaxBytesPerSec); b != "" {
+		lines = append(lines, styleHealthYellow.Render("  "+b))
 	}
 
 	if len(m.recoveries) == 0 {
 		lines = append(lines, "", styleDim.Render("  nothing recovering"))
 		return append(lines, m.renderFinished()...)
+	}
+	back := 0
+	for _, r := range m.recoveries {
+		if _, ok := m.movedBack(r, r.since); ok {
+			back++
+		}
+	}
+	for _, f := range m.finished {
+		if _, ok := m.movedBack(f.recovery, f.ended.Add(-f.took)); ok {
+			back++
+		}
+	}
+	if back > 0 {
+		lines = append(lines, "", styleHealthYellow.Render(fmt.Sprintf(
+			"  ↩ %d moves take a shard back to a node it left within the hour: rebalancing goes in circles (disk watermarks? rebalance.enable = none stops it)", back)))
 	}
 	lines = append(lines, "",
 		styleDim.Render("  ELAPSED counts from when obsi first saw the recovery (≥: it may be older). FASTEST is the size at the copy's"),
@@ -237,7 +282,11 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		} else {
 			status = styleDim.Render(status)
 		}
-		lines = append(lines, fmt.Sprintf("  %-28s %5d  %s  %-29s %10s %9s %8s  %s",
+		mark := "  "
+		if _, ok := m.movedBack(r, r.since); ok {
+			mark = styleHealthYellow.Render("↩ ")
+		}
+		lines = append(lines, fmt.Sprintf("%s%-28s %5d  %s  %-29s %10s %9s %8s  %s", mark,
 			truncateString(r.shard.SchemaName+"."+r.shard.TableName, 28), r.shard.ID, pr,
 			truncateString(from+" → "+r.to, 29), formatBytes(r.size),
 			shown, fastest, status))

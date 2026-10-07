@@ -4,7 +4,17 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.3.6] - 2026-10-07
+
+### Added
+
+- **Recovery bottleneck and moves back** in the recovery view. The node
+  table gets a MOVED column: what each node moved per second while busy
+  in the last hour, from the finished copies, and how many ran at once.
+  A node that ran several copies yet stayed well under
+  `max_bytes_per_sec` is named in one line as the limit (its disk or
+  network). A shard moved back to a node it left within the hour is
+  marked `↩`, with one line saying the balancer goes in circles.
 
 ### Changed
 
@@ -26,6 +36,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   half (seen on the shardlab); the busier of the two nodes counts now.
 - A moving replica was shown copying from the node it leaves. It copies
   from the primary, so FROM and SIZE are the primary's now.
+- A finished move could be missing from the finished list: sys.shards
+  shows it done up to 30s before sys.allocations, and in between obsi lost
+  its target node.
 
 ## [0.3.5] - 2026-10-06
 

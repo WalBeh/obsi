@@ -97,6 +97,7 @@ func (a *App) newTabModels() {
 	a.sql.readOnly = a.readOnly
 	a.overview.editor.readOnly = a.readOnly
 	a.shards.readOnly = a.readOnly
+	a.tables.readOnly = a.readOnly
 }
 
 // switchCluster makes the cluster now behind the endpoint the one obsi
@@ -305,14 +306,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return applyNodeLeftDelay(ctx, reg, msg) }
 
+	case NodeLeftDelayResultMsg:
+		if msg.Origin == fromTables {
+			a.tables = a.tables.notice(msg.Note, msg.Error)
+		} else {
+			a.overview.editor.handleResult(SetSettingResultMsg{SlotIndex: slotNodeLeftDelay, Error: msg.Error, Note: msg.Note})
+		}
+		if msg.Error == "" {
+			a.collectors.TriggerCollector(a.ctx, "shards")
+			a.collectors.TriggerCollector(a.ctx, "changes")
+		}
+		return a, nil
+
 	case SetSettingResultMsg:
 		a.overview.editor.handleResult(msg)
 		if msg.Error == "" {
 			a.collectors.TriggerCollector(a.ctx, "cluster")
 			a.collectors.TriggerCollector(a.ctx, "changes")
-		}
-		if msg.SlotIndex == slotNodeLeftDelay {
-			a.collectors.TriggerCollector(a.ctx, "shards")
 		}
 		return a, nil
 

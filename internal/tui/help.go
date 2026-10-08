@@ -77,7 +77,8 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			bindingHelp(km.Changes),
 		}
 	case TabTables:
-		return "Tables", append([]helpEntry{nav, {"f", "unhealthy tables only"}}, search...)
+		return "Tables", append([]helpEntry{nav, {"f", "unhealthy tables only"},
+			{km.Edit.Help().Key, "node-left delay of the selected table"}}, search...)
 	case TabShards:
 		return "Shards", append([]helpEntry{nav}, append(search,
 			bindingHelp(km.Recovery),

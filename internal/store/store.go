@@ -135,7 +135,7 @@ type StoreSnapshot struct {
 	JMXRates map[string]*JMXRates
 
 	// NodeAbsences are nodes that left and came back while obsi ran,
-	// oldest first.
+	// oldest first. Small, so always filled like Alerts.
 	NodeAbsences []NodeAbsence
 
 	// NodeHistory maps node ID to its time-series snapshots.
@@ -257,9 +257,10 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	defer s.mu.RUnlock()
 
 	snap := StoreSnapshot{
-		Staleness:   make(map[string]bool),
-		LastUpdated: make(map[string]time.Time),
-		Alerts:      s.alerts.snapshot(),
+		Staleness:    make(map[string]bool),
+		LastUpdated:  make(map[string]time.Time),
+		Alerts:       s.alerts.snapshot(),
+		NodeAbsences: copySlice(s.nodeAbsences),
 	}
 
 	if hint.IncludeCluster {
@@ -279,7 +280,6 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	}
 	if hint.IncludeNodes {
 		snap.Nodes = copySlice(s.nodes)
-		snap.NodeAbsences = copySlice(s.nodeAbsences)
 		snap.NodeHistory = make(map[string]NodeHistorySnapshot, len(s.nodeHistories))
 		for id, h := range s.nodeHistories {
 			snap.NodeHistory[id] = h.snapshot()

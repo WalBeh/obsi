@@ -141,12 +141,22 @@ func (m OverviewModel) renderNodeLeft() string {
 	return line
 }
 
-// delayConfirm is the confirm before setting the delay on every table.
+// delayConfirm is the confirm before setting the delay, on every table from
+// the Overview or on one from the Tables tab.
 type delayConfirm struct {
+	origin  delayOrigin
 	value   string
 	targets []delayTarget
 	blob    int
 }
+
+// delayOrigin says which tab asked, so the result goes back there.
+type delayOrigin int
+
+const (
+	fromOverview delayOrigin = iota
+	fromTables
+)
 
 type delayTarget struct {
 	schema, name string
@@ -165,15 +175,22 @@ type NodeLeftDelayRequest struct{ Value string }
 // ApplyNodeLeftDelayMsg runs one ALTER TABLE per table. Plain ALTER TABLE,
 // not ONLY, so existing and future partitions get the value too.
 type ApplyNodeLeftDelayMsg struct {
+	Origin delayOrigin
 	Value  string
 	Tables [][2]string // schema, name
 	Blob   int
 }
 
-func (m OverviewModel) openDelayConfirm(value string) OverviewModel {
-	c := &delayConfirm{value: value, blob: m.snap.BlobTables}
+// NodeLeftDelayResultMsg is the outcome of applying or copying.
+type NodeLeftDelayResultMsg struct {
+	Origin      delayOrigin
+	Error, Note string
+}
+
+func newDelayConfirm(origin delayOrigin, value string, tables []cratedb.TableInfo, blob int) *delayConfirm {
+	c := &delayConfirm{origin: origin, value: value, blob: blob}
 	want, _ := parseDelay(value)
-	for _, t := range m.snap.Tables {
+	for _, t := range tables {
 		tg := delayTarget{schema: t.SchemaName, name: t.TableName}
 		switch {
 		case t.PartitionsBelowDelay > 0:
@@ -183,50 +200,63 @@ func (m OverviewModel) openDelayConfirm(value string) OverviewModel {
 		}
 		c.targets = append(c.targets, tg)
 	}
-	m.delayConfirm = c
+	return c
+}
+
+func (m OverviewModel) openDelayConfirm(value string) OverviewModel {
+	m.delayConfirm = newDelayConfirm(fromOverview, value, m.snap.Tables, m.snap.BlobTables)
 	return m
 }
 
-func (m OverviewModel) handleDelayConfirmKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
-	c := m.delayConfirm
+// key handles the confirm's keys; done means it closes.
+func (c *delayConfirm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
-		m.delayConfirm = nil
-		apply := ApplyNodeLeftDelayMsg{Value: c.value, Blob: c.blob}
+		apply := ApplyNodeLeftDelayMsg{Origin: c.origin, Value: c.value, Blob: c.blob}
 		for _, t := range c.targets {
 			apply.Tables = append(apply.Tables, [2]string{t.schema, t.name})
 		}
-		return m, func() tea.Msg { return apply }
+		return true, func() tea.Msg { return apply }
 	case "c":
 		var b strings.Builder
 		for _, t := range c.targets {
 			b.WriteString(t.stmt(c.value) + "\n")
 		}
-		payload := b.String()
-		m.delayConfirm = nil
-		return m, func() tea.Msg {
-			return SetSettingResultMsg{SlotIndex: slotNodeLeftDelay, Note: copyNote(writeClipboard(payload), len(c.targets))}
+		payload, origin, n := b.String(), c.origin, len(c.targets)
+		return true, func() tea.Msg {
+			return NodeLeftDelayResultMsg{Origin: origin, Note: copyNote(writeClipboard(payload), n)}
 		}
 	case "n", "esc":
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m OverviewModel) handleDelayConfirmKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
+	done, cmd := m.delayConfirm.key(msg)
+	if done {
 		m.delayConfirm = nil
 	}
-	return m, nil
+	return m, cmd
 }
 
 func copyNote(err string, n int) string {
 	if err != "" {
 		return "copy failed: " + err
 	}
-	return fmt.Sprintf("copied %d ALTER TABLE statements", n)
+	return fmt.Sprintf("copied %d ALTER TABLE %s", n, plural(n, "statement", "statements"))
 }
 
-func (m OverviewModel) renderDelayConfirm() string {
-	c := m.delayConfirm
-	innerWidth := modalInnerWidth(m.width, 80, 50)
+func (c *delayConfirm) render(width, height int) string {
+	innerWidth := modalInnerWidth(width, 80, 50)
+	title := fmt.Sprintf("Set %s = %s on %d tables?", nodeLeftSetting, c.value, len(c.targets))
+	if len(c.targets) == 1 {
+		title = fmt.Sprintf("Set %s = %s on %s.%s?", nodeLeftSetting, c.value, c.targets[0].schema, c.targets[0].name)
+	}
 	lines := []string{
-		styleModalTitle.Render(fmt.Sprintf("Set %s = %s on %d tables?", nodeLeftSetting, c.value, len(c.targets))),
+		styleModalTitle.Render(title),
 		"",
-		"One ALTER TABLE per table, without ONLY: existing and future partitions get it too.",
+		"ALTER TABLE without ONLY: existing and future partitions get it too.",
 		"Replicas then wait this long for a node that left before being rebuilt elsewhere;",
 		"a node really gone means running with one copy less for that time.",
 	}
@@ -246,8 +276,16 @@ func (m OverviewModel) renderDelayConfirm() string {
 	if c.blob > 0 {
 		lines = append(lines, "", styleDim.Render(fmt.Sprintf("Skipped: %d blob tables, SQL can't change it there (they keep 1m).", c.blob)))
 	}
-	lines = append(lines, "", styleDim.Render("[y] apply   [c] copy the statements   [n] cancel"))
-	return placeModal(lipgloss.JoinVertical(lipgloss.Left, lines...), innerWidth, m.width, m.height)
+	stmts := "the statements"
+	if len(c.targets) == 1 {
+		stmts = "the statement"
+	}
+	lines = append(lines, "", styleDim.Render("[y] apply   [c] copy "+stmts+"   [n] cancel"))
+	return placeModal(lipgloss.JoinVertical(lipgloss.Left, lines...), innerWidth, width, height)
+}
+
+func (m OverviewModel) renderDelayConfirm() string {
+	return m.delayConfirm.render(m.width, m.height)
 }
 
 // syncNodeLeft shows the shortest delay in the slot and keeps the
@@ -270,8 +308,8 @@ func (e *settingsEditor) syncNodeLeft(snap store.StoreSnapshot) {
 
 // applyNodeLeftDelay runs the ALTER TABLEs one by one and stops at the first
 // error, saying how far it got.
-func applyNodeLeftDelay(ctx context.Context, reg *cratedb.Registry, msg ApplyNodeLeftDelayMsg) SetSettingResultMsg {
-	res := SetSettingResultMsg{SlotIndex: slotNodeLeftDelay}
+func applyNodeLeftDelay(ctx context.Context, reg *cratedb.Registry, msg ApplyNodeLeftDelayMsg) NodeLeftDelayResultMsg {
+	res := NodeLeftDelayResultMsg{Origin: msg.Origin}
 	stmt := `ALTER TABLE %s.%s SET ("` + nodeLeftSetting + `" = ?)`
 	for i, t := range msg.Tables {
 		if _, err := reg.Query(ctx, fmt.Sprintf(stmt, quoteIdent(t[0]), quoteIdent(t[1]))+cratedb.ChangeTag, msg.Value); err != nil {
@@ -279,7 +317,10 @@ func applyNodeLeftDelay(ctx context.Context, reg *cratedb.Registry, msg ApplyNod
 			return res
 		}
 	}
-	res.Note = fmt.Sprintf("%s set on %d tables", msg.Value, len(msg.Tables))
+	res.Note = fmt.Sprintf("%s set on %d %s", msg.Value, len(msg.Tables), plural(len(msg.Tables), "table", "tables"))
+	if len(msg.Tables) == 1 {
+		res.Note = fmt.Sprintf("%s set on %s.%s", msg.Value, msg.Tables[0][0], msg.Tables[0][1])
+	}
 	if msg.Blob > 0 {
 		res.Note += fmt.Sprintf("; %d blob tables keep 1m", msg.Blob)
 	}

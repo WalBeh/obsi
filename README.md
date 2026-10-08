@@ -56,7 +56,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, last 10 snapshots |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview; config changes since start (`c`) |
-| `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
+| `4` | Tables | Table list with shard distribution, size stats, translog flush status, node-left delay (settable per table), health filter |
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 
@@ -72,6 +72,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `esc` | Clear search |
 | `e` | Edit cluster settings (Overview tab) |
 | `f` | Toggle unhealthy table filter (Tables tab) |
+| `e` | Tables tab: set the node-left delay (`unassigned.node_left.delayed_timeout`) of the selected table, partitions included, after a confirm |
 | `K` | Kill selected query (Queries tab) |
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
 | `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52) |

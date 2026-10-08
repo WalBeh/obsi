@@ -77,7 +77,7 @@ func (a *App) tabs() []tabModel {
 		TabTables: tab[TablesModel]{
 			m: &a.tables, refresh: TablesModel.Refresh, setSize: TablesModel.SetSize,
 			handleKey: TablesModel.HandleKey, view: TablesModel.View,
-			inputMode:  func(m TablesModel) bool { return m.searching },
+			inputMode:  func(m TablesModel) bool { return m.searching || m.delayInput || m.delayConfirm != nil },
 			hint:       store.SnapshotHint{IncludeTables: true, IncludeHealth: true},
 			collectors: []string{"shards"},
 		},

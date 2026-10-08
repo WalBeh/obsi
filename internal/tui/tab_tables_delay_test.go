@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -74,5 +78,32 @@ func TestNodeLeftDelayResultRouting(t *testing.T) {
 	a.Update(NodeLeftDelayResultMsg{Origin: fromOverview, Note: "5m set on 3 tables"})
 	if a.overview.editor.note != "5m set on 3 tables" {
 		t.Errorf("overview note %q", a.overview.editor.note)
+	}
+}
+
+// y on the Tables tab asks for the selected table's DDL; the App runs
+// SHOW CREATE TABLE with quoted identifiers and reports back.
+func TestYankTableDDL(t *testing.T) {
+	m := NewTablesModel(120, 40).Refresh(store.StoreSnapshot{Tables: []cratedb.TableInfo{delayTable("a", time.Minute, time.Minute, 0)}})
+	_, cmd := m.HandleKey(keyRune('y'))
+	if req, ok := cmd().(YankTableDDLMsg); !ok || req.Schema != "doc" || req.Name != "a" {
+		t.Fatalf("y gave %#v", cmd())
+	}
+
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Stmt string }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		got = req.Stmt
+		_ = json.NewEncoder(w).Encode(cratedb.SQLResponse{Rows: [][]interface{}{{"CREATE TABLE IF NOT EXISTS \"doc\".\"a\" (\n   \"x\" INTEGER\n)\nCLUSTERED INTO 4 SHARDS"}}})
+	}))
+	defer srv.Close()
+	reg := cratedb.NewRegistry(srv.URL, "", "", time.Second, time.Second, time.Hour, time.Hour, false)
+	res := yankTableDDL(context.Background(), reg, YankTableDDLMsg{Schema: "My Schema", Name: "a"})
+	if !strings.HasPrefix(got, `SHOW CREATE TABLE "My Schema"."a"`) {
+		t.Errorf("statement %q", got)
+	}
+	if res.Error != "" || res.Note != "copied CREATE TABLE My Schema.a (4 lines)" {
+		t.Errorf("result %+v", res)
 	}
 }

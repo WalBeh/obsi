@@ -4,6 +4,13 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- `y` on the Tables tab copies `SHOW CREATE TABLE` of the selected table
+  to the clipboard (OSC 52, works over SSH). Works in read-only mode.
+
 ## [0.3.9] - 2026-10-08
 
 ### Added

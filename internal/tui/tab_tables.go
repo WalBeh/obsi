@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
@@ -144,6 +145,12 @@ func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
 		if mm, cmd, handled := m.handleDelayKey(msg); handled {
 			return mm, cmd
 		}
+		if key.Matches(msg, m.keyMap.Yank) {
+			if t, ok := m.selectedTable(); ok {
+				return m, func() tea.Msg { return YankTableDDLMsg{Schema: t.SchemaName, Name: t.TableName} }
+			}
+			return m, nil
+		}
 	}
 	if r := m.handleKey(msg, m.keyMap, sortFieldCount); r.handled {
 		if r.rebuild {
@@ -213,7 +220,7 @@ func (m TablesModel) View() string {
 		len(m.snap.Tables), m.snap.TotalShards,
 		sortIndicator, filterInfo, healthFilter,
 		styleDim.Render(lastRefresh),
-		styleDim.Render("s:sort  /:search  f:unhealthy  e:node-left delay  R:refresh")))
+		styleDim.Render("s:sort  /:search  f:unhealthy  e:node-left delay  y:copy DDL  R:refresh")))
 	if n := m.noticeLine(); n != "" {
 		lines = append(lines, n)
 	}

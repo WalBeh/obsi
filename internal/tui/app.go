@@ -306,6 +306,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return applyNodeLeftDelay(ctx, reg, msg) }
 
+	case YankTableDDLMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return yankTableDDL(ctx, reg, msg) }
+
+	case TablesNoticeMsg:
+		a.tables = a.tables.notice(msg.Note, msg.Error)
+		return a, nil
+
 	case NodeLeftDelayResultMsg:
 		if msg.Origin == fromTables {
 			a.tables = a.tables.notice(msg.Note, msg.Error)

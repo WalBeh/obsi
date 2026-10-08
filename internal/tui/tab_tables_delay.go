@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -119,4 +120,26 @@ func (m TablesModel) noticeLine() string {
 		return "  " + styleHealthRed.Render(m.noticeText)
 	}
 	return "  " + styleHealthGreen.Render(m.noticeText)
+}
+
+// YankTableDDLMsg asks the App for SHOW CREATE TABLE of a table, copied to
+// the clipboard.
+type YankTableDDLMsg struct{ Schema, Name string }
+
+// TablesNoticeMsg reports back to the Tables tab.
+type TablesNoticeMsg struct{ Note, Error string }
+
+func yankTableDDL(ctx context.Context, reg *cratedb.Registry, msg YankTableDDLMsg) TablesNoticeMsg {
+	resp, err := reg.Query(ctx, fmt.Sprintf("SHOW CREATE TABLE %s.%s", quoteIdent(msg.Schema), quoteIdent(msg.Name))+cratedb.QueryTag)
+	if err != nil {
+		return TablesNoticeMsg{Error: "SHOW CREATE TABLE failed: " + firstLine(err.Error())}
+	}
+	if len(resp.Rows) == 0 || len(resp.Rows[0]) == 0 {
+		return TablesNoticeMsg{Error: "SHOW CREATE TABLE returned nothing"}
+	}
+	ddl := strings.TrimRight(cratedb.ToString(resp.Rows[0][0]), "\n") + ";\n"
+	if e := writeClipboard(ddl); e != "" {
+		return TablesNoticeMsg{Error: "copy failed: " + e}
+	}
+	return TablesNoticeMsg{Note: fmt.Sprintf("copied CREATE TABLE %s.%s (%d lines)", msg.Schema, msg.Name, strings.Count(ddl, "\n"))}
 }

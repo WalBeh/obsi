@@ -271,6 +271,9 @@ type TableSettings struct {
 	TranslogSyncInterval   int   // ms
 	TranslogDurability     string
 	AllocationFilters      map[string]string // e.g. "routing.allocation.exclude._name" -> "lab2"
+	// NodeLeftDelay is unassigned.node_left.delayed_timeout as set on the
+	// table, i.e. what new partitions copy. Each partition keeps its own.
+	NodeLeftDelay time.Duration
 }
 
 // TableInfo is an aggregated view of a table with shard distribution.
@@ -296,4 +299,9 @@ type TableInfo struct {
 	WorstTranslogNodeName       string
 	ShardsOverTranslogThreshold int // count of shards exceeding flush_threshold_size
 	Settings                    TableSettings
+	// NodeLeftDelayMin is the shortest delayed_timeout the table or any of
+	// its partitions has, the one that decides when replicas get rebuilt;
+	// PartitionsBelowDelay counts partitions shorter than the table's own.
+	NodeLeftDelayMin     time.Duration
+	PartitionsBelowDelay int
 }

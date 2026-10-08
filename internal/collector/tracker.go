@@ -27,6 +27,8 @@ const (
 	QueryViewCount       = "shards.view_count"
 	QueryAllocations     = "shards.allocations"
 	QueryStuckShards     = "shards.stuck"
+	QueryPartitionDelays = "shards.partition_delays"
+	QueryBlobTables      = "shards.blob_tables"
 	QueryJobsLogCoverage = "jobs_log.coverage"
 	QueryJobsLogEntries  = "jobs_log.entries"
 	QueryJobsLogGroups   = "jobs_log.groups"
@@ -103,6 +105,8 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryViewCount, "shards", ci("shards")},
 		{QueryAllocations, "shards", ci("shards")},
 		{QueryStuckShards, "shards", ci("shards")},
+		{QueryPartitionDelays, "shards", ci("shards")},
+		{QueryBlobTables, "shards", ci("shards")},
 		{QueryJobsLogCoverage, "jobs_log", ci("jobs_log")},
 		{QueryJobsLogEntries, "jobs_log", ci("jobs_log")},
 		{QueryJobsLogGroups, "jobs_log", ci("jobs_log")},

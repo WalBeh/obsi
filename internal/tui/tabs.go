@@ -56,7 +56,7 @@ func (a *App) tabs() []tabModel {
 		TabOverview: tab[OverviewModel]{
 			m: &a.overview, refresh: OverviewModel.Refresh, setSize: OverviewModel.SetSize,
 			handleKey: OverviewModel.HandleKey, view: OverviewModel.View,
-			inputMode:  func(m OverviewModel) bool { return m.editor.isInputMode() },
+			inputMode:  func(m OverviewModel) bool { return m.editor.isInputMode() || m.delayConfirm != nil },
 			hint:       store.SnapshotHint{IncludeCluster: true, IncludeHealth: true, IncludeNodes: true, IncludeTables: true, IncludeJMX: true},
 			collectors: []string{"health", "cluster", "snapshots"},
 		},

@@ -53,7 +53,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 
 | Key | Tab | What it shows |
 |-----|-----|---------------|
-| `1` | Overview | Cluster settings (inline editable), health checks, node/zone topology, CrateDB version, table health, last 10 snapshots |
+| `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, last 10 snapshots |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview; config changes since start (`c`) |
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, health filter |
@@ -173,7 +173,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - Node checks and cluster health on the Overview: `sys.node_checks` folded over the nodes (shard limit, disk watermarks, recovery settings) with the nodes each failing check hits, and `sys.cluster_health` with pending tasks and missing/underreplicated shards. A RED cluster or a failing check raises an alert
 - Cluster identity check: the heartbeat reads `sys.cluster`'s id, so a port-forward that comes back pointing at another cluster (same name or not) is noticed within one heartbeat. Polling and writes pause behind a notice until you switch (`enter`, clears obsi's history of the old cluster) or quit (`q`); if the original cluster comes back, obsi just continues
 - Disk watermark visualization (low/high/flood markers on disk bars)
-- Inline cluster settings editor (allocation, rebalance, recovery, watermarks, max shards)
+- Inline cluster settings editor (allocation, rebalance, recovery, watermarks, max shards), plus `unassigned.node_left.delayed_timeout` for all tables at once: a per-table setting (each partition keeps its own copy, blob tables can't change it) that decides whether a restarted node keeps its copies or they get rebuilt elsewhere
 - CrateDB version display with mixed-version warning
 - Translog flush monitoring: highlights shards exceeding the flush threshold
 - Table health color-coding (RED/YELLOW/GREEN) with unhealthy-only filter

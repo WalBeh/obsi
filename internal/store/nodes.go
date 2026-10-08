@@ -161,6 +161,15 @@ func (s *Store) computeRejectionDeltas(nodes []NodeSnapshot) {
 func (s *Store) trackDisappearances(nodes []NodeSnapshot, now time.Time) []NodeSnapshot {
 	currentIDs := make(map[string]bool, len(nodes))
 	for i := range nodes {
+		// Missed by at least one poll: it was away. Kept apart from
+		// knownNodes, which forgets a node after nodeDisappearanceTimeout.
+		if seen, ok := s.nodeLastSeen[nodes[i].ID]; ok && seen.Before(s.lastNodesPoll) {
+			s.nodeAbsences = append(s.nodeAbsences, NodeAbsence{Name: nodes[i].Name, Left: seen, Back: now})
+			if n := len(s.nodeAbsences) - nodeAbsenceLimit; n > 0 {
+				s.nodeAbsences = s.nodeAbsences[n:]
+			}
+		}
+		s.nodeLastSeen[nodes[i].ID] = now
 		nodes[i].LastSeen = now
 		currentIDs[nodes[i].ID] = true
 		s.knownNodes[nodes[i].ID] = nodes[i]
@@ -181,9 +190,22 @@ func (s *Store) trackDisappearances(nodes []NodeSnapshot, now time.Time) []NodeS
 			nodes = append(nodes, gone)
 		}
 	}
+	s.lastNodesPoll = now
 
 	return nodes
 }
+
+const nodeAbsenceLimit = 50
+
+// NodeAbsence is a node missing from sys.nodes between Left (the last poll
+// that saw it) and Back, e.g. a pod restart. Longer than the real absence by
+// up to one nodes poll.
+type NodeAbsence struct {
+	Name       string
+	Left, Back time.Time
+}
+
+func (a NodeAbsence) Duration() time.Duration { return a.Back.Sub(a.Left) }
 
 // pushHistory records current metrics into per-node ring buffers for sparklines.
 // Caller must hold s.mu.

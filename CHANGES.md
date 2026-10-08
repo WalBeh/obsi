@@ -4,6 +4,25 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.8] - 2026-10-08
+
+### Added
+
+- **Node-left delay** on the Overview. `unassigned.node_left.delayed_timeout`
+  (default 1m) decides how long replicas wait for a node that left before
+  they're rebuilt elsewhere; a pod restart longer than that copies them
+  all, and the balancer then moves shards back. There's no cluster-wide
+  value and each partition keeps its own, so obsi shows the tables by the
+  shortest value they have (partitions included), blob tables (fixed at
+  1m), and the longest time a node was away while obsi watched, in yellow
+  when that's longer than the delay. In the settings editor (`e`) the
+  value applies to all tables: one plain `ALTER TABLE` each, which
+  covers existing and future partitions, after a confirm that lists what
+  changes beyond the value (lowered delays, partitions set differently);
+  `c` there copies the statements. The suggested value is the longest
+  absence plus half, at least 5m. The Shards tab says when replicas are
+  being rebuilt while a node is away.
+
 ## [0.3.7] - 2026-10-07
 
 ### Fixed

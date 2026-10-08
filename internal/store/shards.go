@@ -16,6 +16,14 @@ func (s *Store) UpdateTables(tables []cratedb.TableInfo, viewCount int, shards [
 	s.lastUpdated["shards"] = time.Now()
 }
 
+// UpdateBlobTables records how many blob tables exist. They keep the 1m
+// node-left delay; SQL can't change it for them.
+func (s *Store) UpdateBlobTables(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.blobTables = n
+}
+
 // UpdateAllocations updates allocation info for non-STARTED shards.
 func (s *Store) UpdateAllocations(allocs []cratedb.AllocationInfo) {
 	s.mu.Lock()

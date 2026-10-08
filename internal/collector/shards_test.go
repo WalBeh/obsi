@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
 // decisions must come before explanation, see allocationsQuery.
@@ -44,5 +47,25 @@ func TestParseShardRowsFastPath(t *testing.T) {
 	got := parseShardRows([][]interface{}{row})
 	if len(got) != 1 || got[0].RoutingState != "UNASSIGNED" || got[0].TranslogSize != 0 {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// Partitions keep their own delayed_timeout; the shortest one counts.
+func TestApplyPartitionDelays(t *testing.T) {
+	tables := []cratedb.TableInfo{
+		{SchemaName: "doc", TableName: "parted", Settings: cratedb.TableSettings{NodeLeftDelay: 5 * time.Minute}},
+		{SchemaName: "doc", TableName: "plain", Settings: cratedb.TableSettings{NodeLeftDelay: time.Minute}},
+	}
+	// ALTER TABLE ONLY left 2 old partitions at 1m, 3 new ones got 5m.
+	applyPartitionDelays(tables, [][]interface{}{
+		{"doc", "parted", float64(60000), float64(2)},
+		{"doc", "parted", float64(300000), float64(3)},
+		{"doc", "gone", float64(1000), float64(1)},
+	})
+	if tables[0].NodeLeftDelayMin != time.Minute || tables[0].PartitionsBelowDelay != 2 {
+		t.Errorf("parted = %v, %d below", tables[0].NodeLeftDelayMin, tables[0].PartitionsBelowDelay)
+	}
+	if tables[1].NodeLeftDelayMin != time.Minute || tables[1].PartitionsBelowDelay != 0 {
+		t.Errorf("plain = %v, %d below", tables[1].NodeLeftDelayMin, tables[1].PartitionsBelowDelay)
 	}
 }

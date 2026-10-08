@@ -101,7 +101,8 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		settings['translog']['durability'] AS translog_durability,
 		settings['routing']['allocation']['require'] AS alloc_require,
 		settings['routing']['allocation']['include'] AS alloc_include,
-		settings['routing']['allocation']['exclude'] AS alloc_exclude
+		settings['routing']['allocation']['exclude'] AS alloc_exclude,
+		settings['unassigned']['node_left']['delayed_timeout'] AS node_left_delay
 	FROM information_schema.tables
 	WHERE table_schema NOT IN ('sys', 'information_schema', 'pg_catalog', 'blob')
 	AND table_type = 'BASE TABLE'
@@ -153,6 +154,7 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 			TranslogFlushThreshold: int64(cratedb.ToFloat64(row[9])),
 			TranslogSyncInterval:   int(cratedb.ToFloat64(row[10])),
 			TranslogDurability:     cratedb.ToString(row[11]),
+			NodeLeftDelay:          time.Duration(cratedb.ToInt64(row[15])) * time.Millisecond,
 		}
 		for i, kind := range []string{"require", "include", "exclude"} {
 			attrs, _ := row[12+i].(map[string]interface{})
@@ -214,8 +216,50 @@ func (c *ShardsCollector) Collect(ctx context.Context, reg *cratedb.Registry, st
 		tables = append(tables, ti)
 	}
 
+	// Each partition keeps its own delayed_timeout (copied from the table
+	// when created or by a plain ALTER TABLE) and that's the one CrateDB
+	// applies, so the table's own value isn't enough.
+	if resp, err := trackedQuery(ctx, c.tracker, QueryPartitionDelays, reg, partitionDelaysQuery); err == nil {
+		applyPartitionDelays(tables, resp.Rows)
+	} else {
+		applyPartitionDelays(tables, nil)
+	}
+	// Blob tables have the 1m default and SQL can't change it.
+	if resp, err := trackedQuery(ctx, c.tracker, QueryBlobTables, reg, `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'blob'`); err == nil && len(resp.Rows) > 0 {
+		st.UpdateBlobTables(int(cratedb.ToInt64(resp.Rows[0][0])))
+	}
+
 	st.UpdateTables(tables, viewCount, shards)
 	return nil
+}
+
+const partitionDelaysQuery = `SELECT table_schema, table_name, settings['unassigned']['node_left']['delayed_timeout'], count(*)
+FROM information_schema.table_partitions
+GROUP BY 1, 2, 3`
+
+// applyPartitionDelays sets each table's shortest node-left delay, over the
+// table itself and its partitions grouped by value.
+func applyPartitionDelays(tables []cratedb.TableInfo, rows [][]interface{}) {
+	byTable := make(map[string]int, len(tables))
+	for i := range tables {
+		tables[i].NodeLeftDelayMin = tables[i].Settings.NodeLeftDelay
+		tables[i].PartitionsBelowDelay = 0
+		byTable[tables[i].SchemaName+"."+tables[i].TableName] = i
+	}
+	for _, row := range rows {
+		i, ok := byTable[cratedb.ToString(row[0])+"."+cratedb.ToString(row[1])]
+		if !ok {
+			continue
+		}
+		d := time.Duration(cratedb.ToInt64(row[2])) * time.Millisecond
+		t := &tables[i]
+		if d < t.NodeLeftDelayMin {
+			t.NodeLeftDelayMin = d
+		}
+		if d < t.Settings.NodeLeftDelay {
+			t.PartitionsBelowDelay += int(cratedb.ToInt64(row[3]))
+		}
+	}
 }
 
 // CollectFastPath runs a lightweight query for only non-STARTED shards.

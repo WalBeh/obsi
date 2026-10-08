@@ -22,6 +22,8 @@ type OverviewModel struct {
 	height int
 	keyMap KeyMap
 	editor settingsEditor
+
+	delayConfirm *delayConfirm // node-left delay for all tables, before applying
 }
 
 func NewOverviewModel(width, height int, persistent bool) OverviewModel {
@@ -31,6 +33,7 @@ func NewOverviewModel(width, height int, persistent bool) OverviewModel {
 func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 	m.snap = snap
 	m.editor.syncFromSettings(snap.ClusterSettings)
+	m.editor.syncNodeLeft(snap)
 	// Re-render all sections into lines
 	var sections []string
 	sections = append(sections, m.renderClusterSettings())
@@ -63,6 +66,9 @@ func (m OverviewModel) SetSize(width, height int) OverviewModel {
 }
 
 func (m OverviewModel) HandleKey(msg tea.KeyMsg) (OverviewModel, tea.Cmd) {
+	if m.delayConfirm != nil {
+		return m.handleDelayConfirmKey(msg)
+	}
 	// Delegate to settings editor first
 	editor, cmd, consumed := m.editor.handleKey(msg)
 	m.editor = editor
@@ -97,6 +103,9 @@ func (m *OverviewModel) clampScroll() {
 }
 
 func (m OverviewModel) View() string {
+	if m.delayConfirm != nil {
+		return m.renderDelayConfirm()
+	}
 	if len(m.lines) == 0 {
 		return "Loading..."
 	}
@@ -497,6 +506,9 @@ func (m OverviewModel) renderClusterSettings() string {
 	recoveryCluster := m.editor.renderValue(slotRecoveryClust, fmt.Sprintf("%d", cs.ClusterConcurrentRebalance))
 	lines = append(lines, fmt.Sprintf("  Recovery: %s/s │ %s/node │ %s/cluster",
 		recoveryBytes, recoveryNode, recoveryCluster))
+	if l := m.renderNodeLeft(); l != "" {
+		lines = append(lines, l)
+	}
 
 	// Edit mode hint and error
 	if hint := m.editor.renderEditHint(); hint != "" {

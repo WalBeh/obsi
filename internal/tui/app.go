@@ -297,11 +297,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case NodeLeftDelayRequest:
+		a.overview = a.overview.openDelayConfirm(msg.Value)
+		return a, nil
+
+	case ApplyNodeLeftDelayMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return applyNodeLeftDelay(ctx, reg, msg) }
+
 	case SetSettingResultMsg:
 		a.overview.editor.handleResult(msg)
 		if msg.Error == "" {
 			a.collectors.TriggerCollector(a.ctx, "cluster")
 			a.collectors.TriggerCollector(a.ctx, "changes")
+		}
+		if msg.SlotIndex == slotNodeLeftDelay {
+			a.collectors.TriggerCollector(a.ctx, "shards")
 		}
 		return a, nil
 

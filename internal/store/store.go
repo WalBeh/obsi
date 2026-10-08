@@ -33,6 +33,7 @@ type data struct {
 	activeQueries   []cratedb.ActiveQuery
 	tables          []cratedb.TableInfo
 	viewCount       int
+	blobTables      int
 	shards          []cratedb.ShardInfo
 	allocations     []cratedb.AllocationInfo
 	stuckShards     []cratedb.AllocationInfo
@@ -65,6 +66,10 @@ type data struct {
 	// Track known nodes for disappearance detection
 	knownNodes map[string]NodeSnapshot // nodeID -> last known snapshot
 
+	nodeLastSeen  map[string]time.Time
+	lastNodesPoll time.Time
+	nodeAbsences  []NodeAbsence // oldest first
+
 	// Previous sample for IO rate derivation
 	prevIOSample map[string]ioSample
 	prevIOTime   time.Time
@@ -94,6 +99,7 @@ type StoreSnapshot struct {
 	ActiveQueries   []cratedb.ActiveQuery
 	Tables          []cratedb.TableInfo
 	ViewCount       int
+	BlobTables      int
 	TotalShards     int
 	Shards          []cratedb.ShardInfo
 	Allocations     []cratedb.AllocationInfo
@@ -128,6 +134,10 @@ type StoreSnapshot struct {
 	// disk byte rates) computed by the store. Key: pod name.
 	JMXRates map[string]*JMXRates
 
+	// NodeAbsences are nodes that left and came back while obsi ran,
+	// oldest first.
+	NodeAbsences []NodeAbsence
+
 	// NodeHistory maps node ID to its time-series snapshots.
 	NodeHistory map[string]NodeHistorySnapshot
 
@@ -144,6 +154,7 @@ func New(sparklineSize int, collectors map[string]config.CollectorConfig) *Store
 
 	return &Store{data: data{
 		knownNodes:    make(map[string]NodeSnapshot),
+		nodeLastSeen:  make(map[string]time.Time),
 		prevIOSample:  make(map[string]ioSample),
 		prevRejected:  make(map[string]map[string]int64),
 		nodeHistories: make(map[string]*nodeHistory),
@@ -268,6 +279,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	}
 	if hint.IncludeNodes {
 		snap.Nodes = copySlice(s.nodes)
+		snap.NodeAbsences = copySlice(s.nodeAbsences)
 		snap.NodeHistory = make(map[string]NodeHistorySnapshot, len(s.nodeHistories))
 		for id, h := range s.nodeHistories {
 			snap.NodeHistory[id] = h.snapshot()
@@ -284,6 +296,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeTables || hint.IncludeShards {
 		snap.Tables = copySlice(s.tables)
 		snap.ViewCount = s.viewCount
+		snap.BlobTables = s.blobTables
 		snap.TotalShards = len(s.shards)
 	}
 	if hint.IncludeShards {

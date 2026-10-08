@@ -46,6 +46,7 @@ const (
 	slotRecoveryBytes = 6
 	slotRecoveryNode  = 7
 	slotRecoveryClust = 8
+	slotNodeLeftDelay = 9 // per table, applied to all tables after a confirm
 )
 
 // editSlot defines one editable cluster setting.
@@ -76,6 +77,8 @@ type settingsEditor struct {
 	note        string
 	noteAt      time.Time
 
+	nodeLeftHint string // suggested node-left delay, shown while editing it
+
 	// Config
 	persistent bool // SET GLOBAL PERSISTENT vs TRANSIENT
 	readOnly   bool
@@ -85,7 +88,7 @@ type settingsEditor struct {
 }
 
 func newSettingsEditor(persistent bool) settingsEditor {
-	slots := make([]editSlot, 9)
+	slots := make([]editSlot, 10)
 	slots[slotWMLow] = editSlot{settingPath: "cluster.routing.allocation.disk.watermark.low", kind: slotFreeText}
 	slots[slotWMHigh] = editSlot{settingPath: "cluster.routing.allocation.disk.watermark.high", kind: slotFreeText}
 	slots[slotWMFlood] = editSlot{settingPath: "cluster.routing.allocation.disk.watermark.flood_stage", kind: slotFreeText}
@@ -95,6 +98,7 @@ func newSettingsEditor(persistent bool) settingsEditor {
 	slots[slotRecoveryBytes] = editSlot{settingPath: "indices.recovery.max_bytes_per_sec", kind: slotFreeText}
 	slots[slotRecoveryNode] = editSlot{settingPath: "cluster.routing.allocation.node_concurrent_recoveries", kind: slotFreeText}
 	slots[slotRecoveryClust] = editSlot{settingPath: "cluster.routing.allocation.cluster_concurrent_rebalance", kind: slotFreeText}
+	slots[slotNodeLeftDelay] = editSlot{settingPath: nodeLeftSetting, kind: slotFreeText}
 
 	return settingsEditor{
 		slots:       slots,
@@ -251,6 +255,13 @@ func (e settingsEditor) handleFreeTextKey(msg tea.KeyMsg) (settingsEditor, tea.C
 		}
 		e.inputActive = false
 		e.inputBuf = ""
+		if e.cursor == slotNodeLeftDelay {
+			if _, ok := parseDelay(val); !ok {
+				e.errorSlot, e.errorMsg, e.errorAt = e.cursor, fmt.Sprintf("%q isn't a time value, e.g. 5m or 300s", val), time.Now()
+				return e, nil, true
+			}
+			return e, func() tea.Msg { return NodeLeftDelayRequest{Value: val} }, true
+		}
 		cmd := e.setCmd(slot.settingPath, val, e.cursor)
 		return e, cmd, true
 	case tea.KeyBackspace:
@@ -355,6 +366,9 @@ func (e *settingsEditor) renderEditHint() string {
 		return ""
 	}
 	if e.inputActive {
+		if e.cursor == slotNodeLeftDelay && e.nodeLeftHint != "" {
+			return styleDim.Render("  [Enter] review the tables  [Esc] cancel  · " + e.nodeLeftHint)
+		}
 		return styleDim.Render("  [Enter] confirm  [Esc] cancel")
 	}
 	mode := "PERSISTENT"

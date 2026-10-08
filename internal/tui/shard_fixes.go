@@ -96,7 +96,13 @@ func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.Clu
 		add(shardFix{key: "watermark", cause: "past a disk watermark: " + strings.Join(watermarkNodes, ", ") + " (free disk or add nodes)"})
 	}
 	if strings.Contains(all, "for the departed node") {
-		add(shardFix{key: "delayed", cause: "waiting for the node that left to come back (unassigned.node_left.delayed_timeout)"})
+		add(shardFix{key: "delayed", cause: "waiting for the node that left to come back (unassigned.node_left.delayed_timeout); back in time, it keeps its copies"})
+	}
+	// Replicas rebuilt while a node is away: the delay ran out before it
+	// came back, the usual story of a pod restart over 1m.
+	if len(gone) > 0 && !s.Primary && s.RoutingState == "INITIALIZING" {
+		add(shardFix{key: "rebuilt", cause: fmt.Sprintf("rebuilding replicas while %s is away, past unassigned.node_left.delayed_timeout; a delay above the restart time keeps its copies (Overview e)",
+			strings.Join(gone, ", "))})
 	}
 	if strings.Contains(all, "reached the limit of incoming shard recoveries") || strings.Contains(all, "reached the limit of outgoing shard recoveries") {
 		add(shardFix{key: "throttled", cause: "waiting for a recovery slot (node_concurrent_recoveries)"})

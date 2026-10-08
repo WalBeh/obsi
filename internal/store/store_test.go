@@ -4,6 +4,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
 // TestJMXHistorySnapshot_GCWeightedMean pins down the Grafana-aligned math:
@@ -96,5 +98,26 @@ func TestJMXHistorySnapshot_NoEvents(t *testing.T) {
 	}
 	if got.MeanPauseMs != 0 || got.MaxPauseMs != 0 {
 		t.Errorf("expected zeros, got mean=%.2f max=%.2f", got.MeanPauseMs, got.MaxPauseMs)
+	}
+}
+
+// A node missing from one poll and back on the next was away; the time
+// counts from the last poll that saw it.
+func TestNodeAbsences(t *testing.T) {
+	s := New(10, nil)
+	t0 := time.Now()
+	node := func(id, name string) NodeSnapshot {
+		return NodeSnapshot{NodeInfo: cratedb.NodeInfo{ID: id, Name: name}}
+	}
+	both := []NodeSnapshot{node("a", "n0"), node("b", "n1")}
+	s.mu.Lock()
+	s.trackDisappearances(append([]NodeSnapshot(nil), both...), t0)
+	s.trackDisappearances([]NodeSnapshot{node("a", "n0")}, t0.Add(10*time.Second))
+	s.trackDisappearances([]NodeSnapshot{node("a", "n0")}, t0.Add(20*time.Second))
+	s.trackDisappearances(append([]NodeSnapshot(nil), both...), t0.Add(170*time.Second))
+	s.mu.Unlock()
+	abs := s.Snapshot(1, SnapshotHint{IncludeNodes: true}).NodeAbsences
+	if len(abs) != 1 || abs[0].Name != "n1" || abs[0].Duration() != 170*time.Second {
+		t.Errorf("absences = %+v", abs)
 	}
 }

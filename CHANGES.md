@@ -4,6 +4,18 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.9] - 2026-10-08
+
+### Added
+
+- **Node-left delay per table** on the Tables tab: a DELAY column with
+  the shortest `unassigned.node_left.delayed_timeout` the table or one of
+  its partitions has (`*` when only older partitions are that short,
+  yellow when a node was away longer), a line in the detail panel, and
+  `e` to set it for the selected table, with the same confirm as the
+  Overview (plain `ALTER TABLE`, partitions included; `c` copies it).
+  Refused in read-only mode.
+
 ## [0.3.8] - 2026-10-08
 
 ### Added

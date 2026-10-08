@@ -34,6 +34,14 @@ type TablesModel struct {
 	tableHealth          map[string]string // "schema.table" -> worst health ("RED" > "YELLOW" > "GREEN")
 	filterUnhealthy      bool
 	keyMap               KeyMap
+
+	readOnly     bool
+	delayInput   bool // e: typing a node-left delay for the selected table
+	delayBuf     string
+	delayConfirm *delayConfirm
+	noticeText   string
+	noticeIsErr  bool
+	noticeAt     time.Time
 }
 
 func NewTablesModel(width, height int) TablesModel {
@@ -132,6 +140,11 @@ func (m *TablesModel) rebuildSorted() {
 }
 
 func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
+	if !m.searching {
+		if mm, cmd, handled := m.handleDelayKey(msg); handled {
+			return mm, cmd
+		}
+	}
 	if r := m.handleKey(msg, m.keyMap, sortFieldCount); r.handled {
 		if r.rebuild {
 			m.rebuildSorted()
@@ -151,6 +164,9 @@ func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
 }
 
 func (m TablesModel) View() string {
+	if m.delayConfirm != nil {
+		return m.delayConfirm.render(m.width, m.height)
+	}
 	stale := m.snap.Staleness["shards"]
 	title := styleTitle.Render("Tables & Shards")
 	if stale {
@@ -197,8 +213,14 @@ func (m TablesModel) View() string {
 		len(m.snap.Tables), m.snap.TotalShards,
 		sortIndicator, filterInfo, healthFilter,
 		styleDim.Render(lastRefresh),
-		styleDim.Render("s:sort  /:search  f:unhealthy  R:refresh")))
+		styleDim.Render("s:sort  /:search  f:unhealthy  e:node-left delay  R:refresh")))
+	if n := m.noticeLine(); n != "" {
+		lines = append(lines, n)
+	}
 	lines = append(lines, "")
+	if m.delayInput {
+		lines = append(lines, m.delayInputLine(), "")
+	}
 
 	// Search input line
 	if m.searching {
@@ -214,8 +236,8 @@ func (m TablesModel) View() string {
 	sizeHdr := m.sortHeader("SIZE", SortBySize, 12)
 	translogHdr := m.sortHeader("TRANSLOG", SortByTranslog, 10)
 
-	header := styleHeader.Render(fmt.Sprintf("  %-30s %7s %7s %10s %10s %10s %10s",
-		nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr))
+	header := styleHeader.Render(fmt.Sprintf("  %-30s %7s %7s %10s %10s %10s %10s %7s",
+		nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr, "DELAY"))
 	lines = append(lines, header)
 
 	if len(m.sorted) == 0 {
@@ -266,11 +288,11 @@ func (m TablesModel) View() string {
 			translogCol = fmt.Sprintf("%s +%d", formatBytes(t.WorstTranslogSize), t.ShardsOverTranslogThreshold)
 		}
 
-		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s %10s",
+		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s %10s %s",
 			marker, tableName,
 			t.PrimaryShards, t.ReplicaShards,
 			formatRecords(t.TotalRecords), formatBytes(t.TotalSize), formatBytes(t.TotalDiskSize),
-			translogCol)
+			translogCol, m.delayCell(t))
 		lines = append(lines, row)
 	}
 
@@ -367,6 +389,9 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 
 		if len(highlights) > 0 {
 			lines = append(lines, "    "+strings.Join(highlights, " │ "))
+		}
+		if d := m.delayDetail(t); d != "" {
+			lines = append(lines, d)
 		}
 
 		// Translog uncommitted stats

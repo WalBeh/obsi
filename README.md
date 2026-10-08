@@ -75,7 +75,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `e` | Tables tab: set the node-left delay (`unassigned.node_left.delayed_timeout`) of the selected table, partitions included, after a confirm |
 | `K` | Kill selected query (Queries tab) |
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
-| `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52) |
+| `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52); on the Tables tab, `SHOW CREATE TABLE` of the selected table |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |
 | `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab) |

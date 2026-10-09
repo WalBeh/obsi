@@ -42,6 +42,16 @@ func NewClient(baseURL, username, password string, timeout time.Duration, skipVe
 	}
 }
 
+// unbounded is a copy whose requests are bounded by their context only, for
+// statements expected to outlast the query timeout.
+func (c *Client) unbounded() *Client {
+	cp := *c
+	hc := *c.httpClient
+	hc.Timeout = 0
+	cp.httpClient = &hc
+	return &cp
+}
+
 // Query executes a SQL statement against CrateDB and returns the response.
 func (c *Client) Query(ctx context.Context, stmt string, args ...interface{}) (*SQLResponse, error) {
 	reqBody := SQLRequest{

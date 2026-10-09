@@ -61,6 +61,9 @@ type App struct {
 
 	readOnly   bool
 	persistent bool
+
+	explainTimeout time.Duration
+	explainCancel  context.CancelFunc // stops a running EXPLAIN ANALYZE
 	// foreign is set while the endpoint answers as another cluster; the
 	// switch notice takes over until the user quits or switches.
 	foreign *cratedb.ClusterIdentity
@@ -78,6 +81,8 @@ func NewApp(st *store.Store, reg *cratedb.Registry, mgr *collector.Manager, ctx 
 		alertBell:   tuiCfg.AlertBell,
 		readOnly:    readOnly,
 		persistent:  tuiCfg.SetGlobalMode != "transient",
+
+		explainTimeout: tuiCfg.ExplainTimeout.Duration,
 	}
 	a.newTabModels()
 	a.statusBar.readOnly = readOnly
@@ -91,6 +96,7 @@ func (a *App) newTabModels() {
 	a.overview = NewOverviewModel(0, 0, a.persistent)
 	a.nodes = NewNodesModel(0, 0)
 	a.queries = NewQueriesModel(0, 0)
+	a.queries.explainTimeout = a.explainTimeout
 	a.tables = NewTablesModel(0, 0)
 	a.shards = NewShardsModel(0, 0)
 	a.sql = NewSQLModel(0, 0, a.registry, a.ctx)
@@ -305,6 +311,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ApplyNodeLeftDelayMsg:
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return applyNodeLeftDelay(ctx, reg, msg) }
+
+	case ExplainPlanMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return runExplainPlan(ctx, reg, msg) }
+
+	case ExplainPlanResultMsg:
+		a.queries = a.queries.setExplainPlan(msg)
+		return a, nil
+
+	case ExplainAnalyzeMsg:
+		ctx, cancel := context.WithTimeout(a.ctx, a.explainTimeout)
+		a.explainCancel = cancel
+		reg := a.registry
+		return a, func() tea.Msg {
+			defer cancel()
+			return runExplainAnalyze(ctx, reg, msg)
+		}
+
+	case ExplainCancelMsg:
+		if a.explainCancel != nil {
+			a.explainCancel()
+		}
+		return a, nil
+
+	case ExplainAnalyzeResultMsg:
+		a.explainCancel = nil
+		names := map[string]string{}
+		for _, n := range a.store.Snapshot(1, store.SnapshotHint{IncludeNodes: true}).Nodes {
+			names[n.ID] = n.Name
+		}
+		a.queries = a.queries.setExplainResult(msg, names)
+		if msg.Killed {
+			a.collectors.TriggerCollector(a.ctx, "queries")
+		}
+		return a, nil
 
 	case YankTableDDLMsg:
 		reg, ctx := a.registry, a.ctx

@@ -64,6 +64,9 @@ type TUIConfig struct {
 	SparklineHistory int      `toml:"sparkline_history"`
 	SetGlobalMode    string   `toml:"set_global_mode"` // "persistent" (default) or "transient"
 	AlertBell        bool     `toml:"alert_bell"`      // ring the terminal bell when an alert is raised
+	// ExplainTimeout bounds EXPLAIN ANALYZE from the Queries tab, which runs
+	// the query again; obsi kills it after this.
+	ExplainTimeout Duration `toml:"explain_timeout,omitempty"`
 }
 
 // LoggingConfig holds logging settings.
@@ -150,6 +153,9 @@ func applyDefaults(cfg *Config, md toml.MetaData) {
 	}
 	if cfg.TUI.SparklineHistory == 0 {
 		cfg.TUI.SparklineHistory = defaults.TUI.SparklineHistory
+	}
+	if cfg.TUI.ExplainTimeout.Duration <= 0 {
+		cfg.TUI.ExplainTimeout = defaults.TUI.ExplainTimeout
 	}
 	if cfg.TUI.SetGlobalMode == "" {
 		cfg.TUI.SetGlobalMode = defaults.TUI.SetGlobalMode

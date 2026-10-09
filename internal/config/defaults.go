@@ -65,6 +65,7 @@ func DefaultConfig() *Config {
 			RefreshRate:      Duration{500 * time.Millisecond},
 			SparklineHistory: 120,
 			SetGlobalMode:    "persistent",
+			ExplainTimeout:   Duration{2 * time.Minute},
 		},
 		Logging: LoggingConfig{
 			Level: "warn",

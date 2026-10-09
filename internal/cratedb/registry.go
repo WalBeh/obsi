@@ -378,6 +378,19 @@ func (r *Registry) Query(ctx context.Context, stmt string, args ...interface{}) 
 	return nil, fmt.Errorf("all nodes failed, last error: %w", lastErr)
 }
 
+// QueryUnbounded runs stmt on the primary endpoint with no client timeout;
+// ctx is the only limit. The caller kills the job if ctx ends first, since
+// dropping the HTTP request doesn't stop the query on the server.
+func (r *Registry) QueryUnbounded(ctx context.Context, stmt string, args ...interface{}) (*SQLResponse, error) {
+	r.mu.RLock()
+	foreign := r.foreign != nil
+	r.mu.RUnlock()
+	if foreign {
+		return nil, ErrClusterChanged
+	}
+	return r.primary.unbounded().Query(ctx, stmt, args...)
+}
+
 // recordLatency adds a sample to the circular buffer and adjusts the
 // primary client's timeout if latency is high. Caller must hold r.mu.
 func (r *Registry) recordLatency(d time.Duration) {

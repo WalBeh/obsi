@@ -62,7 +62,7 @@ func TestApplyPartitionDelays(t *testing.T) {
 		{"doc", "parted", float64(300000), float64(3)},
 		{"doc", "gone", float64(1000), float64(1)},
 	})
-	if tables[0].NodeLeftDelayMin != time.Minute || tables[0].PartitionsBelowDelay != 2 {
+	if tables[0].NodeLeftDelayMin != time.Minute || tables[0].PartitionsBelowDelay != 2 || tables[0].Partitions != 5 {
 		t.Errorf("parted = %v, %d below", tables[0].NodeLeftDelayMin, tables[0].PartitionsBelowDelay)
 	}
 	if tables[1].NodeLeftDelayMin != time.Minute || tables[1].PartitionsBelowDelay != 0 {

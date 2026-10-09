@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type TablesModel struct {
 	delayInput   bool // e: typing a node-left delay for the selected table
 	delayBuf     string
 	delayConfirm *delayConfirm
+	partView     *partitionsView // enter on a partitioned table
 	noticeText   string
 	noticeIsErr  bool
 	noticeAt     time.Time
@@ -141,9 +143,15 @@ func (m *TablesModel) rebuildSorted() {
 }
 
 func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
+	if m.partView != nil {
+		return m.handlePartitionsKey(msg)
+	}
 	if !m.searching {
 		if mm, cmd, handled := m.handleDelayKey(msg); handled {
 			return mm, cmd
+		}
+		if msg.Type == tea.KeyEnter {
+			return m.openPartitions()
 		}
 		if key.Matches(msg, m.keyMap.Yank) {
 			if t, ok := m.selectedTable(); ok {
@@ -173,6 +181,9 @@ func (m TablesModel) HandleKey(msg tea.KeyMsg) (TablesModel, tea.Cmd) {
 func (m TablesModel) View() string {
 	if m.delayConfirm != nil {
 		return m.delayConfirm.render(m.width, m.height)
+	}
+	if m.partView != nil {
+		return m.renderPartitions()
 	}
 	stale := m.snap.Staleness["shards"]
 	title := styleTitle.Render("Tables & Shards")
@@ -220,7 +231,7 @@ func (m TablesModel) View() string {
 		len(m.snap.Tables), m.snap.TotalShards,
 		sortIndicator, filterInfo, healthFilter,
 		styleDim.Render(lastRefresh),
-		styleDim.Render("s:sort  /:search  f:unhealthy  e:node-left delay  y:copy DDL  R:refresh")))
+		styleDim.Render("s:sort  /:search  f:unhealthy  enter:partitions  e:node-left delay  y:copy DDL  R:refresh")))
 	if n := m.noticeLine(); n != "" {
 		lines = append(lines, n)
 	}
@@ -243,8 +254,8 @@ func (m TablesModel) View() string {
 	sizeHdr := m.sortHeader("SIZE", SortBySize, 12)
 	translogHdr := m.sortHeader("TRANSLOG", SortByTranslog, 10)
 
-	header := styleHeader.Render(fmt.Sprintf("  %-30s %7s %7s %10s %10s %10s %10s %7s",
-		nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr, "DELAY"))
+	header := styleHeader.Render(fmt.Sprintf("  %-30s %7s %7s %10s %10s %10s %10s %6s %7s",
+		nameHdr, shardsHdr, replicaHdr, recordsHdr, sizeHdr, "DISK", translogHdr, "PARTS", "DELAY"))
 	lines = append(lines, header)
 
 	if len(m.sorted) == 0 {
@@ -295,11 +306,15 @@ func (m TablesModel) View() string {
 			translogCol = fmt.Sprintf("%s +%d", formatBytes(t.WorstTranslogSize), t.ShardsOverTranslogThreshold)
 		}
 
-		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s %10s %s",
+		parts := ""
+		if t.Partitions > 0 {
+			parts = strconv.Itoa(t.Partitions)
+		}
+		row := fmt.Sprintf("%s%s %7d %7d %10s %10s %10s %10s %6s %s",
 			marker, tableName,
 			t.PrimaryShards, t.ReplicaShards,
 			formatRecords(t.TotalRecords), formatBytes(t.TotalSize), formatBytes(t.TotalDiskSize),
-			translogCol, m.delayCell(t))
+			translogCol, parts, m.delayCell(t))
 		lines = append(lines, row)
 	}
 

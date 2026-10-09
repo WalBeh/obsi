@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `y` on the Tables tab copies `SHOW CREATE TABLE` of the selected table
   to the clipboard (OSC 52, works over SSH). Works in read-only mode.
+- **Partitions window** on the Tables tab. A PARTS column shows how many
+  partitions a table has; `enter` on a partitioned table lists them,
+  newest first: partition values (timestamp columns as dates), shards ×
+  replicas, records, size with a bar relative to the largest partition,
+  health and node-left delay. A shard count that differs from what new
+  partitions get, a delay shorter than the table's, and closed
+  partitions are marked; the summary has the count, total and smallest /
+  average / largest partition. `s` sorts by value, size or records, `y`
+  copies the list, `esc` goes back. Read when opened and every 10s while
+  open, not in the background.
 
 ## [0.3.9] - 2026-10-08
 

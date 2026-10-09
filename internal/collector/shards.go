@@ -244,6 +244,7 @@ func applyPartitionDelays(tables []cratedb.TableInfo, rows [][]interface{}) {
 	for i := range tables {
 		tables[i].NodeLeftDelayMin = tables[i].Settings.NodeLeftDelay
 		tables[i].PartitionsBelowDelay = 0
+		tables[i].Partitions = 0
 		byTable[tables[i].SchemaName+"."+tables[i].TableName] = i
 	}
 	for _, row := range rows {
@@ -253,6 +254,7 @@ func applyPartitionDelays(tables []cratedb.TableInfo, rows [][]interface{}) {
 		}
 		d := time.Duration(cratedb.ToInt64(row[2])) * time.Millisecond
 		t := &tables[i]
+		t.Partitions += int(cratedb.ToInt64(row[3]))
 		if d < t.NodeLeftDelayMin {
 			t.NodeLeftDelayMin = d
 		}

@@ -304,4 +304,5 @@ type TableInfo struct {
 	// PartitionsBelowDelay counts partitions shorter than the table's own.
 	NodeLeftDelayMin     time.Duration
 	PartitionsBelowDelay int
+	Partitions           int // 0 for a table that isn't partitioned
 }

@@ -310,6 +310,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return yankTableDDL(ctx, reg, msg) }
 
+	case PartitionsRequestMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return fetchPartitions(ctx, reg, msg) }
+
+	case PartitionsMsg:
+		a.tables = a.tables.setPartitions(msg)
+		return a, nil
+
 	case TablesNoticeMsg:
 		a.tables = a.tables.notice(msg.Note, msg.Error)
 		return a, nil
@@ -365,6 +373,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		snap := a.store.Snapshot(collector.ThrottleMultiplier(throttle), hint)
 		a.current().Refresh(snap)
 		finished := a.shards.takePending(a.ctx, a.registry)
+		if a.activeTab == TabTables {
+			if req, ok := a.tables.partitionsDue(time.Now()); ok {
+				reg, ctx := a.registry, a.ctx
+				finished = tea.Batch(finished, func() tea.Msg { return fetchPartitions(ctx, reg, req) })
+			}
+		}
 		var ring tea.Cmd
 		if a.alertBell && snap.Alerts.Raised > a.alerts.Raised {
 			ring = bell

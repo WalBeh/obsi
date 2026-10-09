@@ -78,6 +78,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
 | `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52); on the Tables tab, `SHOW CREATE TABLE` of the selected table |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
+| `E` | Explain the selected query (Queries tab, live list and boards): `EXPLAIN` plan right away, `a` for `EXPLAIN ANALYZE` with the bind values you type (CrateDB doesn't keep them), `y` copies everything. The analyze run is killed on `esc` or after `explain_timeout` |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |
 | `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab) |
 | `g` | Slowest statements from `sys.jobs_log`, grouped by exact text with count/max/avg (Queries tab) |
@@ -157,6 +158,7 @@ interval = "15m"     # sys.snapshots lists the repository (S3, Azure) on every r
 
 [tui]
 alert_bell = false   # ring the terminal bell when an alert is raised
+explain_timeout = "2m"  # EXPLAIN ANALYZE from the Queries tab is killed after this
 
 [jmx]
 # Set to the croudng endpoint to enable JVM/cAdvisor/operator metrics

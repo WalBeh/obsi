@@ -88,3 +88,31 @@ func TestRedact(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaceholders(t *testing.T) {
+	got := Placeholders(`SELECT * FROM t WHERE id > ? AND name = '?' /* ? */ AND "a?" = ? -- ?
+AND tags = ANY(?)`)
+	want := []Placeholder{{1, "t WHERE id >"}, {2, `'?' AND "a?" =`}, {3, "tags = ANY ("}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("? style:\n got %+v\nwant %+v", got, want)
+	}
+	// pg style: numbered, may repeat, may come out of order.
+	got = Placeholders(`SELECT * FROM t WHERE b = $2 AND a = $1 OR a = $1`)
+	if len(got) != 2 || got[0].N != 1 || got[0].Context != "$2 AND a =" || got[1].N != 2 {
+		t.Errorf("$ style: %+v", got)
+	}
+	if got := Placeholders(`SELECT 1`); len(got) != 0 {
+		t.Errorf("none: %+v", got)
+	}
+}
+
+func TestExplainable(t *testing.T) {
+	for stmt, want := range map[string]bool{
+		"SELECT 1": true, "/* x */ with a as (select 1) select * from a": true,
+		"UPDATE t SET a = 1": false, "INSERT INTO t VALUES (1)": false, "EXPLAIN SELECT 1": false,
+	} {
+		if got := Explainable(stmt); got != want {
+			t.Errorf("Explainable(%q) = %v", stmt, got)
+		}
+	}
+}

@@ -29,6 +29,7 @@ type KeyMap struct {
 	Failed    key.Binding
 	Grouped   key.Binding
 	Changes   key.Binding
+	Explain   key.Binding
 	Edit      key.Binding
 	Quit      key.Binding
 	Help      key.Binding
@@ -139,6 +140,10 @@ func DefaultKeyMap() KeyMap {
 		Grouped: key.NewBinding(
 			key.WithKeys("g"),
 			key.WithHelp("g", "group by statement (jobs_log)"),
+		),
+		Explain: key.NewBinding(
+			key.WithKeys("E"),
+			key.WithHelp("E", "explain the selected query (plan, then EXPLAIN ANALYZE)"),
 		),
 		Changes: key.NewBinding(
 			key.WithKeys("c"),

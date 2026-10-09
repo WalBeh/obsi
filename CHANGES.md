@@ -20,6 +20,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   average / largest partition. `s` sorts by value, size or records, `y`
   copies the list, `esc` goes back. Read when opened and every 10s while
   open, not in the background.
+- **Explain** on the Queries tab: `E` on a query (live list or any board)
+  shows its `EXPLAIN` plan. That doesn't run the query and needs no
+  parameter values. `a` then runs `EXPLAIN ANALYZE`, which does run it
+  again: CrateDB doesn't keep the values a client bound (sys.jobs and
+  sys.jobs_log show `?` / `$n`), so obsi asks for each one, with a few
+  words of context, as JSON or plain text, and passes them as arguments.
+  The result shows the time per phase and node (names, not ids), the
+  slowest Lucene shard queries with the documents they went through, and
+  the plan; `y` copies statement, values, plan and the full analyze
+  output. The run is tagged `/* obsi explain <id> */`; on `esc` or after
+  `explain_timeout` (`[tui]`, default 2m) obsi kills it, since CrateDB
+  keeps a query running when its HTTP request goes away. Only queries
+  (SELECT, WITH, VALUES), so read-only mode allows it.
 
 ## [0.3.9] - 2026-10-08
 

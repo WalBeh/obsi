@@ -70,7 +70,7 @@ func (a *App) tabs() []tabModel {
 		TabQueries: tab[QueriesModel]{
 			m: &a.queries, refresh: QueriesModel.Refresh, setSize: QueriesModel.SetSize,
 			handleKey: QueriesModel.HandleKey, view: QueriesModel.View,
-			inputMode:  func(m QueriesModel) bool { return m.killTarget != nil || m.infoTarget != nil },
+			inputMode:  func(m QueriesModel) bool { return m.killTarget != nil || m.infoTarget != nil || m.explain != nil },
 			hint:       store.SnapshotHint{IncludeQueries: true},
 			collectors: []string{"queries"},
 		},

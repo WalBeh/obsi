@@ -2,6 +2,8 @@ package cratedb
 
 import (
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -211,4 +213,69 @@ func lexSQL(s string, n int) tokens {
 
 func isWordByte(c byte) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c >= 0x80
+}
+
+// Placeholder is a bind parameter in a statement: ? (numbered in order) or
+// $n. Context is the few tokens before it, e.g. "id >".
+type Placeholder struct {
+	N       int
+	Context string
+}
+
+// Placeholders lists the distinct parameters of stmt in order. ? and $n
+// inside strings, quoted identifiers and comments don't count.
+func Placeholders(stmt string) []Placeholder {
+	t := lexSQL(stmt, 1<<20)
+	var out []Placeholder
+	seen := map[int]bool{}
+	next := 0
+	for i, tok := range t {
+		n := 0
+		switch {
+		case tok.kind == tokSymbol && tok.text == "?":
+			next++
+			n = next
+		case tok.kind == tokSymbol && tok.text == "$" && i+1 < len(t) && t[i+1].kind == tokWord:
+			v, err := strconv.Atoi(t[i+1].text)
+			if err != nil {
+				continue
+			}
+			n = v
+		default:
+			continue
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, Placeholder{N: n, Context: contextBefore(t, i, 4)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].N < out[j].N })
+	return out
+}
+
+// Explainable reports whether CrateDB can EXPLAIN stmt: queries only, it
+// refuses UPDATE, INSERT and DELETE.
+func Explainable(stmt string) bool {
+	t := lexSQL(stmt, 1)
+	return t.word(0, "SELECT") || t.word(0, "WITH") || t.word(0, "VALUES")
+}
+
+// contextBefore renders up to n tokens before t[i], $n kept as one.
+func contextBefore(t tokens, i, n int) string {
+	var ctx []string
+	for j := i - 1; j >= 0 && len(ctx) < n; j-- {
+		text := t[j].text
+		switch {
+		case t[j].kind == tokIdent:
+			text = `"` + text + `"`
+		case t[j].kind == tokString:
+			text = "'" + text + "'"
+		case t[j].kind == tokWord && j > 0 && t[j-1].text == "$":
+			text = "$" + text
+			j--
+		}
+		ctx = append([]string{text}, ctx...)
+	}
+	return strings.Join(ctx, " ")
 }

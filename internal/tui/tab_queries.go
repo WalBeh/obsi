@@ -59,6 +59,9 @@ type QueriesModel struct {
 
 	showChanges bool // c: config changes board, over either of the above
 	chgSelected int
+
+	explain        *explainView // E: plan, then EXPLAIN ANALYZE
+	explainTimeout time.Duration
 }
 
 type queriesView int
@@ -180,6 +183,16 @@ func (m QueriesModel) HandleKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 			}
 		case "n", "esc":
 			m.killTarget = nil
+		}
+		return m, nil
+	}
+
+	if m.explain != nil {
+		return m.handleExplainKey(msg)
+	}
+	if key.Matches(msg, km.Explain) {
+		if stmt, dur, ok := m.selectedStmt(); ok {
+			return m.openExplain(stmt, dur)
 		}
 		return m, nil
 	}
@@ -337,6 +350,9 @@ func (m QueriesModel) View() string {
 	if m.infoTarget != nil {
 		return m.renderInfoModal()
 	}
+	if m.explain != nil {
+		return m.renderExplain(m.explainTimeout)
+	}
 	if m.showChanges {
 		return m.renderChanges()
 	}
@@ -345,7 +361,7 @@ func (m QueriesModel) View() string {
 	}
 
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest  f: failed  g: grouped  c: changes)")
+	title := styleTitle.Render("Active Queries") + styleDim.Render("  (S: slowest  f: failed  g: grouped  c: changes  E: explain)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}
@@ -535,7 +551,7 @@ func (m QueriesModel) renderSlowest() string {
 		return m.renderJobsLog()
 	}
 	stale := m.snap.Staleness["queries"]
-	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live  f: failed  g: grouped  c: changes)")
+	title := styleTitle.Render("Slowest Queries") + styleDim.Render("  (S: live  f: failed  g: grouped  c: changes  E: explain)")
 	if stale {
 		title += " " + styleStale.Render("(stale)")
 	}

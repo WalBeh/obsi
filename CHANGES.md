@@ -4,6 +4,14 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.11] - 2026-10-09
+
+### Changed
+
+- The explain window scrolls (`↑`/`↓`, `pgup`/`pgdn`, `home`/`end`) when
+  the result is taller than the screen, and shows every Lucene shard
+  query instead of the five slowest.
+
 ## [0.3.10] - 2026-10-09
 
 ### Added

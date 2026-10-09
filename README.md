@@ -90,7 +90,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
 | `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52); on the Tables tab, `SHOW CREATE TABLE` of the selected table |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
-| `E` | Explain the selected query (Queries tab, live list and boards): `EXPLAIN` plan right away, `a` for `EXPLAIN ANALYZE` with the bind values you type (CrateDB doesn't keep them; `ctrl+n` takes a suggestion from partition values or `pg_stats`), `y` copies everything. The analyze run is killed on `esc` or after `explain_timeout` |
+| `E` | Explain the selected query (Queries tab, live list and boards): `EXPLAIN` plan right away, `a` for `EXPLAIN ANALYZE` with the bind values you type (CrateDB doesn't keep them; `ctrl+n` takes a suggestion from partition values or `pg_stats`), `↑↓`/`pgup`/`pgdn` scroll the result, `y` copies everything. The analyze run is killed on `esc` or after `explain_timeout` |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |
 | `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab) |
 | `g` | Slowest statements from `sys.jobs_log`, grouped by exact text with count/max/avg (Queries tab) |

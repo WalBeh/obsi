@@ -176,3 +176,34 @@ func TestExplainAnalyzeKillPending(t *testing.T) {
 		t.Errorf("err = %q", res.Err)
 	}
 }
+
+// A result taller than the screen scrolls; every Lucene row is reachable.
+func TestExplainScroll(t *testing.T) {
+	m := NewQueriesModel(160, 30)
+	m.explainTimeout = time.Minute
+	m, _ = m.openExplain("SELECT 1", 0)
+	m = m.setExplainPlan(ExplainPlanResultMsg{Plan: "Collect[...]"})
+	r := &analyzeResult{total: 10}
+	for i := 0; i < 40; i++ {
+		r.breakdown = append(r.breakdown, queryTime{node: "lab1", table: "t", shard: i, query: "TermQuery", ms: float64(40 - i)})
+	}
+	m.explain.phase, m.explain.result = explainDone, r
+
+	top := m.View()
+	if !strings.Contains(top, "↓") || strings.Contains(top, "↑ ") || !strings.Contains(top, "[↑↓ pgup pgdn] scroll") {
+		t.Fatalf("top:\n%s", top)
+	}
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEnd})
+	bottom := m.View()
+	if !strings.Contains(bottom, "shard 39") || !strings.Contains(bottom, "Collect[...]") || !strings.Contains(bottom, "↑ ") {
+		t.Errorf("bottom:\n%s", bottom)
+	}
+	if lines := strings.Count(bottom, "\n") + 1; lines > 30 {
+		t.Errorf("view is %d lines, taller than the screen", lines)
+	}
+	m, _ = m.HandleKey(keyRune('k'))
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyHome})
+	if m.explain.scroll != 0 {
+		t.Errorf("home: scroll %d", m.explain.scroll)
+	}
+}

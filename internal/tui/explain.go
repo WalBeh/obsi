@@ -40,9 +40,11 @@ type explainView struct {
 	plan    string
 	err     string
 
-	params []cratedb.Placeholder
-	inputs []string
-	focus  int
+	params  []cratedb.Placeholder
+	inputs  []string
+	focus   int
+	suggest map[int]suggestion // by placeholder number; nil until read
+	sugNext map[int]int
 
 	args      []interface{}
 	startedAt time.Time
@@ -265,6 +267,14 @@ func (m QueriesModel) handleExplainKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 			if len(v.params) > 0 {
 				v.focus = (v.focus - 1 + len(v.params)) % len(v.params)
 			}
+		case tea.KeyCtrlN:
+			if len(v.params) > 0 {
+				p := v.params[v.focus]
+				if s := v.suggest[p.N]; len(s.insert) > 0 {
+					v.inputs[v.focus] = s.insert[v.sugNext[p.N]%len(s.insert)]
+					v.sugNext[p.N]++
+				}
+			}
 		case tea.KeyBackspace:
 			if len(v.params) > 0 && len(v.inputs[v.focus]) > 0 {
 				r := []rune(v.inputs[v.focus])
@@ -291,6 +301,10 @@ func (m QueriesModel) handleExplainKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 			v.inputs = make([]string, len(v.params))
 		}
 		v.phase, v.focus = explainForm, 0
+		if v.suggest == nil && len(v.params) > 0 {
+			stmt := v.stmt
+			return m, func() tea.Msg { return ExplainSuggestMsg{Stmt: stmt} }
+		}
 	case key.Matches(msg, m.keyMap.Yank) && (v.phase == explainPlanned || v.phase == explainDone):
 		text := v.copyText()
 		return m, func() tea.Msg { return YankResultMsg{Error: writeClipboard(text)} }
@@ -366,7 +380,8 @@ func (m QueriesModel) renderExplain(timeout time.Duration) string {
 		if len(v.params) == 0 {
 			lines = append(lines, "No parameters.")
 		} else {
-			lines = append(lines, "CrateDB doesn't keep the values a client bound, so type them:", "")
+			lines = append(lines, "CrateDB doesn't keep the values a client bound, so type them. Suggestions are plausible",
+				"values from what CrateDB knows about the column, not the ones the slow run used.", "")
 			for i, p := range v.params {
 				marker := "  "
 				val := v.inputs[i]
@@ -375,12 +390,15 @@ func (m QueriesModel) renderExplain(timeout time.Duration) string {
 					val = styleEditInput.Render(val + "▏")
 				}
 				lines = append(lines, fmt.Sprintf("%s$%-3d %-36s %s", marker, p.N, truncateString(p.Context+" ?", 36), val))
+				if l := v.suggestLine(p.N, i == v.focus); l != "" {
+					lines = append(lines, truncateString("        "+l, innerWidth))
+				}
 			}
 			lines = append(lines, "",
 				styleDim.Render("Type each value as the application would send it: 100000, a%, 2026-10-08, [1, 2], null."),
 				styleDim.Render(`Digits become a number; to send them as text, quote them: "123".`))
 		}
-		lines = append(lines, "", styleDim.Render("[enter] run   [tab ↑↓] field   [esc] back"))
+		lines = append(lines, "", styleDim.Render("[enter] run   [tab ↑↓] field   [ctrl+n] next suggestion   [esc] back"))
 	case explainRunning:
 		lines = append(lines, fmt.Sprintf("running EXPLAIN ANALYZE… %s", formatDuration(time.Since(v.startedAt).Round(time.Second))),
 			"", styleDim.Render(fmt.Sprintf("[esc] stop (obsi kills the job; it also does after %s)", formatDuration(timeout))))

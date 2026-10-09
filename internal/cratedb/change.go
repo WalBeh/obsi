@@ -277,5 +277,13 @@ func contextBefore(t tokens, i, n int) string {
 		}
 		ctx = append([]string{text}, ctx...)
 	}
-	return strings.Join(ctx, " ")
+	// Glue punctuation the way SQL is written: m.day, ANY(?), a, b.
+	var b strings.Builder
+	for k, s := range ctx {
+		if k > 0 && s != "." && s != "," && s != ")" && ctx[k-1] != "." && ctx[k-1] != "(" && !(s == "(" && k > 0) {
+			b.WriteByte(' ')
+		}
+		b.WriteString(s)
+	}
+	return b.String()
 }

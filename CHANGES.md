@@ -4,7 +4,7 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.3.10] - 2026-10-09
 
 ### Added
 
@@ -33,6 +33,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `explain_timeout` (`[tui]`, default 2m) obsi kills it, since CrateDB
   keeps a query running when its HTTP request goes away. Only queries
   (SELECT, WITH, VALUES), so read-only mode allows it.
+- **Value suggestions** in the `EXPLAIN ANALYZE` form. For a placeholder
+  compared with a column (`col = ?`, `col > ?`, `LIKE`, `BETWEEN`, `IN`,
+  `ANY`, with `alias.col` resolved through FROM), obsi suggests values
+  from what CrateDB already knows: partition values, newest first, for a
+  partition column; else `pg_stats`, the most common values or, for
+  high-cardinality columns, the histogram's low, quartiles and high.
+  `ctrl+n` takes the next one. No `DISTINCT`, no table scan; without
+  statistics (collected every 24h, or after `ANALYZE`) the form says so.
+  Expressions, functions and `LIMIT ?` get no suggestion.
 
 ## [0.3.9] - 2026-10-08
 

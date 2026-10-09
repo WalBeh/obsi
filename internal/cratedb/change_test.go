@@ -92,7 +92,7 @@ func TestRedact(t *testing.T) {
 func TestPlaceholders(t *testing.T) {
 	got := Placeholders(`SELECT * FROM t WHERE id > ? AND name = '?' /* ? */ AND "a?" = ? -- ?
 AND tags = ANY(?)`)
-	want := []Placeholder{{1, "t WHERE id >"}, {2, `'?' AND "a?" =`}, {3, "tags = ANY ("}}
+	want := []Placeholder{{1, "t WHERE id >"}, {2, `'?' AND "a?" =`}, {3, "tags = ANY("}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("? style:\n got %+v\nwant %+v", got, want)
 	}

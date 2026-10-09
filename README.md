@@ -2,6 +2,18 @@
 
 A lightweight TUI monitoring tool for CrateDB clusters. Single binary, zero dependencies.
 
+## What it answers
+
+- **Why isn't this shard started?** The Shards tab says what the non-STARTED shards mean for the data (unavailable, fewer copies, rebalancing), gives the reason from `sys.allocations` per shard and node, and names the common causes with the statement that fixes them (`y` copies, `x` runs it).
+- **Why is recovery so slow?** The recovery view (`v`) compares each running copy with the fastest time `max_bytes_per_sec` allows, measures what each node actually moved, names the node whose disk or network is the limit, and marks shards the balancer moves back and forth.
+- **Will a restart copy everything?** The Overview shows `unassigned.node_left.delayed_timeout` across tables and partitions next to the longest time a node was away, and sets it for all tables or one.
+- **Who changed what?** `c` on the Queries tab lists cluster and table settings, users and privileges changed since obsi started, and before that as far as `sys.jobs_log` reaches, with old → new values.
+- **Why is this query slow?** `E` shows its plan, then `EXPLAIN ANALYZE` with the bind values you type, suggested from partition values and `pg_stats`: time per phase and node, the slowest Lucene shard queries, everything copyable.
+- **What's going on right now?** Alerts for nodes leaving, RED tables, disk and heap, failed snapshots and failing node checks; running queries with memory per query; the slowest and failed queries from `sys.jobs_log`; per-node metrics with sparklines.
+- **What does this partitioned table look like?** `enter` on the Tables tab lists its partitions with size bars, shard counts, health and delay.
+
+It starts read-only, and it notices when a port-forward suddenly points at a different cluster.
+
 ## Install
 
 Download a prebuilt binary from [Releases](https://github.com/WalBeh/obsi/releases) (Linux, macOS, Windows).
@@ -55,7 +67,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 |-----|-----|---------------|
 | `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, last 10 snapshots |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
-| `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview; config changes since start (`c`) |
+| `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview; slowest, failed and grouped queries from `sys.jobs_log`; config changes since start (`c`); explain a query (`E`) |
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, partition count, node-left delay (settable per table), health filter; `enter` lists a partitioned table's partitions |
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
@@ -78,7 +90,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
 | `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52); on the Tables tab, `SHOW CREATE TABLE` of the selected table |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
-| `E` | Explain the selected query (Queries tab, live list and boards): `EXPLAIN` plan right away, `a` for `EXPLAIN ANALYZE` with the bind values you type (CrateDB doesn't keep them), `y` copies everything. The analyze run is killed on `esc` or after `explain_timeout` |
+| `E` | Explain the selected query (Queries tab, live list and boards): `EXPLAIN` plan right away, `a` for `EXPLAIN ANALYZE` with the bind values you type (CrateDB doesn't keep them; `ctrl+n` takes a suggestion from partition values or `pg_stats`), `y` copies everything. The analyze run is killed on `esc` or after `explain_timeout` |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |
 | `f` | Failed queries from `sys.jobs_log`, newest first (Queries tab) |
 | `g` | Slowest statements from `sys.jobs_log`, grouped by exact text with count/max/avg (Queries tab) |

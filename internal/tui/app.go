@@ -316,6 +316,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return runExplainPlan(ctx, reg, msg) }
 
+	case ExplainSuggestMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return fetchSuggestions(ctx, reg, msg.Stmt) }
+
+	case ExplainSuggestionsMsg:
+		a.queries = a.queries.setSuggestions(msg)
+		return a, nil
+
 	case ExplainPlanResultMsg:
 		a.queries = a.queries.setExplainPlan(msg)
 		return a, nil

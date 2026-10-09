@@ -376,7 +376,9 @@ func (m QueriesModel) renderExplain(timeout time.Duration) string {
 				}
 				lines = append(lines, fmt.Sprintf("%s$%-3d %-36s %s", marker, p.N, truncateString(p.Context+" ?", 36), val))
 			}
-			lines = append(lines, "", styleDim.Render(`Values are JSON (123, "text", [1,2], null, true); anything else is taken as text.`))
+			lines = append(lines, "",
+				styleDim.Render("Type each value as the application would send it: 100000, a%, 2026-10-08, [1, 2], null."),
+				styleDim.Render(`Digits become a number; to send them as text, quote them: "123".`))
 		}
 		lines = append(lines, "", styleDim.Render("[enter] run   [tab ↑↓] field   [esc] back"))
 	case explainRunning:

@@ -49,6 +49,9 @@ type explainView struct {
 	args      []interface{}
 	startedAt time.Time
 	result    *analyzeResult
+
+	scroll    int // first body line shown in the plan/result view
+	maxScroll int // set while rendering, for clamping the keys
 }
 
 // ExplainPlanMsg asks the App for EXPLAIN <stmt>.
@@ -292,7 +295,20 @@ func (m QueriesModel) handleExplainKey(msg tea.KeyMsg) (QueriesModel, tea.Cmd) {
 		}
 		return m, nil
 	}
+	page := max(m.height-10, 5)
 	switch {
+	case key.Matches(msg, m.keyMap.Up):
+		v.scroll = max(v.scroll-1, 0)
+	case key.Matches(msg, m.keyMap.Down):
+		v.scroll = min(v.scroll+1, v.maxScroll)
+	case msg.Type == tea.KeyPgUp || key.Matches(msg, m.keyMap.DetailUp):
+		v.scroll = max(v.scroll-page, 0)
+	case msg.Type == tea.KeyPgDown || key.Matches(msg, m.keyMap.DetailDown):
+		v.scroll = min(v.scroll+page, v.maxScroll)
+	case msg.Type == tea.KeyHome:
+		v.scroll = 0
+	case msg.Type == tea.KeyEnd:
+		v.scroll = v.maxScroll
 	case msg.Type == tea.KeyEsc || key.Matches(msg, m.keyMap.Explain):
 		m.explain = nil
 	case msg.String() == "a" && v.plan != "" && (v.phase == explainPlanned || v.phase == explainDone):
@@ -342,7 +358,7 @@ func (m QueriesModel) renderExplain(timeout time.Duration) string {
 	}
 	lines = append(lines, styleModalTitle.Render(title), "")
 	stmtLines := wrapText(v.stmt, innerWidth)
-	if len(stmtLines) > 6 {
+	if len(stmtLines) > 6 && v.phase != explainPlanned && v.phase != explainDone {
 		stmtLines = append(stmtLines[:6], styleDim.Render(fmt.Sprintf("… %d more lines (y copies all)", len(stmtLines)-6)))
 	}
 	lines = append(lines, stmtLines...)
@@ -369,6 +385,12 @@ func (m QueriesModel) renderExplain(timeout time.Duration) string {
 		footer := "[y] copy   [esc] close"
 		if v.plan != "" {
 			footer = "[a] EXPLAIN ANALYZE (runs the query again)   " + footer
+		}
+		// Title stays, the rest scrolls; the modal's border and padding
+		// take 4 lines.
+		lines = v.scrolled(lines[:2], lines[2:], m.height-4-2-1)
+		if v.maxScroll > 0 {
+			footer = "[↑↓ pgup pgdn] scroll   " + footer
 		}
 		lines = append(lines, styleDim.Render(footer))
 	case explainForm:
@@ -426,11 +448,7 @@ func (v *explainView) renderAnalyze(width int) []string {
 	}
 	if len(r.breakdown) > 0 {
 		lines = append(lines, "", styleDim.Render("  Lucene, slowest shards:"))
-		for i, q := range r.breakdown {
-			if i == 5 {
-				lines = append(lines, styleDim.Render(fmt.Sprintf("  … %d more", len(r.breakdown)-5)))
-				break
-			}
+		for _, q := range r.breakdown {
 			lines = append(lines, truncateString(fmt.Sprintf("  %-14s %s shard %d  %s %s  %s, %s docs",
 				truncateString(q.node, 14), q.table, q.shard, q.query, truncateString(q.desc, 40), ms(q.ms), formatRecords(int64(q.docs))), width))
 		}
@@ -491,9 +509,40 @@ func (m QueriesModel) setExplainResult(msg ExplainAnalyzeResultMsg, names map[st
 	if v == nil || v.phase != explainRunning {
 		return m
 	}
-	v.phase, v.err = explainDone, msg.Err
+	v.phase, v.err, v.scroll = explainDone, msg.Err, 0
 	if msg.Err == "" {
 		v.result = parseAnalyze(msg.Raw, names)
 	}
 	return m
+}
+
+// scrolled shows head, then the part of body that fits in height lines
+// from v.scroll, with markers for what's above and below.
+func (v *explainView) scrolled(head, body []string, height int) []string {
+	height = max(height-len(head), 3)
+	if len(body) <= height {
+		v.maxScroll, v.scroll = 0, 0
+		return append(head, body...)
+	}
+	// Scrolled to the end, the "↑ more" marker takes a line.
+	v.maxScroll = len(body) - (height - 1)
+	v.scroll = min(max(v.scroll, 0), v.maxScroll)
+	// The markers take a line each when shown.
+	room := height
+	if v.scroll > 0 {
+		room--
+	}
+	if v.scroll+room < len(body) {
+		room--
+	}
+	out := append([]string{}, head...)
+	if v.scroll > 0 {
+		out = append(out, styleDim.Render(fmt.Sprintf("↑ %d more lines", v.scroll)))
+	}
+	end := min(v.scroll+room, len(body))
+	out = append(out, body[v.scroll:end]...)
+	if end < len(body) {
+		out = append(out, styleDim.Render(fmt.Sprintf("↓ %d more lines", len(body)-end)))
+	}
+	return out
 }

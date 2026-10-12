@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Replication throughput on the Replication tab: changes/s per table and
+  BEHIND per subscriber as sparklines, operations pulled/s per subscriber,
+  totals since obsi started, and for a finished initial copy the bytes,
+  time and MB/s per shard, with a hint when the copy's chunk settings
+  look like the limit on a slow link.
+
 - The Replication tab shows the replication settings and
   `node_initial_primaries_recoveries` (`c` changes them), each published
   table's retention lease period (`l` changes it, flagged under an hour)

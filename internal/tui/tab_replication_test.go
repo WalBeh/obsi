@@ -54,7 +54,7 @@ func TestReplicationView(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(view, "\n") {
-		if strings.HasPrefix(line, "    doc.broken") && !strings.HasSuffix(line, "—  —") {
+		if f := strings.Fields(line); strings.HasPrefix(line, "    doc.broken") && (f[len(f)-1] != "—" || f[len(f)-2] != "—") {
 			t.Errorf("failed table shows a rate: %q", line)
 		}
 		if strings.Contains(line, "doc.synced") && strings.Contains(line, "no copy") {

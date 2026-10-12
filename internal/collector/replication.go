@@ -28,7 +28,8 @@ FROM pg_catalog.pg_publication p LEFT JOIN pg_catalog.pg_publication_tables t ON
 ORDER BY 1, 3, 4`
 	// Shards still being copied are listed without "primary", so the
 	// filter is on the STARTED row in Go.
-	replicaShardsQuery = `SELECT schema_name || '.' || table_name, partition_ident, id, "primary", state, num_docs, seq_no_stats['max_seq_no']
+	replicaShardsQuery = `SELECT schema_name || '.' || table_name, partition_ident, id, "primary", state, num_docs, seq_no_stats['max_seq_no'],
+  size, recovery['size']['recovered'], recovery['total_time']
 FROM sys.shards
 WHERE schema_name || '.' || table_name = ANY(?)`
 	// Not limited to published tables: a subscriber keeps pulling a table
@@ -313,6 +314,9 @@ func parseReplicaShards(rows [][]interface{}) map[string]store.ReplicaShards {
 		r.Started++
 		r.Docs += cratedb.ToInt64(row[5])
 		r.SeqNo += cratedb.ToInt64(row[6]) + 1
+		r.Size += cratedb.ToInt64(row[7])
+		r.CopiedBytes += cratedb.ToInt64(row[8])
+		r.CopyShardMs += cratedb.ToInt64(row[9])
 		out[k.fqn] = r
 	}
 	return out
@@ -376,6 +380,8 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 				h.Unknown++
 			} else {
 				h.Behind += max(maxSeq-retaining, 0)
+				h.Retained += retaining
+				h.Known++
 			}
 			seen := msTime(l["timestamp"]).Add(skew)
 			if seen.After(h.LastSeen) {

@@ -98,6 +98,18 @@ And about logical replication (6.4.5):
   on published tables; `SHOW CREATE TABLE` shows it in ms, partitions
   don't expose it
 
+- a finished initial copy leaves its bytes and time in the subscriber's
+  `sys.shards.recovery` (`size.recovered`, `total_time`) per primary, the
+  same bytes as the shard's size; nothing while it runs. In the lab a
+  ~340MB copy ran at ~125MB/s per shard with the default 2 × 1mb chunks,
+  ~48MB/s with 64kb chunks
+- `docker pause` on the subscriber (instead of `sub-down`, which can hit
+  the tracker NPE) makes BEHIND grow on the publisher; `unpause` catches up
+
+`-run Throughputlab` writes to doc.repl and pauses the subscriber while
+polling both sides; `-run Copylab` subscribes a ~300MB table twice, with
+the default chunk_size and 64kb.
+
 `-run Settingslab` changes a replication setting on the subscriber and a
 lease period on the lab the way the Replication tab does.
 

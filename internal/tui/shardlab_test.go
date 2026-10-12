@@ -495,3 +495,27 @@ func TestCopylab(t *testing.T) {
 		q(sub, `DROP TABLE doc.copylab`)
 	}
 }
+
+// TestLimitedUserlab polls both sides as the lab user "mon" (not a
+// superuser) and prints the Replication tab. Create it first: CREATE USER
+// mon, GRANT DQL ON SCHEMA sys TO mon (or not, to see the errors).
+// go test -tags shardlab -run LimitedUserlab -v ./internal/tui
+func TestLimitedUserlab(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	ctx := context.Background()
+	cfg := config.DefaultConfig()
+	for _, url := range []string{"http://127.0.0.1:44210", "http://127.0.0.1:44200"} {
+		reg := cratedb.NewRegistry(url, "mon", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+		if err := reg.Bootstrap(ctx); err != nil {
+			t.Logf("%s: bootstrap: %v", url, err)
+		}
+		st := store.New(10, cfg.Collectors)
+		c := collector.NewReplicationCollector(cfg.Collectors["replication"], collector.NewQueryTracker(cfg.Collectors, cfg.Connection))
+		fmt.Printf("== %s as mon, Collect: %v\n", url, c.Collect(ctx, reg, st))
+		for _, l := range strings.Split(NewReplicationModel(140, 40).Refresh(st.Snapshot(1, store.SnapshotHint{})).View(), "\n") {
+			if strings.TrimSpace(l) != "" {
+				fmt.Println("  |", strings.TrimRight(l, " "))
+			}
+		}
+	}
+}

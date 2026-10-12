@@ -106,9 +106,31 @@ And about logical replication (6.4.5):
 - `docker pause` on the subscriber (instead of `sub-down`, which can hit
   the tracker NPE) makes BEHIND grow on the publisher; `unpause` catches up
 
+The `replication-auth` profile adds `pub2` (127.0.0.1:44220, password
+auth, TLS on 5432 with a self-signed certificate) and `lb`, a TCP balancer
+over the lab's PostgreSQL ports; `./scenarios.sh replication-auth` sets up
+a user and a publication there, `limited-user` a monitoring user `mon`
+that isn't a superuser.
+
+- with a wrong password, `mode=pg_tunnel&sslmode=disable` fails at once
+  ("password authentication failed"); `mode=sniff` accepts it and
+  replicates: over transport only the user name counts
+- `sslmode=require` and the default `prefer` against a certificate the
+  subscriber doesn't trust don't answer at all (its log: PKIX path
+  building failed); nothing is created. `disable` works
+- a table the subscriber's user can't read is left out without an error;
+  it doesn't even appear in `pg_subscription_rel`
+- `pg_tunnel` through the balancer works, copy and changes
+- a user that isn't a superuser sees only the publications and
+  subscriptions it owns, whatever it's granted; without DQL on `sys` it
+  can't read `sys.shards` or `sys.cluster` either
+- with ~1,700 shards the lease scan over `sys.shards` took ~6ms, the
+  catalog queries under 1ms, `SHOW CREATE TABLE` 0.2ms
+
 `-run Throughputlab` writes to doc.repl and pauses the subscriber while
 polling both sides; `-run Copylab` subscribes a ~300MB table twice, with
-the default chunk_size and 64kb.
+the default chunk_size and 64kb; `-run LimitedUserlab` polls both sides
+as `mon`.
 
 `-run Settingslab` changes a replication setting on the subscriber and a
 lease period on the lab the way the Replication tab does.

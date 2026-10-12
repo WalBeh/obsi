@@ -25,6 +25,9 @@ type subForm struct {
 	// refused connection doesn't lose what was typed.
 	running bool
 	taken   map[string]bool
+	// partial: obsi isn't a superuser and sees only its own
+	// subscriptions, so taken and failed may miss some.
+	partial bool
 	local   map[string]bool   // tables on this cluster
 	failed  map[string]string // table -> subscription, failed as "Relation already exists"
 	err     string
@@ -60,14 +63,17 @@ type ApplyReplicationMsg struct {
 	Args    []interface{}
 	Done    string
 	Periods bool
+	// Timeout is what to say when CrateDB doesn't answer in time.
+	Timeout string
 }
 
 // subscriptionTimeout covers CrateDB's 30s connect timeout to an
 // unreachable publisher.
-const subscriptionTimeout = time.Minute
+var subscriptionTimeout = time.Minute
 
 func (m ReplicationModel) newSubForm() *subForm {
-	f := &subForm{taken: map[string]bool{}, local: map[string]bool{}, failed: map[string]string{}}
+	f := &subForm{taken: map[string]bool{}, local: map[string]bool{}, failed: map[string]string{},
+		partial: !m.repl.Superuser && m.repl.User != ""}
 	f.vals[subMode], f.vals[subSSL], f.vals[subPort] = "pg_tunnel", "prefer", "5432"
 	for _, s := range m.repl.Subscriptions {
 		f.taken[s.Name] = true
@@ -162,6 +168,19 @@ func (f *subForm) shown(mask string) string {
 	return strings.Replace(f.stmt(), "CONNECTION ?", "CONNECTION '"+f.conninfo(pw)+"'", 1)
 }
 
+// tlsHangs: in 6.4.5 a pg_tunnel subscription that tries TLS doesn't
+// answer when the subscriber doesn't trust the publisher's certificate.
+func (f *subForm) tlsHangs() bool {
+	return f.vals[subMode] == "pg_tunnel" && f.vals[subSSL] != "disable"
+}
+
+func (f *subForm) timeoutHint() string {
+	if f.tlsHangs() {
+		return "no answer within a minute. With sslmode " + f.vals[subSSL] + " CrateDB doesn't answer when this cluster doesn't trust the publisher's certificate (its log: PKIX path building failed): trust it, or use sslmode=disable"
+	}
+	return "no answer within a minute: is " + f.vals[subHost] + ":" + f.vals[subPort] + " reachable from this cluster?"
+}
+
 func (f *subForm) validate() string {
 	switch {
 	case !identRe.MatchString(f.vals[subName]):
@@ -246,7 +265,7 @@ func (f *subForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 				pw = url.QueryEscape(f.vals[subPassword])
 			}
 			apply := ApplyReplicationMsg{Stmt: f.stmt(), Args: []interface{}{f.conninfo(pw)},
-				Done: "subscription " + f.vals[subName] + " created"}
+				Done: "subscription " + f.vals[subName] + " created", Timeout: f.timeoutHint()}
 			f.running = true
 			return false, func() tea.Msg { return apply }
 		case "c":
@@ -344,6 +363,13 @@ func (f *subForm) render(width, height int) string {
 		}
 		if f.vals[subMode] == "sniff" {
 			note(styleDim, "sniff connects to the transport port of every publisher node: their published addresses must be reachable from this cluster.")
+			note(styleHealthYellow, "sniff doesn't check the password (seen on 6.4.5): the user only has to exist on the publisher. pg_tunnel does.")
+		}
+		if f.tlsHangs() {
+			note(styleHealthYellow, "sslmode "+f.vals[subSSL]+": if the publisher has TLS on 5432, this cluster must trust its certificate; otherwise CREATE SUBSCRIPTION doesn't answer at all (seen on 6.4.5). obsi gives up after a minute.")
+		}
+		if f.partial {
+			note(styleDim, "obsi isn't a superuser and sees only its own subscriptions: the checks below can't see failed tables of others.")
 		}
 		note(styleDim, "A refused connection or unknown user fails at once; an unreachable host after CrateDB's 30s connect timeout.")
 		for _, b := range f.blockers() {
@@ -433,6 +459,9 @@ func applyReplication(ctx context.Context, reg *cratedb.Registry, msg ApplyRepli
 	ctx, cancel := context.WithTimeout(ctx, subscriptionTimeout)
 	defer cancel()
 	if _, err := reg.QueryUnbounded(ctx, msg.Stmt+cratedb.ChangeTag, msg.Args...); err != nil {
+		if ctx.Err() == context.DeadlineExceeded && msg.Timeout != "" {
+			return ReplicationNoticeMsg{Error: msg.Timeout}
+		}
 		return ReplicationNoticeMsg{Error: firstLine(err.Error())}
 	}
 	return ReplicationNoticeMsg{Note: msg.Done, Ran: true, Periods: msg.Periods}

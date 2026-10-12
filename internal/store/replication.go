@@ -100,8 +100,29 @@ type ReplicationState struct {
 	// series can be shorter, when its table or subscriber came later.
 	HistorySpan time.Duration
 	HistoryLen  int
-	Err         string
-	UpdatedAt   time.Time
+	// Errs has the parts whose query failed on the last poll (see
+	// ReplicationPoll); those show what an earlier poll had.
+	Errs map[string]string
+	// User is who obsi connects as. Unless Superuser, CrateDB lists only
+	// the publications and subscriptions User owns.
+	User      string
+	Superuser bool
+	UpdatedAt time.Time
+}
+
+// ReplicationPoll is one replication poll. A part whose query failed has
+// its error in Errs under "subscriptions", "publications", "shards",
+// "leases" or "settings", and keeps what the store had.
+type ReplicationPoll struct {
+	Subscriptions []cratedb.Subscription
+	Publications  []cratedb.Publication
+	Shards        map[string]ReplicaShards // schema.table
+	Holders       []LeaseHolder
+	Settings      map[string]string
+	LeasePeriods  map[string]time.Duration
+	Errs          map[string]string
+	User          string
+	Superuser     bool
 }
 
 func (r ReplicationState) copy() ReplicationState {
@@ -110,17 +131,34 @@ func (r ReplicationState) copy() ReplicationState {
 	r.Replicas = maps.Clone(r.Replicas) // History slices are rebuilt per poll, never mutated
 	r.Subscribers = copySlice(r.Subscribers)
 	r.Settings = maps.Clone(r.Settings)
+	r.Errs = maps.Clone(r.Errs)
 	r.LeasePeriods = maps.Clone(r.LeasePeriods)
 	return r
 }
 
-// UpdateReplication stores a replication poll. shards is keyed by
-// schema.table.
-func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Publication, shards map[string]ReplicaShards, holders []LeaseHolder) {
+// UpdateReplication stores a replication poll.
+func (s *Store) UpdateReplication(p ReplicationPoll) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	prev := s.replication
+	failed := func(part string) bool { return p.Errs[part] != "" }
+	if failed("subscriptions") {
+		p.Subscriptions = prev.Subscriptions
+	}
+	if failed("publications") {
+		p.Publications = prev.Publications
+	}
+	if failed("settings") {
+		p.Settings, p.LeasePeriods = prev.Settings, prev.LeasePeriods
+	}
+	if failed("shards") {
+		p.Shards = map[string]ReplicaShards{}
+		for fqn, r := range prev.Replicas {
+			p.Shards[fqn] = r.ReplicaShards
+		}
+	}
+	subs, pubs, shards, holders := p.Subscriptions, p.Publications, p.Shards, p.Holders
 	replicas := make(map[string]ReplicaTable)
 	live := map[string]bool{} // series updated this poll; the rest go
 	for _, sub := range subs {
@@ -146,7 +184,7 @@ func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Pu
 				r.CopySince, r.CopyFromStart = time.Time{}, false
 			}
 			complete := r.Shards > 0 && r.Started == r.Shards
-			if seen && complete && old.Shards == r.Shards && old.Started == r.Shards {
+			if seen && complete && old.Shards == r.Shards && old.Started == r.Shards && !failed("shards") {
 				if d := r.SeqNo - old.SeqNo; d >= 0 {
 					r.Rate = float64(d) / now.Sub(prev.UpdatedAt).Seconds()
 					r.Replicated += d
@@ -177,6 +215,12 @@ func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Pu
 		}
 		h.History = s.replHistory(live, "sub/"+h.Subscriber, float64(h.Behind))
 	}
+	if failed("leases") {
+		holders = prev.Subscribers
+		for _, h := range holders {
+			live["sub/"+h.Subscriber] = true
+		}
+	}
 	if s.replTimes == nil {
 		s.replTimes = NewRingBuf[time.Time](max(s.sparklineSize, 1))
 	}
@@ -188,7 +232,8 @@ func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Pu
 	}
 	times := s.replTimes.Slice()
 	s.replication = ReplicationState{Subscriptions: subs, Publications: pubs, Replicas: replicas, Subscribers: holders,
-		Settings: prev.Settings, LeasePeriods: prev.LeasePeriods, HistorySpan: now.Sub(times[0]), HistoryLen: len(times), UpdatedAt: now}
+		Settings: p.Settings, LeasePeriods: p.LeasePeriods, HistorySpan: now.Sub(times[0]), HistoryLen: len(times),
+		Errs: p.Errs, User: p.User, Superuser: p.Superuser, UpdatedAt: now}
 	s.lastUpdated["replication"] = now
 	s.alerts.sync("replication", now, replicationAlerts(subs, holders, now))
 }
@@ -207,21 +252,6 @@ func (s *Store) replHistory(live map[string]bool, key string, v float64) []float
 	}
 	rb.Push(v)
 	return rb.Slice()
-}
-
-// UpdateReplicationSettings stores the replication settings and the
-// published tables' lease periods.
-func (s *Store) UpdateReplicationSettings(settings map[string]string, periods map[string]time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.replication.Settings, s.replication.LeasePeriods = settings, periods
-}
-
-// SetReplicationError keeps the last poll and records why this one failed.
-func (s *Store) SetReplicationError(msg string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.replication.Err = msg
 }
 
 // replicationAlerts raises per failed subscribed table, and per subscriber

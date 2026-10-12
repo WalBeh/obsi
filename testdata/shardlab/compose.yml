@@ -1,5 +1,8 @@
 # Throwaway 3-node CrateDB for shard testing. Host ports 44200-44202 only.
-# The replication profile adds a single-node subscriber on 44210.
+# The replication profile adds a single-node subscriber on 44210; the
+# replication-auth profile a publisher with password auth and TLS on its
+# PostgreSQL port (44220, user repl) and a TCP balancer in front of the
+# lab's PostgreSQL ports (lb:5432 inside the network).
 x-node: &node
   image: crate:6.4.5
   environment:
@@ -22,3 +25,22 @@ services:
     profiles: [replication]
     ports: ["127.0.0.1:44210:4200"]
     command: ["crate", "-Ccluster.name=shardsub", "-Cnode.name=sub1", "-Cdiscovery.type=single-node"]
+  pub2:
+    <<: *node
+    profiles: [replication-auth]
+    ports: ["127.0.0.1:44220:4200"]
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        /crate/jdk/bin/keytool -genkeypair -alias pub2 -keyalg RSA -keysize 2048 -validity 30
+        -dname CN=pub2 -keystore /tmp/pub2.jks -storepass changeit -keypass changeit -noprompt &&
+        exec /docker-entrypoint.sh crate -Ccluster.name=shardpub2 -Cnode.name=pub2 -Cdiscovery.type=single-node
+        -Cauth.host_based.enabled=true
+        -Cauth.host_based.config.0.user=crate -Cauth.host_based.config.0.method=trust
+        -Cauth.host_based.config.1.method=password
+        -Cssl.psql.enabled=true -Cssl.keystore_filepath=/tmp/pub2.jks
+        -Cssl.keystore_password=changeit -Cssl.keystore_key_password=changeit
+  lb:
+    image: haproxy:3.0-alpine
+    profiles: [replication-auth]
+    volumes: ["./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"]

@@ -21,10 +21,13 @@ type subForm struct {
 	vals   [subFieldCount]string
 	tables []string // from the ticket; nil without one
 	review bool
-	taken  map[string]bool
-	local  map[string]bool   // tables on this cluster
-	failed map[string]string // table -> subscription, failed as "Relation already exists"
-	err    string
+	// running keeps the form open while CREATE SUBSCRIPTION runs, so a
+	// refused connection doesn't lose what was typed.
+	running bool
+	taken   map[string]bool
+	local   map[string]bool   // tables on this cluster
+	failed  map[string]string // table -> subscription, failed as "Relation already exists"
+	err     string
 }
 
 const (
@@ -162,8 +165,8 @@ func (f *subForm) validate() string {
 		return "name: lowercase letters, digits and _, starting with a letter or _"
 	case f.taken[f.vals[subName]]:
 		return "a subscription " + f.vals[subName] + " exists already"
-	case strings.TrimSpace(f.vals[subHost]) == "" || strings.ContainsAny(f.vals[subHost], "/?&@ "):
-		return "host: a hostname or address the publisher answers on, without crate:// or a port"
+	case !validHost(f.vals[subHost]):
+		return "host: a hostname or address without crate:// or a port; IPv6 in brackets, e.g. [fd00::1]"
 	case !portRe.MatchString(f.vals[subPort]):
 		return "port: a number (5432 for pg_tunnel, 4300 for sniff)"
 	case f.vals[subUser] == "":
@@ -172,6 +175,16 @@ func (f *subForm) validate() string {
 		return "publications: one or more names, comma separated"
 	}
 	return ""
+}
+
+func validHost(h string) bool {
+	if h == "" || strings.ContainsAny(h, "/?&@ ") {
+		return false
+	}
+	if strings.HasPrefix(h, "[") {
+		return strings.HasSuffix(h, "]") && strings.Count(h, "[") == 1 && strings.Count(h, "]") == 1
+	}
+	return !strings.Contains(h, ":")
 }
 
 // blockers are reasons not to run at all.
@@ -192,6 +205,14 @@ func (f *subForm) blockers() []string {
 	return out
 }
 
+// move goes to the next or previous field, past SSL when it isn't shown.
+func (f *subForm) move(step int) {
+	f.field = (f.field + step + subFieldCount) % subFieldCount
+	if f.field == subSSL && f.vals[subMode] != "pg_tunnel" {
+		f.field = (f.field + step + subFieldCount) % subFieldCount
+	}
+}
+
 func cycle(vals []string, cur string, step int) string {
 	for i, v := range vals {
 		if v == cur {
@@ -203,6 +224,9 @@ func cycle(vals []string, cur string, step int) string {
 
 // key handles the form's keys; done means it closes.
 func (f *subForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
+	if f.running {
+		return false, nil
+	}
 	f.err = ""
 	if f.review {
 		switch msg.String() {
@@ -220,7 +244,8 @@ func (f *subForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 			}
 			apply := ApplySubscriptionMsg{Stmt: f.stmt(), Args: []interface{}{f.conninfo(pw)},
 				Done: "subscription " + f.vals[subName] + " created"}
-			return true, func() tea.Msg { return apply }
+			f.running = true
+			return false, func() tea.Msg { return apply }
 		case "c":
 			text := f.shown("<password>") + ";\n"
 			return false, func() tea.Msg {
@@ -233,7 +258,8 @@ func (f *subForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 		return false, nil
 	}
 	if msg.Paste {
-		text := string(msg.Runes)
+		// Terminals send line breaks in a bracketed paste as \r.
+		text := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(string(msg.Runes))
 		if pubs, tables, ok := parseTicket(text); ok {
 			f.vals[subPubs] = strings.Join(pubs, ", ")
 			if f.vals[subName] == "" {
@@ -243,16 +269,18 @@ func (f *subForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 			f.field = subHost
 			return false, nil
 		}
-		f.vals[f.field] += strings.TrimSpace(strings.ReplaceAll(text, "\n", ""))
+		if f.field != subMode && f.field != subSSL {
+			f.vals[f.field] += strings.TrimSpace(strings.ReplaceAll(text, "\n", ""))
+		}
 		return false, nil
 	}
 	switch msg.String() {
 	case "esc":
 		return true, nil
 	case "tab", "down":
-		f.field = (f.field + 1) % subFieldCount
+		f.move(1)
 	case "shift+tab", "up":
-		f.field = (f.field - 1 + subFieldCount) % subFieldCount
+		f.move(-1)
 	case "enter":
 		if e := f.validate(); e != "" {
 			f.err = e
@@ -319,7 +347,11 @@ func (f *subForm) render(width, height int) string {
 			lines = append(lines, "")
 			note(styleHealthRed, b)
 		}
-		lines = append(lines, "", styleDim.Render("[y] run   [c] copy SQL without the password   [Esc] back"))
+		if f.running {
+			lines = append(lines, "", styleHealthYellow.Render("running... an unreachable host takes CrateDB 30s to give up"))
+		} else {
+			lines = append(lines, "", styleDim.Render("[y] run   [c] copy SQL without the password   [Esc] back"))
+		}
 	} else {
 		lines = append(lines, styleDim.Render("Paste a subscribe ticket (y on the publisher's Replication tab) or fill in:"), "")
 		for i := 0; i < subFieldCount; i++ {

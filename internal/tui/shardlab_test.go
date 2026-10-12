@@ -249,7 +249,7 @@ func TestSubscribelab(t *testing.T) {
 	q(sub, `REFRESH TABLE doc.sublab`)
 	fmt.Println("rows on the subscriber:", q(sub, `SELECT count(*) FROM doc.sublab`))
 	fmt.Println("jobs_log:", q(sub, `SELECT stmt FROM sys.jobs_log WHERE stmt LIKE 'CREATE SUBSCRIPTION%sublab%'`))
-	fmt.Println("password anywhere in jobs_log:", q(sub, `SELECT count(*) FROM sys.jobs_log WHERE stmt LIKE '%not-in-the-log%'`))
+	fmt.Println("password anywhere in jobs_log:", q(sub, `SELECT count(*) FROM sys.jobs_log WHERE stmt LIKE '%not-in-the-log%' AND stmt NOT LIKE '%sys.jobs_log%'`))
 	leases := `SELECT count(*) FROM sys.shards WHERE table_name = 'sublab' AND "primary" AND array_to_string(retention_leases['leases']['source'], ',') LIKE '%logical_replication:%'`
 	fmt.Println("publisher shards with a subscriber lease:", q(pub, leases))
 

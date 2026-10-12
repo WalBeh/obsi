@@ -79,6 +79,14 @@ func (m ReplicationModel) setChecks(msg PublicationChecksMsg) ReplicationModel {
 }
 
 func (m ReplicationModel) notice(msg ReplicationNoticeMsg) ReplicationModel {
+	if f := m.subForm; f != nil && f.running {
+		f.running = false
+		if msg.Error != "" {
+			f.err = msg.Error
+			return m
+		}
+		m.subForm = nil
+	}
 	m.noticeText, m.noticeIsErr, m.noticeAt = msg.Note, msg.Error != "", time.Now()
 	if msg.Error != "" {
 		m.noticeText = msg.Error

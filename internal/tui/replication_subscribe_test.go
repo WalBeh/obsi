@@ -99,6 +99,18 @@ func TestSubscriptionForm(t *testing.T) {
 	}
 	f.tables = []string{"doc.repl"}
 	m, cmd = keys(m, "y")
+	if m.subForm == nil || !strings.Contains(m.View(), "running") {
+		t.Fatal("form closed before the statement ran")
+	}
+	// A refused connection keeps what was typed.
+	m = m.notice(ReplicationNoticeMsg{Error: "Connection refused"})
+	if m.subForm == nil || f.running || f.vals[subPassword] != "p&ss w" || !strings.Contains(m.View(), "Connection refused") {
+		t.Fatalf("error lost the form: %+v", m.subForm)
+	}
+	m, cmd = keys(m, "y")
+	if m = m.notice(ReplicationNoticeMsg{Note: "created", Ran: true}); m.subForm != nil {
+		t.Error("form still open after success")
+	}
 	apply, ok := cmd().(ApplySubscriptionMsg)
 	if !ok || apply.Stmt != `CREATE SUBSCRIPTION "lab_pub2" CONNECTION ? PUBLICATION "lab_pub2"` ||
 		apply.Args[0] != "crate://pub.example.com:5432?user=repl&password=p%26ss+w&mode=pg_tunnel&sslmode=require" {
@@ -146,5 +158,36 @@ func TestSubscriptionDropTyped(t *testing.T) {
 	_, cmd := keys(m, "enter")
 	if apply, ok := cmd().(ApplySubscriptionMsg); !ok || apply.Stmt != `DROP SUBSCRIPTION "old"` {
 		t.Errorf("apply = %+v", apply)
+	}
+}
+
+// Review findings: \r line breaks in a paste, pastes into Mode, ports in the
+// host, SSL skipped in sniff mode.
+func TestSubscriptionFormEdges(t *testing.T) {
+	m, _ := keys(subModel(), "s")
+	f := m.subForm
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.ReplaceAll(labTicket, "\n", "\r")), Paste: true})
+	if f.vals[subPubs] != "lab_pub2" || len(f.tables) != 2 {
+		t.Fatalf("\\r ticket not parsed: %+v %v", f.vals, f.tables)
+	}
+	f.field = subMode
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("myhost"), Paste: true})
+	if f.vals[subMode] != "pg_tunnel" {
+		t.Errorf("paste changed the mode: %q", f.vals[subMode])
+	}
+	for h, ok := range map[string]bool{"pub.example.com": true, "10.0.0.1": true, "[fd00::1]": true,
+		"pub.example.com:5432": false, "fd00::1": false, "crate://x": false, "": false} {
+		if validHost(h) != ok {
+			t.Errorf("validHost(%q) = %v", h, !ok)
+		}
+	}
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRight}) // sniff
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	if f.field != subUser {
+		t.Errorf("tab from Mode in sniff went to %s", subLabels[f.field])
+	}
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
+	if f.field != subMode {
+		t.Errorf("shift+tab from User in sniff went to %s", subLabels[f.field])
 	}
 }

@@ -154,3 +154,41 @@ func TestReplicationlab(t *testing.T) {
 		}
 	}
 }
+
+// TestPublishlab runs the publisher setup's checks and statements on the
+// shardlab after ./scenarios.sh replication, and prints the ticket.
+// go test -tags shardlab -run Publishlab -v ./internal/tui
+func TestPublishlab(t *testing.T) {
+	ctx := context.Background()
+	reg := cratedb.NewRegistry("http://127.0.0.1:44200", "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+	if err := reg.Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	checks := runPublicationChecks(ctx, reg, PublicationChecksRequest{Tables: []string{"doc.repl", "doc.repl_p"}})
+	fmt.Printf("checks: %+v\n", checks)
+
+	m := NewReplicationModel(120, 40)
+	m.repl.Publications = []cratedb.Publication{{Name: "lab_pub", Tables: []string{"doc.repl", "doc.repl_p", "doc.repl_x"}}}
+	m.tables = []string{"doc.big", "doc.repl", "doc.repl_p"}
+	f := m.newPubForm(nil)
+	f.name, f.checked["doc.repl"], f.checked["doc.big"] = "lab_pub2", true, true
+	fmt.Println("create:", f.stmts())
+	fmt.Printf("%+v\n", applyPublication(ctx, reg, ApplyPublicationMsg{Stmts: f.stmts(), Done: "created"}))
+	pub := cratedb.Publication{Name: "lab_pub2", Tables: []string{"doc.big", "doc.repl"}}
+	m.repl.Publications = append(m.repl.Publications, pub)
+	e := m.newPubForm(&pub)
+	e.checked["doc.big"], e.checked["doc.repl_p"] = false, true
+	fmt.Println("edit:", e.stmts())
+	fmt.Printf("%+v\n", applyPublication(ctx, reg, ApplyPublicationMsg{Stmts: e.stmts(), Done: "changed"}))
+	resp, err := reg.Query(ctx, `SELECT pubname, tablename FROM pg_catalog.pg_publication_tables WHERE pubname = 'lab_pub2' ORDER BY 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("lab_pub2 now:", resp.Rows)
+	text, err := ticket(ctx, reg, cratedb.Publication{Name: "lab_pub2", Tables: []string{"doc.repl", "doc.repl_p"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Print(text)
+	fmt.Printf("%+v\n", applyPublication(ctx, reg, ApplyPublicationMsg{Stmts: []string{`DROP PUBLICATION "lab_pub2"`}, Done: "dropped"}))
+}

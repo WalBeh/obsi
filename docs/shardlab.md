@@ -26,7 +26,8 @@ to the lab.
 
 ```bash
 docker compose -p obsi-shardlab --profile replication up -d
-./scenarios.sh replication           # doc.repl, doc.repl_p in sync; doc.repl_x FAILED
+./scenarios.sh replication           # doc.repl, doc.repl_p in sync
+./scenarios.sh replication-fail      # doc.repl_x FAILED (read the bug below first)
 ../../obsi http://127.0.0.1:44210    # press 7: the subscriber
 ../../obsi http://127.0.0.1:44200    # press 7: the publisher
 ./scenarios.sh replication-write     # a minute of inserts
@@ -65,5 +66,18 @@ And about logical replication (6.4.5):
 - once a table of a subscription fails, CrateDB stops tracking that
   subscription's metadata, so tables added to its publications later
   never arrive
+- worse: with a table failed as "Relation already exists", creating any
+  other subscription restarts that tracking, which then tries to delete
+  the subscriber's own table of that name. The cluster state update fails
+  to apply (`NoSuchElementException` in `Metadata$MetadataDiff.apply`),
+  the node loses and re-elects master in a loop and every subscription
+  fails. Reproduced on a fresh subscriber; only a new container helped
 - an expired retention lease isn't removed right away; a subscriber that
   came back a little after expiry still caught up
+- `DROP PUBLICATION` and `ALTER PUBLICATION ... DROP TABLE` don't stop a
+  subscriber that already replicates the tables: changes keep arriving
+  and the leases keep being renewed until `DROP SUBSCRIPTION`
+- `CREATE PUBLICATION ... FOR TABLE t` refuses a table that's already in
+  a publication, `ALTER PUBLICATION ... ADD TABLE t` accepts it
+- `mode=pg_tunnel` (port 5432) works like `sniff` (4300); one subscriber
+  can have subscriptions in both modes

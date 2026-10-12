@@ -91,7 +91,8 @@ func (a *App) tabs() []tabModel {
 		TabReplication: tab[ReplicationModel]{
 			m: &a.replication, refresh: ReplicationModel.Refresh, setSize: ReplicationModel.SetSize,
 			handleKey: ReplicationModel.HandleKey, view: ReplicationModel.View,
-			inputMode:  func(ReplicationModel) bool { return false },
+			inputMode:  ReplicationModel.inputMode,
+			hint:       store.SnapshotHint{IncludeTables: true},
 			collectors: []string{"replication"},
 		},
 		TabSQL: tab[SQLModel]{

@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Publications can be set up on the Replication tab (`--read-write`): `n`
+  creates one from a table list or all tables, `e` changes its tables,
+  `d` drops it. The review shows the SQL, which users may read all chosen
+  tables (the subscriber's user silently skips the others) and short
+  retention lease periods. `y` copies a subscribe ticket with the
+  `CREATE SUBSCRIPTION` for the other cluster, the tables and the
+  publisher's nodes and ports.
+- The publisher side of the Replication tab marks subscribers that still
+  pull tables no publication lists: dropping a publication doesn't stop
+  them.
+
 - Replication tab (`7`) for logical replication. On a subscriber: each
   subscribed table as preparing, copying, in sync or FAILED with the
   reason, started shards, docs, changes/s and when obsi last saw a change

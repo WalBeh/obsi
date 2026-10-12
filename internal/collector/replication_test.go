@@ -82,9 +82,9 @@ func TestParseLeases(t *testing.T) {
 		}
 		return 12 * time.Hour
 	}
-	got := parseLeases(rows, now, period)
+	got := parseLeases(rows, now, period, map[string]bool{"doc.a": true})
 	want := []store.LeaseHolder{
-		{Subscriber: "dr", Tables: 2, Behind: 5, LastSeen: now.Add(-time.Second),
+		{Subscriber: "dr", Tables: 2, Unpublished: 1, Behind: 5, LastSeen: now.Add(-time.Second),
 			Expires: now.Add(-5*time.Second + time.Minute), Period: time.Minute},
 		{Subscriber: "old", Tables: 1, Behind: 60, LastSeen: now.Add(-3 * time.Hour),
 			Expires: now.Add(9 * time.Hour), Period: 12 * time.Hour},

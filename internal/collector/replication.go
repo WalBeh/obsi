@@ -16,8 +16,8 @@ import (
 )
 
 // pg_subscription(_rel) and pg_publication(_tables) are cluster state and
-// cheap; sys.shards is only read for replicated tables, and only while
-// there are any.
+// cheap; sys.shards is only read for subscribed tables, and for leases
+// while there are publications or leases, otherwise once a minute.
 const (
 	replSubscriptionsQuery = `SELECT s.subname, s.subconninfo, s.subpublications, r.srrelid::text, r.srsubstate, r.srsubstate_reason
 FROM pg_catalog.pg_subscription s LEFT JOIN pg_catalog.pg_subscription_rel r ON r.srsubid = s.oid
@@ -30,9 +30,12 @@ ORDER BY 1, 3, 4`
 	replicaShardsQuery = `SELECT schema_name || '.' || table_name, partition_ident, id, "primary", state, num_docs, seq_no_stats['max_seq_no']
 FROM sys.shards
 WHERE schema_name || '.' || table_name = ANY(?)`
+	// Not limited to published tables: a subscriber keeps pulling a table
+	// after it left its publication, or the publication was dropped.
 	leasesQuery = `SELECT now(), schema_name || '.' || table_name, seq_no_stats['max_seq_no'], retention_leases['leases']
 FROM sys.shards
-WHERE "primary" AND state = 'STARTED' AND schema_name || '.' || table_name = ANY(?)`
+WHERE "primary" AND state = 'STARTED'
+  AND array_to_string(retention_leases['leases']['source'], ',') LIKE '%` + leaseSourcePrefix + `%'`
 )
 
 // leaseSourcePrefix starts the source of a retention lease a subscriber
@@ -45,14 +48,20 @@ const defaultLeasePeriod = 12 * time.Hour
 
 const leasePeriodRefresh = 10 * time.Minute
 
+// leasesRecheck is how often leases are looked for on a cluster without
+// publications or leases.
+const leasesRecheck = time.Minute
+
 var leasePeriodRe = regexp.MustCompile(`"soft_deletes\.retention_lease\.period"\s*=\s*'?(\d+)`)
 
 type ReplicationCollector struct {
 	interval time.Duration
 	tracker  *QueryTracker
 
-	mu      sync.Mutex
-	periods map[string]leasePeriod // schema.table
+	mu         sync.Mutex
+	periods    map[string]leasePeriod // schema.table
+	leasesSeen bool
+	leasesAt   time.Time
 }
 
 type leasePeriod struct {
@@ -71,6 +80,7 @@ func (c *ReplicationCollector) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.periods = map[string]leasePeriod{}
+	c.leasesSeen, c.leasesAt = false, time.Time{}
 }
 
 func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
@@ -100,13 +110,14 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 		shards = parseReplicaShards(resp.Rows)
 	}
 	var holders []store.LeaseHolder
-	if tables := publishedTables(pubs); len(tables) > 0 {
-		resp, err = trackedQuery(ctx, c.tracker, QueryReplLeases, reg, leasesQuery, tables)
+	if len(pubs) > 0 || c.leasesSeen || time.Since(c.leasesAt) >= leasesRecheck {
+		resp, err = trackedQuery(ctx, c.tracker, QueryReplLeases, reg, leasesQuery)
 		if err != nil {
 			return fail(err)
 		}
 		c.refreshPeriods(ctx, reg, leasedTables(resp.Rows))
-		holders = parseLeases(resp.Rows, time.Now(), c.period)
+		holders = parseLeases(resp.Rows, time.Now(), c.period, publishedTables(pubs))
+		c.leasesSeen, c.leasesAt = len(holders) > 0, time.Now()
 	}
 	st.UpdateReplication(subs, pubs, shards, holders)
 	return nil
@@ -197,15 +208,11 @@ func subscribedTables(subs []cratedb.Subscription) []string {
 	return out
 }
 
-func publishedTables(pubs []cratedb.Publication) []string {
-	seen := map[string]bool{}
-	var out []string
+func publishedTables(pubs []cratedb.Publication) map[string]bool {
+	out := map[string]bool{}
 	for _, p := range pubs {
 		for _, t := range p.Tables {
-			if !seen[t] {
-				seen[t] = true
-				out = append(out, t)
-			}
+			out[t] = true
 		}
 	}
 	return out
@@ -269,7 +276,7 @@ func leases(v interface{}) []map[string]interface{} {
 // parseLeases folds the subscribers' retention leases per subscriber.
 // Lease timestamps are the publisher's clock; they're moved to obsi's by
 // the difference to the now() the query returned.
-func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.Duration) []store.LeaseHolder {
+func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.Duration, published map[string]bool) []store.LeaseHolder {
 	type agg struct {
 		holder store.LeaseHolder
 		tables map[string]bool
@@ -305,6 +312,11 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 	out := make([]store.LeaseHolder, 0, len(bySub))
 	for _, a := range bySub {
 		a.holder.Tables = len(a.tables)
+		for t := range a.tables {
+			if !published[t] {
+				a.holder.Unpublished++
+			}
+		}
 		out = append(out, a.holder)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Subscriber < out[j].Subscriber })

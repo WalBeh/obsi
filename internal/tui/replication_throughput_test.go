@@ -26,7 +26,7 @@ func throughputSnap() store.StoreSnapshot {
 	now := time.Now()
 	return store.StoreSnapshot{Replication: store.ReplicationState{
 		UpdatedAt: now, HistorySpan: 20 * time.Minute,
-		Settings: map[string]string{"replication.logical.recovery.chunk_size": "1mb", "replication.logical.recovery.max_concurrent_file_chunks": "2"},
+		Settings:      map[string]string{"replication.logical.recovery.chunk_size": "1mb", "replication.logical.recovery.max_concurrent_file_chunks": "2"},
 		Subscriptions: []cratedb.Subscription{{Name: "s", Tables: []cratedb.SubscribedTable{{Schema: "doc", Table: "big", State: "r"}}}},
 		Replicas: map[string]store.ReplicaTable{"doc.big": {
 			ReplicaShards: store.ReplicaShards{Shards: 2, Started: 2, Docs: 1000, Size: 1 << 20},

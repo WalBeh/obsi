@@ -192,3 +192,84 @@ func TestPublishlab(t *testing.T) {
 	fmt.Print(text)
 	fmt.Printf("%+v\n", applyPublication(ctx, reg, ApplyPublicationMsg{Stmts: []string{`DROP PUBLICATION "lab_pub2"`}, Done: "dropped"}))
 }
+
+// TestSubscribelab runs the subscriber setup end to end: a publication on
+// the shardlab, its ticket pasted into the form on the subscriber (44210),
+// CREATE and DROP SUBSCRIPTION. Needs the replication profile.
+// go test -tags shardlab -run Subscribelab -v ./internal/tui
+func TestSubscribelab(t *testing.T) {
+	ctx := context.Background()
+	open := func(url string) *cratedb.Registry {
+		reg := cratedb.NewRegistry(url, "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+		if err := reg.Bootstrap(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return reg
+	}
+	pub, sub := open("http://127.0.0.1:44200"), open("http://127.0.0.1:44210")
+	q := func(reg *cratedb.Registry, stmt string) [][]interface{} {
+		resp, err := reg.Query(ctx, stmt)
+		if err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+		return resp.Rows
+	}
+	q(pub, `CREATE TABLE doc.sublab (id INT) WITH (number_of_replicas = 0)`)
+	q(pub, `INSERT INTO doc.sublab SELECT g FROM generate_series(1, 100) g`)
+	defer func() {
+		sub.Query(ctx, `DROP SUBSCRIPTION IF EXISTS sublab_pub`)
+		sub.Query(ctx, `DROP TABLE IF EXISTS doc.sublab`)
+		pub.Query(ctx, `DROP PUBLICATION IF EXISTS sublab_pub`)
+		pub.Query(ctx, `DROP TABLE IF EXISTS doc.sublab`)
+	}()
+	fmt.Printf("%+v\n", applyPublication(ctx, pub, ApplyPublicationMsg{Stmts: []string{`CREATE PUBLICATION "sublab_pub" FOR TABLE "doc"."sublab"`}}))
+	text, err := ticket(ctx, pub, cratedb.Publication{Name: "sublab_pub", Tables: []string{"doc.sublab"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewReplicationModel(120, 40).Refresh(store.StoreSnapshot{Replication: store.ReplicationState{UpdatedAt: time.Now()}})
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text), Paste: true})
+	f := m.subForm
+	f.vals[subHost], f.vals[subUser], f.vals[subPassword] = "lab1", "crate", "not-in-the-log&1"
+	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	apply := cmd().(ApplySubscriptionMsg)
+	fmt.Println("run:", apply.Stmt)
+	fmt.Printf("%+v\n", applySubscription(ctx, sub, apply))
+	for i := 0; i < 30; i++ {
+		rows := q(sub, `SELECT r.srsubstate FROM pg_catalog.pg_subscription_rel r WHERE r.srrelid::text = 'doc.sublab'`)
+		if len(rows) > 0 && rows[0][0] == "r" {
+			fmt.Printf("in sync after %ds\n", i)
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	q(sub, `REFRESH TABLE doc.sublab`)
+	fmt.Println("rows on the subscriber:", q(sub, `SELECT count(*) FROM doc.sublab`))
+	fmt.Println("jobs_log:", q(sub, `SELECT stmt FROM sys.jobs_log WHERE stmt LIKE 'CREATE SUBSCRIPTION%sublab%'`))
+	fmt.Println("password anywhere in jobs_log:", q(sub, `SELECT count(*) FROM sys.jobs_log WHERE stmt LIKE '%not-in-the-log%'`))
+	leases := `SELECT count(*) FROM sys.shards WHERE table_name = 'sublab' AND "primary" AND array_to_string(retention_leases['leases']['source'], ',') LIKE '%logical_replication:%'`
+	fmt.Println("publisher shards with a subscriber lease:", q(pub, leases))
+
+	d := &subDrop{name: "sublab_pub"}
+	for _, r := range "sublab_pub" {
+		d.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	_, cmd = d.key(tea.KeyMsg{Type: tea.KeyEnter})
+	fmt.Printf("%+v\n", applySubscription(ctx, sub, cmd().(ApplySubscriptionMsg)))
+	if _, err := sub.Query(ctx, `INSERT INTO doc.sublab VALUES (-1)`); err != nil {
+		t.Errorf("not writable after the drop: %v", err)
+	} else {
+		fmt.Println("writable after the drop")
+	}
+	for i := 0; i < 60; i++ {
+		if n := q(pub, leases)[0][0]; cratedb.ToInt64(n) == 0 {
+			fmt.Printf("publisher lease gone after %ds\n", i)
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	fmt.Println("publisher lease still there after 60s")
+}

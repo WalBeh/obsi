@@ -81,3 +81,15 @@ And about logical replication (6.4.5):
   a publication, `ALTER PUBLICATION ... ADD TABLE t` accepts it
 - `mode=pg_tunnel` (port 5432) works like `sniff` (4300); one subscriber
   can have subscriptions in both modes
+- `CREATE SUBSCRIPTION` itself tests the connection and leaves nothing
+  behind when it fails: a closed port and a missing publication fail at
+  once, an unknown user too (pg_tunnel: "trust authentication failed",
+  sniff: "subscribing user ... was not found"), an unreachable host after
+  a 30s connect timeout
+- `CONNECTION ?` with the connection string as a bind parameter works;
+  `sys.jobs_log` then shows the `?`
+- after `DROP SUBSCRIPTION` the table is writable at once and the
+  publisher's leases are gone within a second
+
+`-run Publishlab` and `-run Subscribelab` run the publisher and the
+subscriber setup against the lab.

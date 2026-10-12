@@ -297,7 +297,7 @@ func (f *pubForm) render(width, height int) string {
 	case pubTables:
 		lines = append(lines, f.renderTables(height-12)...)
 	case pubReview:
-		lines = append(lines, f.renderReview(innerWidth)...)
+		lines = append(lines, f.renderReview(innerWidth-4)...)
 	}
 	if f.err != "" {
 		lines = append(lines, "", styleHealthRed.Render(f.err))
@@ -434,9 +434,7 @@ func (d *pubDrop) render(width, height int) string {
 	lines := []string{
 		styleModalTitle.Render("Drop publication " + d.name + "?"), "",
 	}
-	for _, l := range wrapText("Subscribers that already replicate its tables keep receiving changes and keep them read-only (seen on 6.4.5): only DROP SUBSCRIPTION on the subscriber stops that. The tables here are not touched.", innerWidth) {
-		lines = append(lines, l)
-	}
+	lines = append(lines, wrapText("Subscribers that already replicate its tables keep receiving changes and keep them read-only (seen on 6.4.5): only DROP SUBSCRIPTION on the subscriber stops that. The tables here are not touched.", innerWidth-4)...)
 	lines = append(lines, "", styleDim.Render("[y] drop   [n] cancel"))
 	return placeModal(lipgloss.JoinVertical(lipgloss.Left, lines...), innerWidth, width, height)
 }

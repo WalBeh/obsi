@@ -26,9 +26,11 @@ type ReplicationModel struct {
 	maxScroll int
 
 	readOnly    bool
-	selected    int // index into repl.Publications
+	selected    int // subscriptions first, then publications
 	form        *pubForm
 	drop        *pubDrop
+	subForm     *subForm
+	subDrop     *subDrop
 	noticeText  string
 	noticeIsErr bool
 	noticeAt    time.Time
@@ -45,15 +47,26 @@ func (m ReplicationModel) Refresh(snap store.StoreSnapshot) ReplicationModel {
 		m.tables = append(m.tables, t.SchemaName+"."+t.TableName)
 	}
 	sort.Strings(m.tables)
-	m.selected = min(m.selected, max(len(m.repl.Publications)-1, 0))
+	m.selected = min(m.selected, max(m.items()-1, 0))
 	return m.clampScroll()
 }
 
-func (m ReplicationModel) inputMode() bool { return m.form != nil || m.drop != nil }
+func (m ReplicationModel) inputMode() bool {
+	return m.form != nil || m.drop != nil || m.subForm != nil || m.subDrop != nil
+}
+
+func (m ReplicationModel) items() int { return len(m.repl.Subscriptions) + len(m.repl.Publications) }
+
+func (m ReplicationModel) selectedSub() (cratedb.Subscription, bool) {
+	if m.selected < len(m.repl.Subscriptions) {
+		return m.repl.Subscriptions[m.selected], true
+	}
+	return cratedb.Subscription{}, false
+}
 
 func (m ReplicationModel) selectedPub() (cratedb.Publication, bool) {
-	if m.selected < len(m.repl.Publications) {
-		return m.repl.Publications[m.selected], true
+	if i := m.selected - len(m.repl.Subscriptions); i >= 0 && i < len(m.repl.Publications) {
+		return m.repl.Publications[i], true
 	}
 	return cratedb.Publication{}, false
 }
@@ -114,15 +127,40 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 		}
 		return m, cmd
 	}
+	if m.subForm != nil {
+		done, cmd := m.subForm.key(msg)
+		if done {
+			m.subForm = nil
+		}
+		return m, cmd
+	}
+	if m.subDrop != nil {
+		done, cmd := m.subDrop.key(msg)
+		if done {
+			m.subDrop = nil
+		}
+		return m, cmd
+	}
 	pub, hasPub := m.selectedPub()
+	sub, hasSub := m.selectedSub()
 	page := max(m.height-2, 1)
 	switch msg.String() {
-	case "n", "e", "d":
+	case "n", "e", "d", "s":
 		switch {
 		case m.readOnly:
-			m = m.notice(ReplicationNoticeMsg{Error: readOnlyRefusal("publications can't be changed")})
+			m = m.notice(ReplicationNoticeMsg{Error: readOnlyRefusal("publications and subscriptions can't be changed")})
 		case msg.String() == "n":
 			m.form = m.newPubForm(nil)
+		case msg.String() == "s":
+			m.subForm = m.newSubForm()
+		case hasSub && msg.String() == "d":
+			d := &subDrop{name: sub.Name}
+			for _, t := range sub.Tables {
+				d.tables = append(d.tables, t.FQN())
+			}
+			m.subDrop = d
+		case hasSub:
+			m = m.notice(ReplicationNoticeMsg{Error: "a subscription can't be changed (ALTER SUBSCRIPTION isn't implemented in CrateDB): drop it and subscribe again"})
 		case !hasPub:
 		case msg.String() == "d":
 			m.drop = &pubDrop{name: pub.Name}
@@ -138,14 +176,14 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 		}
 		return m, nil
 	case "up", "k":
-		if len(m.repl.Publications) > 0 {
+		if m.items() > 0 {
 			m.selected = max(m.selected-1, 0)
 			return m.followSelection(), nil
 		}
 		m.scroll--
 	case "down", "j":
-		if len(m.repl.Publications) > 0 {
-			m.selected = min(m.selected+1, len(m.repl.Publications)-1)
+		if m.items() > 0 {
+			m.selected = min(m.selected+1, m.items()-1)
 			return m.followSelection(), nil
 		}
 		m.scroll++
@@ -162,7 +200,8 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 	return m, nil
 }
 
-// followSelection scrolls the selected publication into view.
+// followSelection scrolls the selected subscription or publication into
+// view.
 func (m ReplicationModel) followSelection() ReplicationModel {
 	for i, l := range m.render() {
 		if strings.Contains(l, "▸ ") {
@@ -188,6 +227,10 @@ func (m ReplicationModel) View() string {
 		return m.form.render(m.width, m.height)
 	case m.drop != nil:
 		return m.drop.render(m.width, m.height)
+	case m.subForm != nil:
+		return m.subForm.render(m.width, m.height)
+	case m.subDrop != nil:
+		return m.subDrop.render(m.width, m.height)
 	}
 	return m.body() + "\n" + m.noticeLine()
 }
@@ -241,7 +284,7 @@ func (m ReplicationModel) layout() []string {
 			"  No publications or subscriptions on this cluster.",
 			styleDim.Render("  Logical replication shows here: what this cluster pulls (CREATE SUBSCRIPTION)"),
 			styleDim.Render("  and what it serves to other clusters (CREATE PUBLICATION)."),
-			"", styleDim.Render("  n: new publication"))
+			"", styleDim.Render("  n: new publication · s: new subscription"))
 	}
 	if len(r.Subscriptions) > 0 {
 		lines = append(lines, m.renderSubscriptions()...)
@@ -253,6 +296,9 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, m.renderPublications()...)
 	} else {
 		lines = append(lines, "", styleDim.Render("  n: new publication"))
+	}
+	if len(r.Subscriptions) == 0 {
+		lines = append(lines, styleDim.Render("  s: new subscription"))
 	}
 	return lines
 }
@@ -271,9 +317,13 @@ func (m ReplicationModel) renderSubscriptions() []string {
 			nameW = max(nameW, min(len(t.FQN()), 40))
 		}
 	}
-	for _, s := range m.repl.Subscriptions {
-		lines = append(lines, fmt.Sprintf("  %s  ← %s   publications %s",
-			styleValue.Render(s.Name), connTarget(s.ConnInfo), strings.Join(s.Publications, ", ")))
+	for i, s := range m.repl.Subscriptions {
+		marker := "  "
+		if i == m.selected {
+			marker = "▸ "
+		}
+		lines = append(lines, fmt.Sprintf("%s%s  ← %s   publications %s",
+			marker, styleValue.Render(s.Name), connTarget(s.ConnInfo), strings.Join(s.Publications, ", ")))
 		if len(s.Tables) == 0 {
 			lines = append(lines, styleDim.Render("    no tables yet"))
 			continue
@@ -284,7 +334,8 @@ func (m ReplicationModel) renderSubscriptions() []string {
 			lines = append(lines, m.subscribedRow(t, nameW)...)
 		}
 	}
-	return append(lines, styleDim.Render("  How far behind the publisher a table is shows only there: run obsi against the publisher."))
+	return append(lines, styleDim.Render("  How far behind the publisher a table is shows only there: run obsi against the publisher."),
+		styleDim.Render("  s new · d drop (selected subscription, ↑↓)"))
 }
 
 func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []string {
@@ -374,7 +425,7 @@ func (m ReplicationModel) renderPublications() []string {
 			tables = styleDim.Render("no tables")
 		}
 		head := "  " + styleValue.Render(p.Name) + "  "
-		if i == m.selected {
+		if i+len(m.repl.Subscriptions) == m.selected {
 			head = "▸ " + styleValue.Render(p.Name) + "  "
 		}
 		wrapped := wrapText(tables, max(m.width-len(p.Name)-6, 20))

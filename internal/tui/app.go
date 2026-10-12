@@ -330,6 +330,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return copyTicket(ctx, reg, msg.Pub) }
 
+	case ApplySubscriptionMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return applySubscription(ctx, reg, msg) }
+
 	case ReplicationNoticeMsg:
 		a.replication = a.replication.notice(msg)
 		if msg.Ran {

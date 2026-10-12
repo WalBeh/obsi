@@ -45,6 +45,7 @@ const (
 	QueryReplLeases        = "replication.leases"
 	QueryReplLeasePeriod   = "replication.lease_period"
 	QueryReplSettings      = "replication.settings"
+	QueryReplUser          = "replication.user"
 	QueryHeartbeat         = cratedb.QueryLabelHeartbeat
 	QueryBootstrap         = cratedb.QueryLabelBootstrap
 	QueryNodeDiscovery     = cratedb.QueryLabelNodeDiscovery
@@ -129,6 +130,7 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryReplLeases, "replication", ci("replication")},
 		{QueryReplLeasePeriod, "replication", leasePeriodRefresh},
 		{QueryReplSettings, "replication", ci("replication")},
+		{QueryReplUser, "replication", 0},
 		{QueryHeartbeat, "registry", connCfg.HeartbeatInterval.Duration},
 		{QueryBootstrap, "registry", 0},
 		{QueryNodeDiscovery, "registry", connCfg.NodeRefreshInterval.Duration},

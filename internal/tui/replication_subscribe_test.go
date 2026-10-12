@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -189,5 +192,47 @@ func TestSubscriptionFormEdges(t *testing.T) {
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyShiftTab})
 	if f.field != subMode {
 		t.Errorf("shift+tab from User in sniff went to %s", subLabels[f.field])
+	}
+}
+
+// Lab findings: sniff ignores the password, TLS with an untrusted
+// certificate hangs CREATE SUBSCRIPTION, a non-superuser sees only its own.
+func TestSubscriptionFormLabFindings(t *testing.T) {
+	m := subModel()
+	m.repl.User = "mon"
+	m, _ = keys(m, "s")
+	f := m.subForm
+	f.vals[subName], f.vals[subHost], f.vals[subUser], f.vals[subPubs] = "n", "pub", "repl", "p"
+	m, _ = keys(m, "enter")
+	view := m.View()
+	for _, want := range []string{"sslmode prefer", "doesn't answer at all", "sees only its own subscriptions"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("review lacks %q:\n%s", want, view)
+		}
+	}
+	if !strings.Contains(f.timeoutHint(), "PKIX path building failed") {
+		t.Errorf("timeout hint = %q", f.timeoutHint())
+	}
+	f.vals[subMode] = "sniff"
+	if view := m.View(); !strings.Contains(view, "doesn't check the password") || strings.Contains(view, "doesn't answer at all") {
+		t.Errorf("sniff review:\n%s", view)
+	}
+	if !strings.Contains(f.timeoutHint(), "reachable") {
+		t.Errorf("sniff timeout hint = %q", f.timeoutHint())
+	}
+}
+
+func TestApplyReplicationTimeout(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+	defer srv.Close()
+	defer close(block)
+	old := subscriptionTimeout
+	subscriptionTimeout = 200 * time.Millisecond
+	defer func() { subscriptionTimeout = old }()
+	reg := cratedb.NewRegistry(srv.URL, "crate", "", time.Second, time.Second, time.Hour, time.Hour, false)
+	got := applyReplication(context.Background(), reg, ApplyReplicationMsg{Stmt: "CREATE SUBSCRIPTION s CONNECTION ? PUBLICATION p", Timeout: "no answer within a minute"})
+	if got.Error != "no answer within a minute" {
+		t.Errorf("got %+v", got)
 	}
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -309,18 +310,35 @@ func (m ReplicationModel) render() []string {
 func (m ReplicationModel) layout() []string {
 	r := m.repl
 	var lines []string
-	if r.Err != "" {
-		lines = append(lines, styleHealthRed.Render("  replication poll failed: "+firstLine(r.Err)))
+	for _, p := range replParts {
+		e := r.Errs[p.key]
+		if e == "" {
+			continue
+		}
+		msg := crateMessage(e)
+		if strings.Contains(msg, "MissingPrivilegeException") && strings.Contains(p.what, "sys.") && r.User != "" {
+			msg += " · GRANT DQL ON SCHEMA sys TO " + r.User
+		}
+		for _, l := range wrapText(fmt.Sprintf("couldn't read %s: %s", p.what, msg), max(m.width-4, 40)) {
+			lines = append(lines, "  "+styleHealthRed.Render(l))
+		}
+	}
+	if !r.Superuser && r.User != "" {
+		for _, l := range wrapText(fmt.Sprintf("obsi connects as %s, not a superuser: CrateDB lists publications and subscriptions only to their owner and superusers, so others' are missing here, and which tables a subscriber pulls are still published can't be told.", r.User), max(m.width-4, 40)) {
+			lines = append(lines, "  "+styleHealthYellow.Render(l))
+		}
 	}
 	switch {
 	case r.UpdatedAt.IsZero():
-		if r.Err == "" {
-			lines = append(lines, styleDim.Render("  waiting for the first replication poll"))
-		}
+		lines = append(lines, styleDim.Render("  waiting for the first replication poll"))
 		return lines
 	case len(r.Subscriptions) == 0 && len(r.Publications) == 0 && len(r.Subscribers) == 0:
+		none := "  No publications or subscriptions on this cluster."
+		if !r.Superuser && r.User != "" {
+			none = "  No publications or subscriptions owned by " + r.User + "."
+		}
 		return append(lines,
-			"  No publications or subscriptions on this cluster.",
+			none,
 			styleDim.Render("  Logical replication shows here: what this cluster pulls (CREATE SUBSCRIPTION)"),
 			styleDim.Render("  and what it serves to other clusters (CREATE PUBLICATION)."),
 			"", styleDim.Render("  n: new publication · s: new subscription"))
@@ -348,6 +366,26 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, p...)
 	}
 	return lines
+}
+
+var crateMessageRe = regexp.MustCompile(`"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+
+// crateMessage is CrateDB's own message from an error that carries its
+// JSON body, e.g. MissingPrivilegeException[...], else the first line.
+func crateMessage(err string) string {
+	if m := crateMessageRe.FindStringSubmatch(err); m != nil {
+		return strings.ReplaceAll(m[1], `\"`, `"`)
+	}
+	return firstLine(err)
+}
+
+// replParts names the parts of a replication poll for their errors.
+var replParts = []struct{ key, what string }{
+	{"subscriptions", "subscriptions (pg_subscription)"},
+	{"publications", "publications (pg_publication)"},
+	{"shards", "subscribed shards (sys.shards), showing the last poll"},
+	{"leases", "subscriber leases (sys.shards), showing the last poll"},
+	{"settings", "replication settings (sys.cluster)"},
 }
 
 // stuckPreparing is how long a table may sit initializing before the tab
@@ -478,7 +516,11 @@ func connTarget(conn string) string {
 func (m ReplicationModel) renderPublications() []string {
 	lines := []string{sectionTitle("Publications · this cluster serves")}
 	if len(m.repl.Publications) == 0 {
-		lines = append(lines, styleDim.Render("  none (dropped?) · n: new publication"))
+		none := "  none (dropped?) · n: new publication"
+		if !m.repl.Superuser && m.repl.User != "" {
+			none = "  none owned by " + m.repl.User + " · n: new publication"
+		}
+		lines = append(lines, styleDim.Render(none))
 	}
 	for i, p := range m.repl.Publications {
 		tables := strings.Join(p.Tables, ", ")

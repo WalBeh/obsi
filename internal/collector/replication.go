@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -71,6 +72,8 @@ type ReplicationCollector struct {
 	periods    map[string]leasePeriod // schema.table
 	leasesSeen bool
 	leasesAt   time.Time
+	user       string // who obsi connects as, "" until known
+	superuser  bool
 	// reset asks the next Collect to forget the above. Reset only sets it:
 	// it's called from the TUI, which mustn't wait for a running poll.
 	reset atomic.Bool
@@ -98,55 +101,79 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 	if c.reset.Swap(false) {
 		c.periods = map[string]leasePeriod{}
 		c.leasesSeen, c.leasesAt = false, time.Time{}
+		c.user = ""
 	}
-	fail := func(err error) error {
-		st.SetReplicationError(err.Error())
-		return err
+	if c.user == "" {
+		c.whoAmI(ctx, reg)
 	}
-	resp, err := trackedQuery(ctx, c.tracker, QueryReplSubscriptions, reg, replSubscriptionsQuery)
-	if err != nil {
-		return fail(err)
+	p := store.ReplicationPoll{Errs: map[string]string{}, User: c.user, Superuser: c.superuser}
+	// Each part fails on its own: a user without DQL on sys still sees
+	// its subscriptions, a timeout on sys.shards keeps the rest.
+	part := func(name, label, stmt string, args ...interface{}) *cratedb.SQLResponse {
+		resp, err := trackedQuery(ctx, c.tracker, label, reg, stmt, args...)
+		if err != nil {
+			p.Errs[name] = err.Error()
+			return nil
+		}
+		return resp
 	}
-	subs := parseSubscriptions(resp.Rows)
-	resp, err = trackedQuery(ctx, c.tracker, QueryReplPublications, reg, replPublicationsQuery)
-	if err != nil {
-		return fail(err)
+	if resp := part("subscriptions", QueryReplSubscriptions, replSubscriptionsQuery); resp != nil {
+		p.Subscriptions = parseSubscriptions(resp.Rows)
 	}
-	pubs := parsePublications(resp.Rows)
+	if resp := part("publications", QueryReplPublications, replPublicationsQuery); resp != nil {
+		p.Publications = parsePublications(resp.Rows)
+	}
 
-	var shards map[string]store.ReplicaShards
-	if tables := subscribedTables(subs); len(tables) > 0 {
-		resp, err = trackedQuery(ctx, c.tracker, QueryReplicaShards, reg, replicaShardsQuery, tables)
-		if err != nil {
-			return fail(err)
-		}
-		shards = parseReplicaShards(resp.Rows)
-	}
-	var holders []store.LeaseHolder
-	var leased []string
-	if len(pubs) > 0 || c.leasesSeen || time.Since(c.leasesAt) >= leasesRecheck {
-		resp, err = trackedQuery(ctx, c.tracker, QueryReplLeases, reg, leasesQuery)
-		if err != nil {
-			return fail(err)
-		}
-		leased = leasedTables(resp.Rows)
-		c.refreshPeriods(ctx, reg, append(leased, sortedKeys(publishedTables(pubs))...))
-		holders = parseLeases(resp.Rows, time.Now(), c.period, publishedTables(pubs))
-		c.leasesSeen, c.leasesAt = len(holders) > 0, time.Now()
-	}
-	resp, err = trackedQuery(ctx, c.tracker, QueryReplSettings, reg, replSettingsQuery)
-	if err != nil {
-		return fail(err)
-	}
-	periods := map[string]time.Duration{}
-	for t := range publishedTables(pubs) {
-		if p, ok := c.periods[t]; ok && p.d > 0 {
-			periods[t] = p.d
+	switch tables := subscribedTables(p.Subscriptions); {
+	case p.Errs["subscriptions"] != "":
+		p.Errs["shards"] = p.Errs["subscriptions"]
+	case len(tables) > 0:
+		if resp := part("shards", QueryReplicaShards, replicaShardsQuery, tables); resp != nil {
+			p.Shards = parseReplicaShards(resp.Rows)
 		}
 	}
-	st.UpdateReplication(subs, pubs, shards, holders)
-	st.UpdateReplicationSettings(parseReplSettings(resp.Rows), periods)
+	// Publications are only listed to their owner and superusers: then
+	// which leased tables are unpublished isn't known.
+	var published map[string]bool
+	if c.superuser && p.Errs["publications"] == "" {
+		published = publishedTables(p.Publications)
+	}
+	if len(p.Publications) > 0 || c.leasesSeen || time.Since(c.leasesAt) >= leasesRecheck {
+		if resp := part("leases", QueryReplLeases, leasesQuery); resp != nil {
+			leased := leasedTables(resp.Rows)
+			c.refreshPeriods(ctx, reg, append(leased, sortedKeys(publishedTables(p.Publications))...))
+			p.Holders = parseLeases(resp.Rows, time.Now(), c.period, published)
+			c.leasesSeen, c.leasesAt = len(p.Holders) > 0, time.Now()
+		}
+	}
+	if resp := part("settings", QueryReplSettings, replSettingsQuery); resp != nil {
+		p.Settings = parseReplSettings(resp.Rows)
+		p.LeasePeriods = map[string]time.Duration{}
+		for t := range publishedTables(p.Publications) {
+			if lp, ok := c.periods[t]; ok && lp.d > 0 {
+				p.LeasePeriods[t] = lp.d
+			}
+		}
+	}
+	st.UpdateReplication(p)
+	// Missing privileges would warn every poll; only a cluster that
+	// answers nothing is an error.
+	if len(p.Errs) == 5 {
+		return errors.New(p.Errs["subscriptions"])
+	}
 	return nil
+}
+
+// whoAmI notes the user obsi connects as and whether it's a superuser;
+// sys.users is unreadable for most others, which aren't superusers.
+func (c *ReplicationCollector) whoAmI(ctx context.Context, reg *cratedb.Registry) {
+	resp, err := trackedQuery(ctx, c.tracker, QueryReplUser, reg, `SELECT CURRENT_USER`)
+	if err != nil || len(resp.Rows) == 0 {
+		return
+	}
+	c.user = cratedb.ToString(resp.Rows[0][0])
+	resp, err = trackedQuery(ctx, c.tracker, QueryReplUser, reg, `SELECT superuser FROM sys.users WHERE name = CURRENT_USER`)
+	c.superuser = err == nil && len(resp.Rows) > 0 && cratedb.ToBool(resp.Rows[0][0])
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -350,6 +377,7 @@ func leases(v interface{}) []map[string]interface{} {
 }
 
 // parseLeases folds the subscribers' retention leases per subscriber.
+// published nil means it isn't known which tables are published.
 // Lease timestamps are the publisher's clock; they're moved to obsi's by
 // the difference to the now() the query returned.
 func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.Duration, published map[string]bool) []store.LeaseHolder {
@@ -398,7 +426,7 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 		a.holder.Tables = len(a.tables)
 		a.holder.On = sortedKeys(a.tables)
 		for t := range a.tables {
-			if !published[t] {
+			if published != nil && !published[t] {
 				a.holder.Unpublished++
 			}
 		}

@@ -91,3 +91,21 @@ func TestTablesDetailMarksSubscribed(t *testing.T) {
 		t.Errorf("local table marked:\n%s", got)
 	}
 }
+
+func TestReplicationLimitedUser(t *testing.T) {
+	now := time.Now()
+	st := store.ReplicationState{UpdatedAt: now, User: "mon",
+		Errs: map[string]string{"leases": "SchemaUnknownException[Schema 'sys' unknown]",
+			"settings": `cratedb error (status 401) from http://h:4200: {"error":{"message":"MissingPrivilegeException[Missing 'DQL' privilege for user 'mon']","code":4011}}`}}
+	view := NewReplicationModel(240, 40).Refresh(store.StoreSnapshot{Replication: st}).View()
+	for _, want := range []string{
+		"couldn't read subscriber leases (sys.shards), showing the last poll: SchemaUnknownException",
+		"couldn't read replication settings (sys.cluster): MissingPrivilegeException[Missing 'DQL' privilege for user 'mon'] · GRANT DQL ON SCHEMA sys TO mon",
+		"obsi connects as mon, not a superuser",
+		"No publications or subscriptions owned by mon.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -52,6 +53,13 @@ const leasePeriodRefresh = 10 * time.Minute
 // publications or leases.
 const leasesRecheck = time.Minute
 
+// replSettingsQuery reads what the Replication tab shows and edits.
+const replSettingsQuery = `SELECT settings['replication']['logical'], settings['cluster']['routing']['allocation']['node_initial_primaries_recoveries'] FROM sys.cluster`
+
+// maxPeriodReads caps SHOW CREATE TABLE per poll, so a publication with
+// many tables is read over a few polls.
+const maxPeriodReads = 20
+
 var leasePeriodRe = regexp.MustCompile(`"soft_deletes\.retention_lease\.period"\s*=\s*'?(\d+)`)
 
 type ReplicationCollector struct {
@@ -62,8 +70,13 @@ type ReplicationCollector struct {
 	periods    map[string]leasePeriod // schema.table
 	leasesSeen bool
 	leasesAt   time.Time
+	// reset asks the next Collect to forget the above. Reset only sets it:
+	// it's called from the TUI, which mustn't wait for a running poll.
+	reset atomic.Bool
 }
 
+// leasePeriod is a table's period as last read; d is 0 when the read
+// failed, so the table waits for the next refresh like the others.
 type leasePeriod struct {
 	d  time.Duration
 	at time.Time
@@ -76,16 +89,15 @@ func NewReplicationCollector(cfg config.CollectorConfig, tracker *QueryTracker) 
 func (c *ReplicationCollector) Name() string            { return "replication" }
 func (c *ReplicationCollector) Interval() time.Duration { return c.interval }
 
-func (c *ReplicationCollector) Reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.periods = map[string]leasePeriod{}
-	c.leasesSeen, c.leasesAt = false, time.Time{}
-}
+func (c *ReplicationCollector) Reset() { c.reset.Store(true) }
 
 func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.reset.Swap(false) {
+		c.periods = map[string]leasePeriod{}
+		c.leasesSeen, c.leasesAt = false, time.Time{}
+	}
 	fail := func(err error) error {
 		st.SetReplicationError(err.Error())
 		return err
@@ -110,17 +122,65 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 		shards = parseReplicaShards(resp.Rows)
 	}
 	var holders []store.LeaseHolder
+	var leased []string
 	if len(pubs) > 0 || c.leasesSeen || time.Since(c.leasesAt) >= leasesRecheck {
 		resp, err = trackedQuery(ctx, c.tracker, QueryReplLeases, reg, leasesQuery)
 		if err != nil {
 			return fail(err)
 		}
-		c.refreshPeriods(ctx, reg, leasedTables(resp.Rows))
+		leased = leasedTables(resp.Rows)
+		c.refreshPeriods(ctx, reg, append(leased, sortedKeys(publishedTables(pubs))...))
 		holders = parseLeases(resp.Rows, time.Now(), c.period, publishedTables(pubs))
 		c.leasesSeen, c.leasesAt = len(holders) > 0, time.Now()
 	}
+	resp, err = trackedQuery(ctx, c.tracker, QueryReplSettings, reg, replSettingsQuery)
+	if err != nil {
+		return fail(err)
+	}
+	periods := map[string]time.Duration{}
+	for t := range publishedTables(pubs) {
+		if p, ok := c.periods[t]; ok && p.d > 0 {
+			periods[t] = p.d
+		}
+	}
 	st.UpdateReplication(subs, pubs, shards, holders)
+	st.UpdateReplicationSettings(parseReplSettings(resp.Rows), periods)
 	return nil
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// parseReplSettings flattens settings['replication']['logical'] into
+// dotted names next to node_initial_primaries_recoveries.
+func parseReplSettings(rows [][]interface{}) map[string]string {
+	out := map[string]string{}
+	if len(rows) == 0 {
+		return out
+	}
+	var walk func(prefix string, v interface{})
+	walk = func(prefix string, v interface{}) {
+		switch v := v.(type) {
+		case map[string]interface{}:
+			for k, sub := range v {
+				walk(prefix+"."+k, sub)
+			}
+		case float64:
+			out[prefix] = strconv.FormatFloat(v, 'f', -1, 64)
+		case nil:
+		default:
+			out[prefix] = fmt.Sprint(v)
+		}
+	}
+	walk("replication.logical", rows[0][0])
+	walk("cluster.routing.allocation.node_initial_primaries_recoveries", rows[0][1])
+	return out
 }
 
 func (c *ReplicationCollector) period(fqn string) time.Duration {
@@ -130,17 +190,29 @@ func (c *ReplicationCollector) period(fqn string) time.Duration {
 	return defaultLeasePeriod
 }
 
-// refreshPeriods reads soft_deletes.retention_lease.period of the tables
-// subscribers hold leases on, every leasePeriodRefresh. A failure keeps
-// the default for this round.
+// refreshPeriods reads soft_deletes.retention_lease.period of published
+// tables and tables subscribers hold leases on, every leasePeriodRefresh
+// and at most maxPeriodReads per poll. A failure keeps the default for
+// this round.
 func (c *ReplicationCollector) refreshPeriods(ctx context.Context, reg *cratedb.Registry, tables []string) {
+	reads := 0
+	seen := map[string]bool{}
 	for _, fqn := range tables {
+		if seen[fqn] {
+			continue
+		}
+		seen[fqn] = true
 		if p, ok := c.periods[fqn]; ok && time.Since(p.at) < leasePeriodRefresh {
 			continue
 		}
+		if reads == maxPeriodReads {
+			return
+		}
+		reads++
 		schema, table, _ := strings.Cut(fqn, ".")
 		resp, err := trackedQuery(ctx, c.tracker, QueryReplLeasePeriod, reg, fmt.Sprintf("SHOW CREATE TABLE %s.%s", quoteIdent(schema), quoteIdent(table)))
 		if err != nil || len(resp.Rows) == 0 {
+			c.periods[fqn] = leasePeriod{at: time.Now()}
 			continue
 		}
 		c.periods[fqn] = leasePeriod{d: parseLeasePeriod(cratedb.ToString(resp.Rows[0][0])), at: time.Now()}
@@ -298,7 +370,13 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 			}
 			a.tables[fqn] = true
 			h := &a.holder
-			h.Behind += max(maxSeq-cratedb.ToInt64(l["retaining_seq_no"]), 0)
+			// After a file copy the lease stays at 0 until the first change
+			// arrives (6.4.5), whatever the subscriber holds.
+			if retaining := cratedb.ToInt64(l["retaining_seq_no"]); retaining == 0 && maxSeq > 0 {
+				h.Unknown++
+			} else {
+				h.Behind += max(maxSeq-retaining, 0)
+			}
 			seen := msTime(l["timestamp"]).Add(skew)
 			if seen.After(h.LastSeen) {
 				h.LastSeen = seen
@@ -312,6 +390,7 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 	out := make([]store.LeaseHolder, 0, len(bySub))
 	for _, a := range bySub {
 		a.holder.Tables = len(a.tables)
+		a.holder.On = sortedKeys(a.tables)
 		for t := range a.tables {
 			if !published[t] {
 				a.holder.Unpublished++

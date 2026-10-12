@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The Replication tab shows the replication settings and
+  `node_initial_primaries_recoveries` (`c` changes them), each published
+  table's retention lease period (`l` changes it, flagged under an hour)
+  and the `logical_replication` thread pool.
+
 - Subscriptions can be set up on the Replication tab (`--read-write`): `s`
   takes a pasted subscribe ticket or host, mode (`pg_tunnel` by default),
   user, password and publications, and refuses when a table to arrive

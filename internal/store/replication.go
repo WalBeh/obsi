@@ -25,15 +25,22 @@ type ReplicaShards struct {
 type LeaseHolder struct {
 	Subscriber string // the subscriber's cluster name
 	Tables     int
+	On         []string // the tables, schema.table
 	// Unpublished counts tables it still pulls that no publication lists
 	// any more: dropping a publication doesn't stop a subscriber.
 	Unpublished int
-	Behind      int64     // operations not pulled yet, summed over primaries
-	LastSeen    time.Time // newest lease renewal
+	Behind      int64 // operations not pulled yet, summed over primaries
+	// Unknown counts primaries whose lease still says 0 although the shard
+	// has operations: nothing pulled since the initial copy (a file copy),
+	// so the lease doesn't tell where the subscriber is. Not in Behind.
+	Unknown  int
+	LastSeen time.Time // newest lease renewal
 	// Expires is the earliest lease expiry, Period the
 	// soft_deletes.retention_lease.period of that lease's table.
 	Expires time.Time
 	Period  time.Duration
+	// MaxSilence is the longest it went without renewing while obsi ran.
+	MaxSilence time.Duration
 }
 
 // ReplicaTable is a subscribed table plus what obsi derived between polls.
@@ -51,8 +58,14 @@ type ReplicationState struct {
 	Publications  []cratedb.Publication
 	Replicas      map[string]ReplicaTable // schema.table
 	Subscribers   []LeaseHolder
-	Err           string
-	UpdatedAt     time.Time
+	// Settings are the replication.logical.* cluster settings and
+	// node_initial_primaries_recoveries, by dotted name.
+	Settings map[string]string
+	// LeasePeriods is soft_deletes.retention_lease.period of the published
+	// tables read so far (12h when the table doesn't set it).
+	LeasePeriods map[string]time.Duration
+	Err          string
+	UpdatedAt    time.Time
 }
 
 func (r ReplicationState) copy() ReplicationState {
@@ -60,6 +73,8 @@ func (r ReplicationState) copy() ReplicationState {
 	r.Publications = copySlice(r.Publications)
 	r.Replicas = maps.Clone(r.Replicas)
 	r.Subscribers = copySlice(r.Subscribers)
+	r.Settings = maps.Clone(r.Settings)
+	r.LeasePeriods = maps.Clone(r.LeasePeriods)
 	return r
 }
 
@@ -96,9 +111,26 @@ func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Pu
 			replicas[fqn] = r
 		}
 	}
-	s.replication = ReplicationState{Subscriptions: subs, Publications: pubs, Replicas: replicas, Subscribers: holders, UpdatedAt: now}
+	silence := map[string]time.Duration{}
+	for _, h := range prev.Subscribers {
+		silence[h.Subscriber] = h.MaxSilence
+	}
+	for i := range holders {
+		h := &holders[i]
+		h.MaxSilence = max(silence[h.Subscriber], now.Sub(h.LastSeen))
+	}
+	s.replication = ReplicationState{Subscriptions: subs, Publications: pubs, Replicas: replicas, Subscribers: holders,
+		Settings: prev.Settings, LeasePeriods: prev.LeasePeriods, UpdatedAt: now}
 	s.lastUpdated["replication"] = now
 	s.alerts.sync("replication", now, replicationAlerts(subs, holders, now))
+}
+
+// UpdateReplicationSettings stores the replication settings and the
+// published tables' lease periods.
+func (s *Store) UpdateReplicationSettings(settings map[string]string, periods map[string]time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.replication.Settings, s.replication.LeasePeriods = settings, periods
 }
 
 // SetReplicationError keeps the last poll and records why this one failed.

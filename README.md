@@ -66,10 +66,10 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 
 | Key | Tab | What it shows |
 |-----|-----|---------------|
-| `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, last 10 snapshots |
+| `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, a replication summary when there is replication, last 10 snapshots |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview; slowest, failed and grouped queries from `sys.jobs_log`; config changes since start (`c`); explain a query (`E`) |
-| `4` | Tables | Table list with shard distribution, size stats, translog flush status, partition count, node-left delay (settable per table), health filter; `enter` lists a partitioned table's partitions |
+| `4` | Tables | Table list with replication markers (`⇠` pulled, `⇢` published), shard distribution, size stats, translog flush status, partition count, node-left delay (settable per table), health filter; `enter` lists a partitioned table's partitions |
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 | `7` | Replication | Logical replication: subscriptions with per-table state, shards, docs, changes/s and the last change seen; publications with their tables and the subscriber clusters holding leases, how many operations each is behind and when its lease expires; create, change and drop publications (`n`/`e`/`d`), copy a subscribe ticket (`y`); create a subscription from a pasted ticket (`s`) and drop one (`d`, type its name); the replication settings (`c`) and each published table's retention lease period (`l`); the `logical_replication` thread pool; sparklines of changes/s per table and BEHIND per subscriber, operations pulled/s, and what each finished initial copy moved |

@@ -579,3 +579,39 @@ func TestReplicaslab(t *testing.T) {
 	time.Sleep(12 * time.Second)
 	show("publisher at '0-1', new partition rcheck2")
 }
+
+// TestMarkerslab prints the Tables list and the Overview's replication
+// line for the shardlab and the subscriber.
+// go test -tags shardlab -run Markerslab -v ./internal/tui
+func TestMarkerslab(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	ctx := context.Background()
+	cfg := config.DefaultConfig()
+	for _, url := range []string{"http://127.0.0.1:44210", "http://127.0.0.1:44200"} {
+		reg := cratedb.NewRegistry(url, "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+		if err := reg.Bootstrap(ctx); err != nil {
+			t.Fatal(err)
+		}
+		st := store.New(10, cfg.Collectors)
+		tr := collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
+		for _, c := range []collector.Collector{collector.NewNodesCollector(cfg.Collectors["nodes"], tr),
+			collector.NewShardsCollector(cfg.Collectors["shards"], tr), collector.NewReplicationCollector(cfg.Collectors["replication"], tr)} {
+			if err := c.Collect(ctx, reg, st); err != nil {
+				t.Fatal(err)
+			}
+		}
+		snap := st.Snapshot(1, store.SnapshotHint{IncludeTables: true, IncludeNodes: true, IncludeHealth: true, IncludeCluster: true})
+		fmt.Println("==", url)
+		for _, l := range strings.Split(NewTablesModel(170, 40).Refresh(snap).View(), "\n") {
+			if strings.Contains(l, "doc.") || strings.Contains(l, "subscribed") {
+				fmt.Println("  |", strings.TrimRight(l, " "))
+			}
+			if strings.Contains(l, "Table: ") {
+				break
+			}
+		}
+		ov := NewOverviewModel(170, 80, true)
+		ov.snap = snap
+		fmt.Println("  |", strings.ReplaceAll(ov.renderReplication(), "\n", "\n  | "))
+	}
+}

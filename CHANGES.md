@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The Tables list marks replicated tables: `⇠` for one this cluster
+  pulls (red when it failed), `⇢` for one it publishes; the detail panel
+  says which publications have it and who pulls it.
+- The Overview has a Replication line when there is replication: what
+  this cluster pulls and whether it's in sync, what it serves, to whom,
+  how far behind, and who stopped pulling.
+
 - The Replication tab flags subscribed tables whose replicas the
   subscriber can't place, e.g. 1 replica from a 3-node publisher on a
   1-node subscriber, with the fix on either side. `number_of_replicas`

@@ -90,6 +90,16 @@ And about logical replication (6.4.5):
   `sys.jobs_log` then shows the `?`
 - after `DROP SUBSCRIPTION` the table is writable at once and the
   publisher's leases are gone within a second
+- after a table is copied by files (flushed on the publisher), the
+  subscriber's lease stays at `retaining_seq_no` 0 until the first change
+  arrives, then jumps to the shard's max: the lease says nothing about an
+  unchanged copied table
+- `ALTER TABLE ... SET ("soft_deletes.retention_lease.period" = ...)` works
+  on published tables; `SHOW CREATE TABLE` shows it in ms, partitions
+  don't expose it
+
+`-run Settingslab` changes a replication setting on the subscriber and a
+lease period on the lab the way the Replication tab does.
 
 `-run Publishlab` and `-run Subscribelab` run the publisher and the
 subscriber setup against the lab.

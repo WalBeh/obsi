@@ -97,6 +97,8 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			{"n", "new publication: name, tables, review with who can read them and lease periods"},
 			{km.Edit.Help().Key, "change the tables of the selected publication"},
 			{"d", "drop the selected publication, or the selected subscription after typing its name (its tables become writable)"},
+			{"l", "retention lease period of a table of the selected publication"},
+			{"c", "replication settings: ops_batch_size, reads_poll_duration, chunk_size, max_concurrent_file_chunks, node_initial_primaries_recoveries"},
 			{km.Yank.Help().Key, "copy a subscribe ticket: CREATE SUBSCRIPTION to fill in, tables, publisher nodes and ports (also in read-only)"},
 		}
 	case TabSQL:

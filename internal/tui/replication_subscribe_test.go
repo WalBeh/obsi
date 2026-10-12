@@ -111,7 +111,7 @@ func TestSubscriptionForm(t *testing.T) {
 	if m = m.notice(ReplicationNoticeMsg{Note: "created", Ran: true}); m.subForm != nil {
 		t.Error("form still open after success")
 	}
-	apply, ok := cmd().(ApplySubscriptionMsg)
+	apply, ok := cmd().(ApplyReplicationMsg)
 	if !ok || apply.Stmt != `CREATE SUBSCRIPTION "lab_pub2" CONNECTION ? PUBLICATION "lab_pub2"` ||
 		apply.Args[0] != "crate://pub.example.com:5432?user=repl&password=p%26ss+w&mode=pg_tunnel&sslmode=require" {
 		t.Errorf("apply = %+v", apply)
@@ -156,7 +156,7 @@ func TestSubscriptionDropTyped(t *testing.T) {
 	}
 	m = typeRepl(m, "d")
 	_, cmd := keys(m, "enter")
-	if apply, ok := cmd().(ApplySubscriptionMsg); !ok || apply.Stmt != `DROP SUBSCRIPTION "old"` {
+	if apply, ok := cmd().(ApplyReplicationMsg); !ok || apply.Stmt != `DROP SUBSCRIPTION "old"` {
 		t.Errorf("apply = %+v", apply)
 	}
 }

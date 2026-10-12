@@ -31,6 +31,10 @@ type ReplicationModel struct {
 	drop        *pubDrop
 	subForm     *subForm
 	subDrop     *subDrop
+	settings    *replSettingsForm
+	lease       *leaseForm
+	persistent  bool                 // SET GLOBAL PERSISTENT, from set_global_mode
+	nodes       []store.NodeSnapshot // for the logical_replication thread pool
 	noticeText  string
 	noticeIsErr bool
 	noticeAt    time.Time
@@ -47,12 +51,13 @@ func (m ReplicationModel) Refresh(snap store.StoreSnapshot) ReplicationModel {
 		m.tables = append(m.tables, t.SchemaName+"."+t.TableName)
 	}
 	sort.Strings(m.tables)
+	m.nodes = poolNodes(snap.Nodes)
 	m.selected = min(m.selected, max(m.items()-1, 0))
 	return m.clampScroll()
 }
 
 func (m ReplicationModel) inputMode() bool {
-	return m.form != nil || m.drop != nil || m.subForm != nil || m.subDrop != nil
+	return m.form != nil || m.drop != nil || m.subForm != nil || m.subDrop != nil || m.settings != nil || m.lease != nil
 }
 
 func (m ReplicationModel) items() int { return len(m.repl.Subscriptions) + len(m.repl.Publications) }
@@ -149,18 +154,38 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 		}
 		return m, cmd
 	}
+	if m.settings != nil {
+		done, cmd := m.settings.key(msg)
+		if done {
+			m.settings = nil
+		}
+		return m, cmd
+	}
+	if m.lease != nil {
+		done, cmd := m.lease.key(msg)
+		if done {
+			m.lease = nil
+		}
+		return m, cmd
+	}
 	pub, hasPub := m.selectedPub()
 	sub, hasSub := m.selectedSub()
 	page := max(m.height-2, 1)
 	switch msg.String() {
-	case "n", "e", "d", "s":
+	case "n", "e", "d", "s", "c", "l":
 		switch {
 		case m.readOnly:
-			m = m.notice(ReplicationNoticeMsg{Error: readOnlyRefusal("publications and subscriptions can't be changed")})
+			m = m.notice(ReplicationNoticeMsg{Error: readOnlyRefusal("replication can't be changed")})
 		case msg.String() == "n":
 			m.form = m.newPubForm(nil)
 		case msg.String() == "s":
 			m.subForm = m.newSubForm()
+		case msg.String() == "c":
+			m.settings = &replSettingsForm{values: m.repl.Settings, persistent: m.persistent}
+		case msg.String() == "l" && hasPub:
+			m.lease = m.newLeaseForm(pub)
+		case msg.String() == "l":
+			m = m.notice(ReplicationNoticeMsg{Error: "select a publication (↑↓) to change its tables' retention lease period"})
 		case hasSub && msg.String() == "d":
 			d := &subDrop{name: sub.Name}
 			for _, t := range sub.Tables {
@@ -241,6 +266,10 @@ func (m ReplicationModel) View() string {
 		return m.subForm.render(m.width, m.height)
 	case m.subDrop != nil:
 		return m.subDrop.render(m.width, m.height)
+	case m.settings != nil:
+		return m.settings.render(m.width, m.height)
+	case m.lease != nil:
+		return m.lease.render(m.width, m.height)
 	}
 	return m.body() + "\n" + m.noticeLine()
 }
@@ -309,6 +338,14 @@ func (m ReplicationModel) layout() []string {
 	}
 	if len(r.Subscriptions) == 0 {
 		lines = append(lines, styleDim.Render("  s: new subscription"))
+	}
+	if s := m.renderReplSettings(); len(s) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, s...)
+	}
+	if p := m.renderPool(); len(p) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, p...)
 	}
 	return lines
 }
@@ -405,7 +442,7 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []
 	return lines
 }
 
-var pubKeys = styleDim.Render("  n new · e tables · d drop · y copy a subscribe ticket (selected publication, ↑↓)")
+var pubKeys = styleDim.Render("  n new · e tables · d drop · l lease period · y copy a subscribe ticket (selected publication, ↑↓)")
 
 // connTarget shows host and mode of a masked connection string,
 // crate://lab1:4300?user=*&password=*&mode=sniff -> crate://lab1:4300 (sniff).
@@ -446,6 +483,9 @@ func (m ReplicationModel) renderPublications() []string {
 			}
 			lines = append(lines, strings.Repeat(" ", len(p.Name)+4)+l)
 		}
+		if l := m.leasePeriodLine(p); l != "" {
+			lines = append(lines, l)
+		}
 	}
 	lines = append(lines, "")
 	if len(m.repl.Subscribers) == 0 {
@@ -459,16 +499,25 @@ func (m ReplicationModel) renderPublications() []string {
 	}
 	lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %6s  %12s  %-10s  %s",
 		nameW, "SUBSCRIBER", "TABLES", "BEHIND (ops)", "LAST SEEN", "RETENTION LEASE")))
-	unpublished := false
+	unpublished, unknown := false, false
 	for _, h := range subs {
 		tables := fmt.Sprintf("%6d", h.Tables)
 		if h.Unpublished > 0 {
 			tables = styleHealthYellow.Render(fmt.Sprintf("%5d*", h.Tables))
 			unpublished = true
 		}
+		behindCell := behind(h.Behind)
+		if h.Unknown > 0 {
+			behindCell = styleDim.Render(fmt.Sprintf("%11s?", formatRecords(h.Behind)))
+			unknown = true
+		}
 		lines = append(lines, fmt.Sprintf("    %-*s  %s  %12s  %-10s  %s",
-			nameW, truncateString(h.Subscriber, nameW), tables, behind(h.Behind),
+			nameW, truncateString(h.Subscriber, nameW), tables, behindCell,
 			formatAgo(m.now.Sub(h.LastSeen)), m.leaseCell(h)))
+	}
+	if unknown {
+		lines = append(lines, styleDim.Render("  ? some tables got no change since their initial copy: their leases still say 0, so how far"),
+			styleDim.Render("    behind they are isn't known; the next change sets it"))
 	}
 	if unpublished {
 		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: dropping or shrinking a publication doesn't stop"),

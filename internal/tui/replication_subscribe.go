@@ -50,13 +50,16 @@ var (
 	modePorts   = map[string]string{"pg_tunnel": "5432", "sniff": "4300"}
 )
 
-// ApplySubscriptionMsg runs CREATE or DROP SUBSCRIPTION. The connection
-// string goes in Args, so sys.jobs_log records CONNECTION ? and not the
-// password.
-type ApplySubscriptionMsg struct {
-	Stmt string
-	Args []interface{}
-	Done string
+// ApplyReplicationMsg runs one statement of the Replication tab: CREATE
+// or DROP SUBSCRIPTION, a lease period change, a RESET GLOBAL. The
+// connection string goes in Args, so sys.jobs_log records CONNECTION ? and
+// not the password. Periods means a lease period changed and the
+// collector's cached periods are stale.
+type ApplyReplicationMsg struct {
+	Stmt    string
+	Args    []interface{}
+	Done    string
+	Periods bool
 }
 
 // subscriptionTimeout covers CrateDB's 30s connect timeout to an
@@ -242,7 +245,7 @@ func (f *subForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 			if f.vals[subPassword] != "" {
 				pw = url.QueryEscape(f.vals[subPassword])
 			}
-			apply := ApplySubscriptionMsg{Stmt: f.stmt(), Args: []interface{}{f.conninfo(pw)},
+			apply := ApplyReplicationMsg{Stmt: f.stmt(), Args: []interface{}{f.conninfo(pw)},
 				Done: "subscription " + f.vals[subName] + " created"}
 			f.running = true
 			return false, func() tea.Msg { return apply }
@@ -401,7 +404,7 @@ func (d *subDrop) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 		if d.typed != d.name {
 			return false, nil
 		}
-		apply := ApplySubscriptionMsg{Stmt: "DROP SUBSCRIPTION " + quoteIdent(d.name), Done: "subscription " + d.name + " dropped"}
+		apply := ApplyReplicationMsg{Stmt: "DROP SUBSCRIPTION " + quoteIdent(d.name), Done: "subscription " + d.name + " dropped"}
 		return true, func() tea.Msg { return apply }
 	case tea.KeyBackspace:
 		if d.typed != "" {
@@ -426,11 +429,11 @@ func (d *subDrop) render(width, height int) string {
 	return placeModal(lipgloss.JoinVertical(lipgloss.Left, lines...), innerWidth, width, height)
 }
 
-func applySubscription(ctx context.Context, reg *cratedb.Registry, msg ApplySubscriptionMsg) ReplicationNoticeMsg {
+func applyReplication(ctx context.Context, reg *cratedb.Registry, msg ApplyReplicationMsg) ReplicationNoticeMsg {
 	ctx, cancel := context.WithTimeout(ctx, subscriptionTimeout)
 	defer cancel()
 	if _, err := reg.QueryUnbounded(ctx, msg.Stmt+cratedb.ChangeTag, msg.Args...); err != nil {
 		return ReplicationNoticeMsg{Error: firstLine(err.Error())}
 	}
-	return ReplicationNoticeMsg{Note: msg.Done, Ran: true}
+	return ReplicationNoticeMsg{Note: msg.Done, Ran: true, Periods: msg.Periods}
 }

@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -235,9 +236,9 @@ func TestSubscribelab(t *testing.T) {
 	f.vals[subHost], f.vals[subUser], f.vals[subPassword] = "lab1", "crate", "not-in-the-log&1"
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m, cmd := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
-	apply := cmd().(ApplySubscriptionMsg)
+	apply := cmd().(ApplyReplicationMsg)
 	fmt.Println("run:", apply.Stmt)
-	fmt.Printf("%+v\n", applySubscription(ctx, sub, apply))
+	fmt.Printf("%+v\n", applyReplication(ctx, sub, apply))
 	for i := 0; i < 30; i++ {
 		rows := q(sub, `SELECT r.srsubstate FROM pg_catalog.pg_subscription_rel r WHERE r.srrelid::text = 'doc.sublab'`)
 		if len(rows) > 0 && rows[0][0] == "r" {
@@ -258,7 +259,7 @@ func TestSubscribelab(t *testing.T) {
 		d.key(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	_, cmd = d.key(tea.KeyMsg{Type: tea.KeyEnter})
-	fmt.Printf("%+v\n", applySubscription(ctx, sub, cmd().(ApplySubscriptionMsg)))
+	fmt.Printf("%+v\n", applyReplication(ctx, sub, cmd().(ApplyReplicationMsg)))
 	if _, err := sub.Query(ctx, `INSERT INTO doc.sublab VALUES (-1)`); err != nil {
 		t.Errorf("not writable after the drop: %v", err)
 	} else {
@@ -272,4 +273,72 @@ func TestSubscribelab(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 	fmt.Println("publisher lease still there after 60s")
+}
+
+// TestSettingslab changes a replication setting on the subscriber (44210)
+// and a lease period on the shardlab the way the Replication tab does, and
+// prints what the tab shows. go test -tags shardlab -run Settingslab -v ./internal/tui
+func TestSettingslab(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	ctx := context.Background()
+	cfg := config.DefaultConfig()
+	open := func(url string) *cratedb.Registry {
+		reg := cratedb.NewRegistry(url, "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+		if err := reg.Bootstrap(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return reg
+	}
+	view := func(reg *cratedb.Registry, grep ...string) {
+		st := store.New(10, cfg.Collectors)
+		tr := collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
+		for _, c := range []collector.Collector{collector.NewNodesCollector(cfg.Collectors["nodes"], tr), collector.NewReplicationCollector(cfg.Collectors["replication"], tr)} {
+			if err := c.Collect(ctx, reg, st); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out := NewReplicationModel(160, 60).Refresh(st.Snapshot(1, store.SnapshotHint{IncludeNodes: true})).View()
+		for _, l := range strings.Split(out, "\n") {
+			for _, g := range grep {
+				if strings.Contains(l, g) {
+					fmt.Println("  |", strings.TrimRight(l, " "))
+					break
+				}
+			}
+		}
+	}
+	pub, sub := open("http://127.0.0.1:44200"), open("http://127.0.0.1:44210")
+
+	fmt.Printf("%+v\n", runReplSetting(ctx, sub, ReplSettingRequest{Path: "replication.logical.ops_batch_size", Value: "1000", Persistent: true}))
+	resp, _ := sub.Query(ctx, `SELECT settings['replication']['logical']['ops_batch_size'] FROM sys.cluster`)
+	fmt.Println("sys.cluster:", resp.Rows)
+	view(sub, "ops_batch_size", "thread pool")
+	st := store.New(10, cfg.Collectors)
+	changes := collector.NewChangesCollector(cfg.Collectors["changes"], collector.NewQueryTracker(cfg.Collectors, cfg.Connection))
+	changes.Collect(ctx, sub, st)
+	for _, c := range st.Snapshot(1, store.SnapshotHint{IncludeQueries: true}).Changes.Changes {
+		if strings.Contains(c.Stmt, "ops_batch_size") {
+			fmt.Println("changes board:", c.Kind, c.Stmt, c.Diffs)
+			break
+		}
+	}
+	fmt.Printf("%+v\n", applyReplication(ctx, sub, ApplyReplicationMsg{Stmt: `RESET GLOBAL "replication.logical.ops_batch_size"`, Done: "reset"}))
+	view(sub, "ops_batch_size")
+
+	f := &leaseForm{tables: []string{"doc.repl"}, buf: "2m"}
+	stmt, args := f.stmt()
+	fmt.Printf("%+v\n", applyReplication(ctx, pub, ApplyReplicationMsg{Stmt: stmt, Args: args, Done: "set", Periods: true}))
+	resp, _ = pub.Query(ctx, `SHOW CREATE TABLE doc.repl`)
+	for _, l := range strings.Split(cratedb.ToString(resp.Rows[0][0]), "\n") {
+		if strings.Contains(l, "retention_lease") {
+			fmt.Println("SHOW CREATE:", strings.TrimSpace(l))
+		}
+	}
+	view(pub, "retention lease", "shardsub", "thread pool")
+	f.reset = true
+	stmt, args = f.stmt()
+	fmt.Printf("%+v\n", applyReplication(ctx, pub, ApplyReplicationMsg{Stmt: stmt, Args: args, Done: "reset", Periods: true}))
+	view(pub, "retention lease", "shardsub")
+	resp, _ = pub.Query(ctx, `SELECT name, t['threads'], t['active'], t['queue'], t['rejected'] FROM (SELECT name, unnest(thread_pools) AS t FROM sys.nodes) x WHERE t['name'] = 'logical_replication' ORDER BY 1`)
+	fmt.Println("sys.nodes logical_replication:", resp.Rows)
 }

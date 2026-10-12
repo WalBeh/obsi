@@ -72,6 +72,8 @@ func TestParseLeases(t *testing.T) {
 	rows := [][]interface{}{
 		{float64(cluster), "doc.a", float64(100), []interface{}{peer, lease("dr", 100, time.Second), lease("old", 40, 3*time.Hour)}},
 		{float64(cluster), "doc.b", float64(50), []interface{}{lease("dr", 45, 5*time.Second)}},
+		// Copied, nothing pulled since: the lease says 0.
+		{float64(cluster), "doc.b", float64(30), []interface{}{lease("dr", 0, 5*time.Second)}},
 	}
 	if got := leasedTables(rows); !reflect.DeepEqual(got, []string{"doc.a", "doc.b"}) {
 		t.Errorf("leasedTables = %v", got)
@@ -84,7 +86,7 @@ func TestParseLeases(t *testing.T) {
 	}
 	got := parseLeases(rows, now, period, map[string]bool{"doc.a": true})
 	want := []store.LeaseHolder{
-		{Subscriber: "dr", Tables: 2, Unpublished: 1, Behind: 5, LastSeen: now.Add(-time.Second),
+		{Subscriber: "dr", Tables: 2, Unpublished: 1, Behind: 5, Unknown: 1, LastSeen: now.Add(-time.Second),
 			Expires: now.Add(-5*time.Second + time.Minute), Period: time.Minute},
 		{Subscriber: "old", Tables: 1, Behind: 60, LastSeen: now.Add(-3 * time.Hour),
 			Expires: now.Add(9 * time.Hour), Period: 12 * time.Hour},

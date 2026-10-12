@@ -79,6 +79,7 @@ type PublicationTicketRequest struct{ Pub cratedb.Publication }
 type ReplicationNoticeMsg struct {
 	Note, Error string
 	Ran         bool
+	Periods     bool // a lease period changed
 }
 
 // shortLeasePeriod flags a soft_deletes.retention_lease.period a

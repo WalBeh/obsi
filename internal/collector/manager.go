@@ -153,6 +153,16 @@ func (m *Manager) ResetCollectors() {
 	}
 }
 
+// ResetCollector drops what one collector remembers, e.g. cached values
+// obsi just changed.
+func (m *Manager) ResetCollector(name string) {
+	for _, c := range m.collectors {
+		if r, ok := c.(Resetter); ok && c.Name() == name {
+			r.Reset()
+		}
+	}
+}
+
 // TriggerCollector runs a named collector once immediately in the background.
 // Blocked in ThrottleMax mode — all collectors are paused.
 func (m *Manager) TriggerCollector(ctx context.Context, name string) {

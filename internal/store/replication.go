@@ -96,8 +96,10 @@ type ReplicationState struct {
 	// LeasePeriods is soft_deletes.retention_lease.period of the published
 	// tables read so far (12h when the table doesn't set it).
 	LeasePeriods map[string]time.Duration
-	// HistorySpan is the time the History series cover.
+	// HistorySpan is the time the last HistoryLen polls cover; a History
+	// series can be shorter, when its table or subscriber came later.
 	HistorySpan time.Duration
+	HistoryLen  int
 	Err         string
 	UpdatedAt   time.Time
 }
@@ -186,7 +188,7 @@ func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Pu
 	}
 	times := s.replTimes.Slice()
 	s.replication = ReplicationState{Subscriptions: subs, Publications: pubs, Replicas: replicas, Subscribers: holders,
-		Settings: prev.Settings, LeasePeriods: prev.LeasePeriods, HistorySpan: now.Sub(times[0]), UpdatedAt: now}
+		Settings: prev.Settings, LeasePeriods: prev.LeasePeriods, HistorySpan: now.Sub(times[0]), HistoryLen: len(times), UpdatedAt: now}
 	s.lastUpdated["replication"] = now
 	s.alerts.sync("replication", now, replicationAlerts(subs, holders, now))
 }

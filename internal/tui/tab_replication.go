@@ -428,7 +428,7 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []
 	if m.sparks() {
 		spark = "  " + strings.Repeat(" ", sparkWidth)
 		if t.State == "r" {
-			spark = "  " + sparkline0(r.History, sparkWidth)
+			spark = "  " + sparkline0(r.History, m.repl.HistoryLen, sparkWidth)
 		}
 	}
 	lines := []string{fmt.Sprintf("    %-*s  %s  %-6s  %8s  %9s%s  %s",
@@ -534,7 +534,7 @@ func (m ReplicationModel) renderPublications() []string {
 		}
 		spark := ""
 		if m.sparks() {
-			spark = "  " + sparkline0(h.History, sparkWidth)
+			spark = "  " + sparkline0(h.History, m.repl.HistoryLen, sparkWidth)
 		}
 		lines = append(lines, fmt.Sprintf("    %-*s  %s  %12s%s  %s  %-10s  %s",
 			nameW, truncateString(h.Subscriber, nameW), tables, behindCell, spark, pulledCell(h),

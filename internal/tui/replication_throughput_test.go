@@ -11,21 +11,32 @@ import (
 
 func TestSparkline0(t *testing.T) {
 	// 6 samples into 3 characters: the max of each pair, scaled from 0.
-	if got := sparkline0([]float64{0, 8, 1, 2, 4, 4}, 3); got != "█▂▄" {
+	if got := sparkline0([]float64{0, 8, 1, 2, 4, 4}, 6, 3); got != "█▂▄" {
 		t.Errorf("got %q", got)
 	}
-	if got := sparkline0([]float64{5, 5}, 4); got != "██  " {
+	if got := sparkline0([]float64{5, 5}, 2, 4); got != "██  " {
 		t.Errorf("flat high line: %q", got)
 	}
-	if got := sparkline0(nil, 3); got != "   " {
+	if got := sparkline0(nil, 0, 3); got != "   " {
 		t.Errorf("empty: %q", got)
+	}
+	// Review finding: 21..119 samples kept 20 characters only at 120.
+	for _, n := range []int{21, 41, 61, 119, 120} {
+		vals := make([]float64, n)
+		if got := []rune(sparkline0(vals, n, 20)); len(got) != 20 || got[19] == ' ' {
+			t.Errorf("%d samples: %q", n, string(got))
+		}
+	}
+	// A series that started 4 polls ago, on a timeline of 8: right-aligned.
+	if got := sparkline0([]float64{1, 2, 3, 4}, 8, 8); got != "    ▂▄▆█" {
+		t.Errorf("late series: %q", got)
 	}
 }
 
 func throughputSnap() store.StoreSnapshot {
 	now := time.Now()
 	return store.StoreSnapshot{Replication: store.ReplicationState{
-		UpdatedAt: now, HistorySpan: 20 * time.Minute,
+		UpdatedAt: now, HistorySpan: 20 * time.Minute, HistoryLen: 4,
 		Settings:      map[string]string{"replication.logical.recovery.chunk_size": "1mb", "replication.logical.recovery.max_concurrent_file_chunks": "2"},
 		Subscriptions: []cratedb.Subscription{{Name: "s", Tables: []cratedb.SubscribedTable{{Schema: "doc", Table: "big", State: "r"}}}},
 		Replicas: map[string]store.ReplicaTable{"doc.big": {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,36 +18,53 @@ const (
 	sparkMinWidth = 120
 )
 
-// sparkline0 draws values in width characters, each the max of its share
-// of the samples, scaled from 0 so a flat line at a high value reads as
-// high. Empty without samples.
-func sparkline0(values []float64, width int) string {
-	if len(values) == 0 {
+// sparkline0 draws values on a timeline of total polls in width
+// characters, scaled from 0 so a flat line at a high value reads as high.
+// A series that started later than the others is padded on the left, so
+// its newest point lines up with theirs; with more polls than characters
+// each character is the busiest of an even share of them.
+func sparkline0(values []float64, total, width int) string {
+	total = max(total, len(values))
+	if total == 0 {
 		return strings.Repeat(" ", width)
 	}
-	per := (len(values) + width - 1) / width
-	var buckets []float64
-	for i := 0; i < len(values); i += per {
-		m := values[i]
-		for _, v := range values[i:min(i+per, len(values))] {
-			m = max(m, v)
+	padded := make([]float64, total)
+	gap := total - len(values)
+	for i := range padded {
+		if i < gap {
+			padded[i] = math.NaN()
+		} else {
+			padded[i] = values[i-gap]
 		}
-		buckets = append(buckets, m)
 	}
+	n := min(total, width)
+	buckets := make([]float64, n)
 	top := 0.0
-	for _, v := range buckets {
-		top = max(top, v)
+	for b := range buckets {
+		lo, hi := b*total/n, (b+1)*total/n
+		buckets[b] = math.NaN()
+		for _, v := range padded[lo:hi] {
+			if !math.IsNaN(v) && (math.IsNaN(buckets[b]) || v > buckets[b]) {
+				buckets[b] = v
+			}
+		}
+		if !math.IsNaN(buckets[b]) {
+			top = max(top, buckets[b])
+		}
 	}
 	blocks := []rune("▁▂▃▄▅▆▇█")
-	var b strings.Builder
+	var out strings.Builder
 	for _, v := range buckets {
-		i := 0
-		if top > 0 {
-			i = int(v / top * float64(len(blocks)-1))
+		switch {
+		case math.IsNaN(v):
+			out.WriteRune(' ')
+		case top > 0:
+			out.WriteRune(blocks[int(v/top*float64(len(blocks)-1))])
+		default:
+			out.WriteRune(blocks[0])
 		}
-		b.WriteRune(blocks[i])
 	}
-	return b.String() + strings.Repeat(" ", width-len(buckets))
+	return out.String() + strings.Repeat(" ", width-n)
 }
 
 // spanLabel names the time the sparklines cover, e.g. "LAST 20M".

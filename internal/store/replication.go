@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
@@ -18,6 +19,11 @@ type ReplicaShards struct {
 	// with every replicated change; the subscriber can't know how far the
 	// publisher is ahead.
 	SeqNo int64
+	Size  int64 // bytes, started primaries
+	// CopiedBytes and CopyShardMs sum the started primaries' last recovery,
+	// the initial copy until something else recovers them.
+	CopiedBytes int64
+	CopyShardMs int64
 }
 
 // LeaseHolder is a subscriber cluster as the publisher sees it: the
@@ -33,7 +39,11 @@ type LeaseHolder struct {
 	// Unknown counts primaries whose lease still says 0 although the shard
 	// has operations: nothing pulled since the initial copy (a file copy),
 	// so the lease doesn't tell where the subscriber is. Not in Behind.
-	Unknown  int
+	Unknown int
+	// Retained sums retaining_seq_no over the Known leases (not at 0); its
+	// growth is what the subscriber pulled.
+	Retained int64
+	Known    int
 	LastSeen time.Time // newest lease renewal
 	// Expires is the earliest lease expiry, Period the
 	// soft_deletes.retention_lease.period of that lease's table.
@@ -41,6 +51,12 @@ type LeaseHolder struct {
 	Period  time.Duration
 	// MaxSilence is the longest it went without renewing while obsi ran.
 	MaxSilence time.Duration
+	// PulledRate is operations/s pulled between the last two polls, -1
+	// while unknown (first poll, lease set changed); Pulled the total
+	// since obsi started.
+	PulledRate float64
+	Pulled     int64
+	History    []float64 // Behind per poll, oldest first
 }
 
 // ReplicaTable is a subscribed table plus what obsi derived between polls.
@@ -49,6 +65,22 @@ type ReplicaTable struct {
 	Rate       float64   // changes/s between the last two polls, -1 while unknown
 	LastChange time.Time // last poll that saw SeqNo rise
 	CopySince  time.Time // first poll that saw the table initializing or copying
+	// CopyFromStart is true when obsi saw the table initializing, so
+	// CopySince is when the copy began rather than when obsi started.
+	CopyFromStart bool
+	Copy          *CopyResult // a copy obsi watched finish
+	Replicated    int64       // changes since obsi started
+	History       []float64   // changes/s per poll, oldest first
+}
+
+// CopyResult is a finished initial copy: Bytes over the started primaries,
+// Wall from obsi's first sighting (a lower bound unless FromStart), and
+// the average per-shard rate from CrateDB's own recovery times.
+type CopyResult struct {
+	Bytes     int64
+	Wall      time.Duration
+	FromStart bool
+	ShardBps  float64
 }
 
 // ReplicationState is the last replication poll. Subscriptions are this
@@ -64,14 +96,18 @@ type ReplicationState struct {
 	// LeasePeriods is soft_deletes.retention_lease.period of the published
 	// tables read so far (12h when the table doesn't set it).
 	LeasePeriods map[string]time.Duration
-	Err          string
-	UpdatedAt    time.Time
+	// HistorySpan is the time the last HistoryLen polls cover; a History
+	// series can be shorter, when its table or subscriber came later.
+	HistorySpan time.Duration
+	HistoryLen  int
+	Err         string
+	UpdatedAt   time.Time
 }
 
 func (r ReplicationState) copy() ReplicationState {
 	r.Subscriptions = copySlice(r.Subscriptions)
 	r.Publications = copySlice(r.Publications)
-	r.Replicas = maps.Clone(r.Replicas)
+	r.Replicas = maps.Clone(r.Replicas) // History slices are rebuilt per poll, never mutated
 	r.Subscribers = copySlice(r.Subscribers)
 	r.Settings = maps.Clone(r.Settings)
 	r.LeasePeriods = maps.Clone(r.LeasePeriods)
@@ -86,43 +122,91 @@ func (s *Store) UpdateReplication(subs []cratedb.Subscription, pubs []cratedb.Pu
 	now := time.Now()
 	prev := s.replication
 	replicas := make(map[string]ReplicaTable)
+	live := map[string]bool{} // series updated this poll; the rest go
 	for _, sub := range subs {
 		for _, t := range sub.Tables {
 			fqn := t.FQN()
 			r := ReplicaTable{ReplicaShards: shards[fqn], Rate: -1}
 			old, seen := prev.Replicas[fqn]
 			if seen {
-				r.LastChange, r.CopySince = old.LastChange, old.CopySince
+				r.LastChange, r.CopySince, r.CopyFromStart = old.LastChange, old.CopySince, old.CopyFromStart
+				r.Copy, r.Replicated = old.Copy, old.Replicated
 			}
-			if t.State != "i" && t.State != "d" {
-				r.CopySince = time.Time{}
-			} else if r.CopySince.IsZero() {
-				r.CopySince = now
+			copying := t.State == "i" || t.State == "d"
+			switch {
+			case copying && r.CopySince.IsZero():
+				r.CopySince, r.CopyFromStart = now, t.State == "i"
+			case !copying && !r.CopySince.IsZero():
+				if t.State == "r" && r.CopiedBytes > 0 {
+					r.Copy = &CopyResult{Bytes: r.CopiedBytes, Wall: now.Sub(r.CopySince), FromStart: r.CopyFromStart}
+					if r.CopyShardMs > 0 {
+						r.Copy.ShardBps = float64(r.CopiedBytes) / (float64(r.CopyShardMs) / 1000)
+					}
+				}
+				r.CopySince, r.CopyFromStart = time.Time{}, false
 			}
 			complete := r.Shards > 0 && r.Started == r.Shards
 			if seen && complete && old.Shards == r.Shards && old.Started == r.Shards {
 				if d := r.SeqNo - old.SeqNo; d >= 0 {
 					r.Rate = float64(d) / now.Sub(prev.UpdatedAt).Seconds()
+					r.Replicated += d
 					if d > 0 {
 						r.LastChange = now
 					}
 				}
 			}
+			r.History = s.replHistory(live, "table/"+fqn, max(r.Rate, 0))
 			replicas[fqn] = r
 		}
 	}
-	silence := map[string]time.Duration{}
+	before := map[string]LeaseHolder{}
 	for _, h := range prev.Subscribers {
-		silence[h.Subscriber] = h.MaxSilence
+		before[h.Subscriber] = h
 	}
 	for i := range holders {
 		h := &holders[i]
-		h.MaxSilence = max(silence[h.Subscriber], now.Sub(h.LastSeen))
+		old, seen := before[h.Subscriber]
+		h.MaxSilence = max(old.MaxSilence, now.Sub(h.LastSeen))
+		h.Pulled, h.PulledRate = old.Pulled, -1
+		// A lease leaving 0 or a shard coming or going isn't pulling.
+		if seen && old.Known == h.Known && slices.Equal(old.On, h.On) {
+			if d := h.Retained - old.Retained; d >= 0 {
+				h.PulledRate = float64(d) / now.Sub(prev.UpdatedAt).Seconds()
+				h.Pulled += d
+			}
+		}
+		h.History = s.replHistory(live, "sub/"+h.Subscriber, float64(h.Behind))
 	}
+	if s.replTimes == nil {
+		s.replTimes = NewRingBuf[time.Time](max(s.sparklineSize, 1))
+	}
+	s.replTimes.Push(now)
+	for k := range s.replSeries {
+		if !live[k] {
+			delete(s.replSeries, k)
+		}
+	}
+	times := s.replTimes.Slice()
 	s.replication = ReplicationState{Subscriptions: subs, Publications: pubs, Replicas: replicas, Subscribers: holders,
-		Settings: prev.Settings, LeasePeriods: prev.LeasePeriods, UpdatedAt: now}
+		Settings: prev.Settings, LeasePeriods: prev.LeasePeriods, HistorySpan: now.Sub(times[0]), HistoryLen: len(times), UpdatedAt: now}
 	s.lastUpdated["replication"] = now
 	s.alerts.sync("replication", now, replicationAlerts(subs, holders, now))
+}
+
+// replHistory pushes v onto the series key, marks it live and returns it,
+// oldest first. Caller holds s.mu.
+func (s *Store) replHistory(live map[string]bool, key string, v float64) []float64 {
+	live[key] = true
+	if s.replSeries == nil {
+		s.replSeries = map[string]*RingBuf[float64]{}
+	}
+	rb := s.replSeries[key]
+	if rb == nil {
+		rb = NewRingBuf[float64](max(s.sparklineSize, 1))
+		s.replSeries[key] = rb
+	}
+	rb.Push(v)
+	return rb.Slice()
 }
 
 // UpdateReplicationSettings stores the replication settings and the

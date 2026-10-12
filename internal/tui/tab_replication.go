@@ -375,11 +375,18 @@ func (m ReplicationModel) renderSubscriptions() []string {
 			lines = append(lines, styleDim.Render("    no tables yet"))
 			continue
 		}
-		lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %-9s  %-6s  %8s  %9s  %s",
-			nameW, "TABLE", "STATE", "SHARDS", "DOCS", "CHANGES/s", "LAST CHANGE")))
+		spark := ""
+		if m.sparks() {
+			spark = fmt.Sprintf("  %-*s", sparkWidth, spanLabel(m.repl.HistorySpan))
+		}
+		lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %-9s  %-6s  %8s  %9s%s  %s",
+			nameW, "TABLE", "STATE", "SHARDS", "DOCS", "CHANGES/s", spark, "LAST CHANGE")))
 		for _, t := range s.Tables {
 			lines = append(lines, m.subscribedRow(t, nameW)...)
 		}
+	}
+	if t := m.subscriberTotals(); t != "" {
+		lines = append(lines, t)
 	}
 	return append(lines, styleDim.Render("  How far behind the publisher a table is shows only there: run obsi against the publisher."),
 		styleDim.Render("  s new · d drop (selected subscription, ↑↓)"))
@@ -417,8 +424,18 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []
 	case !r.LastChange.IsZero():
 		last = formatAgo(m.now.Sub(r.LastChange))
 	}
-	lines := []string{fmt.Sprintf("    %-*s  %s  %-6s  %8s  %9s  %s",
-		nameW, truncateString(t.FQN(), nameW), stateStyle.Render(fmt.Sprintf("%-9s", state)), shards, docs, rate, last)}
+	spark := ""
+	if m.sparks() {
+		spark = "  " + strings.Repeat(" ", sparkWidth)
+		if t.State == "r" {
+			spark = "  " + sparkline0(r.History, m.repl.HistoryLen, sparkWidth)
+		}
+	}
+	lines := []string{fmt.Sprintf("    %-*s  %s  %-6s  %8s  %9s%s  %s",
+		nameW, truncateString(t.FQN(), nameW), stateStyle.Render(fmt.Sprintf("%-9s", state)), shards, docs, rate, spark, last)}
+	if r.Copy != nil && t.State == "r" {
+		lines = append(lines, m.copyLines(r.Copy)...)
+	}
 	if t.State == "e" && t.Reason != "" {
 		for _, l := range wrapText(t.Reason, max(m.width-8, 20)) {
 			lines = append(lines, "      "+styleHealthRed.Render(l))
@@ -497,8 +514,12 @@ func (m ReplicationModel) renderPublications() []string {
 	for _, h := range subs {
 		nameW = max(nameW, min(len(h.Subscriber), 30))
 	}
-	lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %6s  %12s  %-10s  %s",
-		nameW, "SUBSCRIBER", "TABLES", "BEHIND (ops)", "LAST SEEN", "RETENTION LEASE")))
+	spark := ""
+	if m.sparks() {
+		spark = fmt.Sprintf("  %-*s", sparkWidth, "BEHIND, "+strings.TrimPrefix(spanLabel(m.repl.HistorySpan), "LAST "))
+	}
+	lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %6s  %12s%s  %9s  %-10s  %s",
+		nameW, "SUBSCRIBER", "TABLES", "BEHIND (ops)", spark, "PULLED/s", "LAST SEEN", "RETENTION LEASE")))
 	unpublished, unknown := false, false
 	for _, h := range subs {
 		tables := fmt.Sprintf("%6d", h.Tables)
@@ -511,9 +532,16 @@ func (m ReplicationModel) renderPublications() []string {
 			behindCell = styleDim.Render(fmt.Sprintf("%11s?", formatRecords(h.Behind)))
 			unknown = true
 		}
-		lines = append(lines, fmt.Sprintf("    %-*s  %s  %12s  %-10s  %s",
-			nameW, truncateString(h.Subscriber, nameW), tables, behindCell,
+		spark := ""
+		if m.sparks() {
+			spark = "  " + sparkline0(h.History, m.repl.HistoryLen, sparkWidth)
+		}
+		lines = append(lines, fmt.Sprintf("    %-*s  %s  %12s%s  %s  %-10s  %s",
+			nameW, truncateString(h.Subscriber, nameW), tables, behindCell, spark, pulledCell(h),
 			formatAgo(m.now.Sub(h.LastSeen)), m.leaseCell(h)))
+	}
+	if t := m.publisherTotals(); t != "" {
+		lines = append(lines, t)
 	}
 	if unknown {
 		lines = append(lines, styleDim.Render("  ? some tables got no change since their initial copy: their leases still say 0, so how far"),

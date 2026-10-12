@@ -49,6 +49,8 @@ type data struct {
 	alerts      alertLog
 	snapshots   SnapshotsState
 	replication ReplicationState
+	replSeries  map[string]*RingBuf[float64] // table/<fqn>, sub/<subscriber>
+	replTimes   *RingBuf[time.Time]          // when each replication poll ran
 
 	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
 	jmxPods    map[string]*jmx.JMXSnapshot

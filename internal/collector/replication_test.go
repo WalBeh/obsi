@@ -46,15 +46,16 @@ func TestParsePublications(t *testing.T) {
 // separately; replicas don't add to docs or seq numbers.
 func TestParseReplicaShards(t *testing.T) {
 	got := parseReplicaShards([][]interface{}{
-		{"doc.a", "", float64(0), true, "STARTED", float64(10), float64(9)},
-		{"doc.a", "", float64(0), false, "STARTED", float64(10), float64(9)},
-		{"doc.a", "", float64(1), false, "UNASSIGNED", float64(0), nil},
-		{"doc.p", "04132", float64(0), true, "STARTED", float64(3), float64(2)},
-		{"doc.p", "04134", float64(0), true, "STARTED", float64(0), float64(-1)},
+		// table, partition, id, primary, state, docs, max_seq_no, size, copied bytes, copy ms
+		{"doc.a", "", float64(0), true, "STARTED", float64(10), float64(9), float64(1000), float64(900), float64(40)},
+		{"doc.a", "", float64(0), false, "STARTED", float64(10), float64(9), float64(1000), float64(1000), float64(50)},
+		{"doc.a", "", float64(1), false, "UNASSIGNED", float64(0), nil, nil, nil, nil},
+		{"doc.p", "04132", float64(0), true, "STARTED", float64(3), float64(2), float64(300), float64(300), float64(10)},
+		{"doc.p", "04134", float64(0), true, "STARTED", float64(0), float64(-1), float64(100), nil, nil},
 	})
 	want := map[string]store.ReplicaShards{
-		"doc.a": {Shards: 2, Started: 1, Docs: 10, SeqNo: 10},
-		"doc.p": {Shards: 2, Started: 2, Docs: 3, SeqNo: 3},
+		"doc.a": {Shards: 2, Started: 1, Docs: 10, SeqNo: 10, Size: 1000, CopiedBytes: 900, CopyShardMs: 40},
+		"doc.p": {Shards: 2, Started: 2, Docs: 3, SeqNo: 3, Size: 400, CopiedBytes: 300, CopyShardMs: 10},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -89,9 +90,9 @@ func TestParseLeases(t *testing.T) {
 	}
 	got := parseLeases(rows, now, period, map[string]bool{"doc.a": true})
 	want := []store.LeaseHolder{
-		{Subscriber: "dr", Tables: 2, On: []string{"doc.a", "doc.b"}, Unpublished: 1, Behind: 5, Unknown: 1, LastSeen: now.Add(-time.Second),
+		{Subscriber: "dr", Tables: 2, On: []string{"doc.a", "doc.b"}, Unpublished: 1, Behind: 5, Unknown: 1, Retained: 145, Known: 2, LastSeen: now.Add(-time.Second),
 			Expires: now.Add(-5*time.Second + time.Minute), Period: time.Minute},
-		{Subscriber: "old", Tables: 1, On: []string{"doc.a"}, Behind: 60, LastSeen: now.Add(-3 * time.Hour),
+		{Subscriber: "old", Tables: 1, On: []string{"doc.a"}, Behind: 60, Retained: 40, Known: 1, LastSeen: now.Add(-3 * time.Hour),
 			Expires: now.Add(9 * time.Hour), Period: 12 * time.Hour},
 	}
 	if !reflect.DeepEqual(got, want) {

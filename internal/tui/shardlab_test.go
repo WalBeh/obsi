@@ -77,6 +77,9 @@ func TestChangeslab(t *testing.T) {
 	run(`ALTER TABLE doc.changelab SET (number_of_replicas = 1, refresh_interval = 5000)`)
 	run(`CREATE USER changelab_u WITH (password = 'not-shown')`)
 	run(`DROP USER changelab_u`)
+	run(`CREATE PUBLICATION changelab_p FOR TABLE doc.changelab`)
+	run(`CREATE SUBSCRIPTION changelab_s CONNECTION 'crate://changelab-nohost:4300?user=u&password=not-shown' PUBLICATION changelab_p`)
+	run(`DROP PUBLICATION changelab_p`)
 	time.Sleep(500 * time.Millisecond)
 	if err := changes.Collect(ctx, reg, st); err != nil {
 		t.Fatal(err)

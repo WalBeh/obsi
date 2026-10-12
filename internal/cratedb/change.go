@@ -12,9 +12,10 @@ import (
 type ChangeKind string
 
 const (
-	ChangeCluster  ChangeKind = "cluster"
-	ChangeTable    ChangeKind = "table"
-	ChangeSecurity ChangeKind = "security"
+	ChangeCluster     ChangeKind = "cluster"
+	ChangeTable       ChangeKind = "table"
+	ChangeSecurity    ChangeKind = "security"
+	ChangeReplication ChangeKind = "replication"
 )
 
 // ChangeTag marks changes obsi runs itself (settings editor, shard fixes,
@@ -22,9 +23,9 @@ const (
 // changes board uses the tag to label them.
 const ChangeTag = " /* obsi change */"
 
-// ClassifyChange says whether stmt changes cluster settings, table settings
-// or users and privileges. Session SETs, schema DDL, REFRESH and friends
-// are not changes.
+// ClassifyChange says whether stmt changes cluster settings, table settings,
+// users and privileges, or logical replication. Session SETs, schema DDL,
+// REFRESH and friends are not changes.
 func ClassifyChange(stmt string) ChangeKind {
 	t := lexSQL(stmt, 4)
 	switch {
@@ -37,6 +38,9 @@ func ClassifyChange(stmt string) ChangeKind {
 	case (t.word(0, "CREATE") || t.word(0, "ALTER") || t.word(0, "DROP")) &&
 		(t.word(1, "USER") || t.word(1, "ROLE")):
 		return ChangeSecurity
+	case (t.word(0, "CREATE") || t.word(0, "ALTER") || t.word(0, "DROP")) &&
+		(t.word(1, "PUBLICATION") || t.word(1, "SUBSCRIPTION")):
+		return ChangeReplication
 	case t.word(0, "ALTER") && t.word(1, "TABLE"):
 		if _, _, _, ok := AlteredTable(stmt); ok {
 			return ChangeTable
@@ -129,9 +133,15 @@ func SettingNames(stmt string) []string {
 // statement as typed.
 var secretRe = regexp.MustCompile(`(?i)("?\b(?:password|secret\w*|\w*access_key|\w*token)\b"?\s*=?\s*)'(?:[^']|'')*'`)
 
-// Redact replaces password-like literals in stmt with '***'.
+// connPasswordRe finds the password parameter of a connection URL, e.g.
+// CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u&password=x'.
+var connPasswordRe = regexp.MustCompile(`(?i)([?&]password=)[^&'\s]*`)
+
+// Redact replaces password-like literals in stmt with '***', and passwords
+// in connection URLs with ***.
 func Redact(stmt string) string {
-	return secretRe.ReplaceAllString(stmt, "$1'***'")
+	stmt = secretRe.ReplaceAllString(stmt, "$1'***'")
+	return connPasswordRe.ReplaceAllString(stmt, "${1}***")
 }
 
 type tokKind int

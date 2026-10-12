@@ -303,6 +303,7 @@ func DefaultCollectors(cfg map[string]config.CollectorConfig, jmxCfg config.JMXC
 		{"changes", func() Collector { return NewChangesCollector(cfg["changes"], tracker) }},
 		{"shards", func() Collector { return NewShardsCollector(cfg["shards"], tracker) }},
 		{"snapshots", func() Collector { return NewSnapshotsCollector(cfg["snapshots"], tracker) }},
+		{"replication", func() Collector { return NewReplicationCollector(cfg["replication"], tracker) }},
 	}
 
 	var enabled []Collector

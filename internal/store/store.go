@@ -46,8 +46,9 @@ type data struct {
 	jobsLog         JobsLogState
 	changes         ChangesState
 
-	alerts    alertLog
-	snapshots SnapshotsState
+	alerts      alertLog
+	snapshots   SnapshotsState
+	replication ReplicationState
 
 	// JMX snapshot keyed by full pod name (matches NodeInfo.Hostname on Cloud).
 	jmxPods    map[string]*jmx.JMXSnapshot
@@ -116,6 +117,10 @@ type StoreSnapshot struct {
 	Changes        ChangesState
 
 	Snapshots SnapshotsState
+
+	// Replication is small, so always filled; the Tables tab marks
+	// subscribed tables.
+	Replication ReplicationState
 
 	// Alerts is always filled, whatever the hint.
 	Alerts AlertsState
@@ -261,6 +266,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 		LastUpdated:  make(map[string]time.Time),
 		Alerts:       s.alerts.snapshot(),
 		NodeAbsences: copySlice(s.nodeAbsences),
+		Replication:  s.replication.copy(),
 	}
 
 	if hint.IncludeCluster {

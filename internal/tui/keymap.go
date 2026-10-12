@@ -10,6 +10,7 @@ type KeyMap struct {
 	Tab4      key.Binding
 	Tab5      key.Binding
 	Tab6      key.Binding
+	Tab7      key.Binding
 	NextTab   key.Binding
 	PrevTab   key.Binding
 	Up        key.Binding
@@ -68,6 +69,10 @@ func DefaultKeyMap() KeyMap {
 		Tab6: key.NewBinding(
 			key.WithKeys("6"),
 			key.WithHelp("6", "sql"),
+		),
+		Tab7: key.NewBinding(
+			key.WithKeys("7"),
+			key.WithHelp("7", "replication"),
 		),
 		NextTab: key.NewBinding(
 			key.WithKeys("tab"),

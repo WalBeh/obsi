@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Replication tab (`7`) for logical replication. On a subscriber: each
+  subscribed table as preparing, copying, in sync or FAILED with the
+  reason, started shards, docs, changes/s and when obsi last saw a change
+  arrive. On a publisher: publications with their tables, and per
+  subscriber cluster the operations it hasn't pulled yet, when it last
+  renewed its retention leases and when they expire. A failed table and a
+  subscriber that stopped pulling for half its lease period raise alerts;
+  subscribed tables are marked read-only on the Tables tab.
+
 - The changes board (`c`) lists `CREATE/ALTER/DROP PUBLICATION` and
   `CREATE/ALTER/DROP SUBSCRIPTION`.
 

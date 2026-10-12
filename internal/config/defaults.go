@@ -50,6 +50,11 @@ func DefaultConfig() *Config {
 				Enabled:  true,
 				Interval: Duration{10 * time.Second},
 			},
+			// pg_catalog lookups; sys.shards only for replicated tables.
+			"replication": {
+				Enabled:  true,
+				Interval: Duration{10 * time.Second},
+			},
 			// Only polls while the slowest board is open.
 			"jobs_log": {
 				Enabled:  true,

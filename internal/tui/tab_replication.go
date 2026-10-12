@@ -72,7 +72,7 @@ func (m ReplicationModel) selectedPub() (cratedb.Publication, bool) {
 }
 
 func (m ReplicationModel) setChecks(msg PublicationChecksMsg) ReplicationModel {
-	if m.form != nil && m.form.phase == pubReview {
+	if m.form != nil && m.form == msg.form && m.form.seq == msg.seq && m.form.phase == pubReview {
 		m.form.checks = &msg
 	}
 	return m
@@ -183,15 +183,17 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 			return m, func() tea.Msg { return PublicationTicketRequest{Pub: pub} }
 		}
 		return m, nil
+	// Past the first or last item the arrows scroll, so what's above and
+	// below the selectable rows stays reachable.
 	case "up", "k":
-		if m.items() > 0 {
-			m.selected = max(m.selected-1, 0)
+		if m.selected > 0 {
+			m.selected--
 			return m.followSelection(), nil
 		}
 		m.scroll--
 	case "down", "j":
-		if m.items() > 0 {
-			m.selected = min(m.selected+1, m.items()-1)
+		if m.selected < m.items()-1 {
+			m.selected++
 			return m.followSelection(), nil
 		}
 		m.scroll++

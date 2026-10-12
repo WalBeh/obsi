@@ -27,6 +27,7 @@ type pubForm struct {
 	cursor  int
 	taken   map[string]bool // existing publication names
 	checks  *PublicationChecksMsg
+	seq     int // of the last checks request; older answers are dropped
 	err     string
 }
 
@@ -45,7 +46,13 @@ type pubCandidate struct {
 }
 
 // PublicationChecksRequest asks the App for the pre-checks of a review.
-type PublicationChecksRequest struct{ Tables []string }
+// form and seq come back with the answer, so a late one from an earlier
+// request or a closed form is dropped.
+type PublicationChecksRequest struct {
+	Tables []string
+	form   *pubForm
+	seq    int
+}
 
 // PublicationChecksMsg carries the pre-checks: who can read the tables and
 // their retention lease periods.
@@ -54,6 +61,8 @@ type PublicationChecksMsg struct {
 	ReadersErr string
 	Periods    map[string]time.Duration // only tables that set one
 	Checked    int                      // tables whose period was read
+	form       *pubForm
+	seq        int
 }
 
 // ApplyPublicationMsg runs publication statements in order.
@@ -100,7 +109,23 @@ func (m ReplicationModel) newPubForm(edit *cratedb.Publication) *pubForm {
 			replicaOf[t.FQN()] = s.Name
 		}
 	}
-	for _, t := range m.tables {
+	tables := m.tables
+	if edit != nil {
+		// A published table the shards poll hasn't seen yet must stay a
+		// candidate, or SET TABLE would drop it unasked.
+		known := map[string]bool{}
+		for _, t := range tables {
+			known[t] = true
+		}
+		tables = append([]string(nil), tables...)
+		for _, t := range edit.Tables {
+			if !known[t] {
+				tables = append(tables, t)
+			}
+		}
+		sort.Strings(tables)
+	}
+	for _, t := range tables {
 		f.cands = append(f.cands, pubCandidate{fqn: t, pubs: inPubs[t], sub: replicaOf[t]})
 	}
 	if edit != nil {
@@ -255,8 +280,9 @@ func (f *pubForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 				break
 			}
 			f.phase, f.checks = pubReview, nil
-			tables := f.chosen()
-			return false, func() tea.Msg { return PublicationChecksRequest{Tables: tables} }
+			f.seq++
+			req := PublicationChecksRequest{Tables: f.chosen(), form: f, seq: f.seq}
+			return false, func() tea.Msg { return req }
 		}
 	case pubReview:
 		switch msg.String() {
@@ -368,7 +394,7 @@ func (f *pubForm) renderReview(width int) []string {
 	if f.all {
 		note(styleDim, "Every table, including ones created later. CrateDB leaves out blob tables, views and foreign tables.")
 	}
-	if e := f.elsewhere(); len(e) > 0 && !f.editing {
+	if e := f.elsewhere(); len(e) > 0 && !f.editing && !f.all {
 		names := make([]string, len(e))
 		for i, c := range e {
 			names[i] = c.fqn
@@ -442,7 +468,7 @@ func (d *pubDrop) render(width, height int) string {
 // runPublicationChecks reads who can read the tables (sys.privileges,
 // sys.users, sys.roles) and their retention lease periods.
 func runPublicationChecks(ctx context.Context, reg *cratedb.Registry, req PublicationChecksRequest) PublicationChecksMsg {
-	out := PublicationChecksMsg{Periods: map[string]time.Duration{}}
+	out := PublicationChecksMsg{Periods: map[string]time.Duration{}, form: req.form, seq: req.seq}
 	if readers, err := readers(ctx, reg, req.Tables); err != nil {
 		out.ReadersErr = firstLine(err.Error())
 	} else {

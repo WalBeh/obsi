@@ -94,7 +94,12 @@ func TestPublicationFormKeys(t *testing.T) {
 	if !strings.Contains(view, "checking privileges") {
 		t.Errorf("review without the pending checks:\n%s", view)
 	}
-	m = m.setChecks(PublicationChecksMsg{Readers: []string{"crate", "repl"}, Periods: map[string]time.Duration{"doc.b": 2 * time.Minute}, Checked: 1})
+	m = m.setChecks(PublicationChecksMsg{Readers: []string{"stale"}, form: m.form, seq: m.form.seq - 1})
+	m = m.setChecks(PublicationChecksMsg{Readers: []string{"other form"}, form: &pubForm{}, seq: m.form.seq})
+	if m.form.checks != nil {
+		t.Fatalf("stale checks applied: %+v", m.form.checks)
+	}
+	m = m.setChecks(PublicationChecksMsg{Readers: []string{"crate", "repl"}, Periods: map[string]time.Duration{"doc.b": 2 * time.Minute}, Checked: 1, form: m.form, seq: m.form.seq})
 	view = m.View()
 	for _, want := range []string{"crate, repl", "doc.b 2m0s"} {
 		if !strings.Contains(view, want) {
@@ -132,5 +137,43 @@ func TestUnpublishedLeaseMarked(t *testing.T) {
 	view := NewReplicationModel(120, 30).Refresh(snap).View()
 	if !strings.Contains(view, "1*") || !strings.Contains(view, "only DROP SUBSCRIPTION") {
 		t.Errorf("unpublished lease not marked:\n%s", view)
+	}
+}
+
+// Review findings on #74.
+func TestPublicationReviewEdges(t *testing.T) {
+	m := pubModel()
+	// doc.new is published but the shards poll hasn't listed it yet.
+	pub := cratedb.Publication{Name: "p1", Tables: []string{"doc.a", "doc.new"}}
+	f := m.newPubForm(&pub)
+	if f.changed() {
+		t.Error("an untouched edit counts as changed")
+	}
+	f.checked["doc.c"] = true
+	if got := f.stmts(); !reflect.DeepEqual(got, []string{`ALTER PUBLICATION "p1" SET TABLE "doc"."a", "doc"."c", "doc"."new"`}) {
+		t.Errorf("stmts = %q", got)
+	}
+
+	f = m.newPubForm(nil)
+	f.name, f.all, f.phase = "n", true, pubReview
+	if strings.Contains(f.render(120, 40), "created first") {
+		t.Error("FOR ALL TABLES review describes CREATE then ADD")
+	}
+}
+
+func TestReplicationArrowsScrollPastItems(t *testing.T) {
+	now := time.Now()
+	snap := store.StoreSnapshot{Replication: store.ReplicationState{UpdatedAt: now,
+		Publications: []cratedb.Publication{{Name: "p", Tables: []string{"doc.a"}}},
+		Subscribers:  []store.LeaseHolder{{Subscriber: "dr", Tables: 1, LastSeen: now, Expires: now.Add(time.Hour), Period: 12 * time.Hour}}}}
+	m := NewReplicationModel(120, 6).Refresh(snap)
+	if m.maxScroll == 0 {
+		t.Fatal("test needs a page taller than the view")
+	}
+	for range m.maxScroll {
+		m, _ = keys(m, "down")
+	}
+	if m.scroll != m.maxScroll {
+		t.Errorf("down past the last item scrolled to %d of %d", m.scroll, m.maxScroll)
 	}
 }

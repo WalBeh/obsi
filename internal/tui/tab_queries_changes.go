@@ -90,7 +90,7 @@ func (m QueriesModel) renderChanges() string {
 	if !cs.LogStart.IsZero() && cs.LogStart.Before(m.snap.ObservedSince) {
 		info += fmt.Sprintf(", and before that back to %s", cs.LogStart.Format("15:04:05"))
 	}
-	lines = append(lines, info+styleDim.Render(" · cluster, table settings, users and privileges"))
+	lines = append(lines, info+styleDim.Render(" · cluster, table settings, users and privileges, replication"))
 
 	if cs.Err != "" {
 		lines = append(lines, "  "+styleHealthRed.Render("jobs_log unavailable: "+truncateString(firstLine(cs.Err), max(m.width-30, 30))))
@@ -117,7 +117,7 @@ func (m QueriesModel) renderChanges() string {
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, "")
-	lines = append(lines, styleHeader.Render(fmt.Sprintf("  %-9s %-9s %-12s %-12s %s",
+	lines = append(lines, styleHeader.Render(fmt.Sprintf("  %-9s %-11s %-12s %-12s %s",
 		"ENDED", "KIND", "USER", "NODE", "CHANGE")))
 
 	room := max(m.height-len(lines)-changesDetailLines, 5)
@@ -140,7 +140,7 @@ func (m QueriesModel) renderChanges() string {
 		if c.Obsi {
 			user = "obsi"
 		}
-		lines = append(lines, fmt.Sprintf("%s%-9s %-9s %-12s %-12s %s",
+		lines = append(lines, fmt.Sprintf("%s%-9s %-11s %-12s %-12s %s",
 			marker, c.Ended.Format("15:04:05"), c.Kind,
 			truncateString(user, 12), truncateString(c.Node, 12), changeCell(c, maxLen)))
 	}

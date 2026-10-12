@@ -4,6 +4,19 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- The changes board (`c`) lists `CREATE/ALTER/DROP PUBLICATION` and
+  `CREATE/ALTER/DROP SUBSCRIPTION`.
+
+### Fixed
+
+- The password in a `CREATE SUBSCRIPTION ... CONNECTION 'crate://...?password=...'`
+  showed in clear text on the Queries tab; it is now replaced by `***`
+  like other passwords.
+
 ## [0.3.11] - 2026-10-09
 
 ### Changed

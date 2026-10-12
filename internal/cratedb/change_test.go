@@ -27,6 +27,12 @@ func TestClassifyChange(t *testing.T) {
 		{`GRANT DQL ON TABLE doc.t TO u`, ChangeSecurity},
 		{`DENY DML ON SCHEMA doc TO u`, ChangeSecurity},
 		{`REVOKE r FROM u`, ChangeSecurity},
+		{`CREATE PUBLICATION p FOR ALL TABLES`, ChangeReplication},
+		{`alter publication p add table doc.t`, ChangeReplication},
+		{`DROP PUBLICATION IF EXISTS p`, ChangeReplication},
+		{`CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u' PUBLICATION p`, ChangeReplication},
+		{`ALTER SUBSCRIPTION s DISABLE`, ChangeReplication},
+		{`DROP SUBSCRIPTION s`, ChangeReplication},
 
 		{`SET search_path TO doc`, ""},
 		{`SET SESSION enable_hashjoin = true`, ""},
@@ -76,11 +82,14 @@ func TestSettingNames(t *testing.T) {
 
 func TestRedact(t *testing.T) {
 	cases := map[string]string{
-		`CREATE USER u WITH (password = 'se''cr3t')`:                              `CREATE USER u WITH (password = '***')`,
-		`ALTER USER u SET ("password"='x')`:                                       `ALTER USER u SET ("password"='***')`,
-		`CREATE REPOSITORY r TYPE s3 WITH (access_key = 'AK', secret_key = 'SK')`: `CREATE REPOSITORY r TYPE s3 WITH (access_key = '***', secret_key = '***')`,
-		`ALTER USER u SET (password = ?)`:                                         `ALTER USER u SET (password = ?)`,
-		`SELECT name FROM sys.users WHERE name = 'password'`:                      `SELECT name FROM sys.users WHERE name = 'password'`,
+		`CREATE USER u WITH (password = 'se''cr3t')`:                                                            `CREATE USER u WITH (password = '***')`,
+		`ALTER USER u SET ("password"='x')`:                                                                     `ALTER USER u SET ("password"='***')`,
+		`CREATE REPOSITORY r TYPE s3 WITH (access_key = 'AK', secret_key = 'SK')`:                               `CREATE REPOSITORY r TYPE s3 WITH (access_key = '***', secret_key = '***')`,
+		`ALTER USER u SET (password = ?)`:                                                                       `ALTER USER u SET (password = ?)`,
+		`SELECT name FROM sys.users WHERE name = 'password'`:                                                    `SELECT name FROM sys.users WHERE name = 'password'`,
+		`CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u&password=p%26s&sslmode=disable' PUBLICATION p`: `CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u&password=***&sslmode=disable' PUBLICATION p`,
+		`CREATE SUBSCRIPTION s CONNECTION 'crate://h?PASSWORD=x y' PUBLICATION p`:                               `CREATE SUBSCRIPTION s CONNECTION 'crate://h?PASSWORD=*** y' PUBLICATION p`,
+		`CREATE SUBSCRIPTION s CONNECTION 'crate://h?user=u&password=' PUBLICATION p`:                           `CREATE SUBSCRIPTION s CONNECTION 'crate://h?user=u&password=***' PUBLICATION p`,
 	}
 	for in, want := range cases {
 		if got := Redact(in); got != want {

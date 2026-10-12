@@ -89,6 +89,8 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			helpEntry{km.Edit.Help().Key, "recovery view: edit the recovery throttle (also in read-only)"},
 			helpEntry{km.Yank.Help().Key, "copy the suggested fix"},
 			bindingHelp(km.RunFix))...)
+	case TabReplication:
+		return "Replication", []helpEntry{{"↑ ↓ pgup pgdn", "scroll"}}
 	case TabSQL:
 		return "SQL", []helpEntry{
 			{"enter", "run query"},
@@ -102,7 +104,7 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 
 func globalHelp(km KeyMap) []helpEntry {
 	return []helpEntry{
-		{"1-6", "switch tab"},
+		{"1-7", "switch tab"},
 		{km.NextTab.Help().Key + " " + km.PrevTab.Help().Key, "next / prev tab"},
 		bindingHelp(km.Refresh),
 		bindingHelp(km.Throttle),

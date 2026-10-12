@@ -26,20 +26,25 @@ func newTestApp(t *testing.T) *App {
 
 func TestAppTabSwitching(t *testing.T) {
 	a := newTestApp(t)
-	for i, want := range []Tab{TabOverview, TabNodes, TabQueries, TabTables, TabShards, TabSQL} {
-		a.Update(keyRune(rune('1' + i)))
+	// SQL last: its editor takes number keys as text.
+	for _, want := range []Tab{TabOverview, TabNodes, TabQueries, TabTables, TabShards, TabReplication, TabSQL} {
+		a.Update(keyRune(rune('1' + want)))
 		if a.activeTab != want {
-			t.Errorf("key %d: activeTab=%d, want %d", i+1, a.activeTab, want)
+			t.Errorf("key %d: activeTab=%d, want %d", want+1, a.activeTab, want)
 		}
 	}
-	// From SQL (editing by default) tab still switches, and wraps.
+	// From SQL (editing by default) tab still switches.
+	a.Update(keyType(tea.KeyTab))
+	if a.activeTab != TabReplication {
+		t.Errorf("tab from SQL: activeTab=%d, want replication", a.activeTab)
+	}
 	a.Update(keyType(tea.KeyTab))
 	if a.activeTab != TabOverview {
-		t.Errorf("tab from SQL: activeTab=%d, want overview", a.activeTab)
+		t.Errorf("tab from replication: activeTab=%d, want overview (wrap)", a.activeTab)
 	}
 	a.Update(keyType(tea.KeyShiftTab))
-	if a.activeTab != TabSQL {
-		t.Errorf("shift+tab from overview: activeTab=%d, want sql", a.activeTab)
+	if a.activeTab != TabReplication {
+		t.Errorf("shift+tab from overview: activeTab=%d, want replication", a.activeTab)
 	}
 }
 

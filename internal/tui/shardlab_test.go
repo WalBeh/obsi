@@ -104,3 +104,53 @@ func TestChangeslab(t *testing.T) {
 		}
 	}
 }
+
+// TestReplicationlab prints the Replication tab for the publisher (44200)
+// and the subscriber (44210) after ./scenarios.sh replication.
+// go test -tags shardlab -run Replicationlab -v ./internal/tui
+func TestReplicationlab(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	ctx := context.Background()
+	cfg := config.DefaultConfig()
+	type side struct {
+		reg *cratedb.Registry
+		st  *store.Store
+		c   *collector.ReplicationCollector
+		tr  *collector.QueryTracker
+	}
+	var sides []side
+	for _, url := range []string{"http://127.0.0.1:44200", "http://127.0.0.1:44210"} {
+		reg := cratedb.NewRegistry(url, "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+		if err := reg.Bootstrap(ctx); err != nil {
+			t.Logf("%s: %v", url, err) // sub-down
+			continue
+		}
+		tr := collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
+		sides = append(sides, side{reg, store.New(10, cfg.Collectors), collector.NewReplicationCollector(cfg.Collectors["replication"], tr), tr})
+	}
+	collect := func() {
+		for _, s := range sides {
+			if err := s.c.Collect(ctx, s.reg, s.st); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	collect()
+	if _, err := sides[0].reg.Query(ctx, `INSERT INTO doc.repl SELECT g, md5(g::TEXT) FROM generate_series(1, 2000) g`); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	collect()
+	for _, s := range sides {
+		snap := s.st.Snapshot(1, store.SnapshotHint{})
+		fmt.Printf("==== %s\n%s\n", s.reg.Status().ClusterName, NewReplicationModel(120, 40).Refresh(snap).View())
+		for _, a := range snap.Alerts.History {
+			fmt.Println("alert:", a.Message)
+		}
+		for _, q := range s.tr.Snapshot() {
+			if q.Category == "replication" && q.ExecCount > 0 {
+				fmt.Printf("%s: %d runs, last %s, %d rows\n", q.Label, q.ExecCount, q.LastDur, q.LastRows)
+			}
+		}
+	}
+}

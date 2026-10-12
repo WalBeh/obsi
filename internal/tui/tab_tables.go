@@ -357,7 +357,11 @@ func (m TablesModel) sortHeader(label string, field SortField, width int) string
 
 func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 	var lines []string
-	lines = append(lines, styleTitle.Render(fmt.Sprintf("  Table: %s.%s", t.SchemaName, t.TableName)))
+	title := styleTitle.Render(fmt.Sprintf("  Table: %s.%s", t.SchemaName, t.TableName))
+	if sub := m.subscription(t); sub != "" {
+		title += "  " + styleHealthYellow.Render("⇠ subscription "+sub+", read-only")
+	}
+	lines = append(lines, title)
 
 	// Table settings — only show operator-relevant values, highlight non-defaults
 	ts := t.Settings
@@ -510,4 +514,17 @@ func (m TablesModel) renderTableHealth(t cratedb.TableInfo) string {
 		return ""
 	}
 	return "    Health:\n" + strings.Join(issues, "\n")
+}
+
+// subscription names the subscription that replicates t into this
+// cluster, empty when none does.
+func (m TablesModel) subscription(t cratedb.TableInfo) string {
+	for _, s := range m.snap.Replication.Subscriptions {
+		for _, st := range s.Tables {
+			if st.Schema == t.SchemaName && st.Table == t.TableName {
+				return s.Name
+			}
+		}
+	}
+	return ""
 }

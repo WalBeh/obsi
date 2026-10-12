@@ -25,9 +25,10 @@ const (
 	TabTables
 	TabShards
 	TabSQL
+	TabReplication
 )
 
-var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards", "SQL"}
+var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards", "SQL", "Replication"}
 
 // StoreTickMsg triggers a TUI refresh from the store.
 type StoreTickMsg struct{}
@@ -41,6 +42,7 @@ type App struct {
 	tables       TablesModel
 	shards       ShardsModel
 	sql          SQLModel
+	replication  ReplicationModel
 	statusBar    StatusBarModel
 	queryLog     QueryLogOverlay
 	showQueryLog bool
@@ -101,6 +103,7 @@ func (a *App) newTabModels() {
 	a.shards = NewShardsModel(0, 0)
 	a.sql = NewSQLModel(0, 0, a.registry, a.ctx)
 	a.sql.readOnly = a.readOnly
+	a.replication = NewReplicationModel(0, 0)
 	a.overview.editor.readOnly = a.readOnly
 	a.shards.readOnly = a.readOnly
 	a.tables.readOnly = a.readOnly
@@ -203,6 +206,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.setActiveTab(TabShards)
 		case key.Matches(msg, a.keyMap.Tab6):
 			a.setActiveTab(TabSQL)
+		case key.Matches(msg, a.keyMap.Tab7):
+			a.setActiveTab(TabReplication)
 		case key.Matches(msg, a.keyMap.NextTab):
 			a.setActiveTab((a.activeTab + 1) % Tab(len(tabNames)))
 		case key.Matches(msg, a.keyMap.PrevTab):

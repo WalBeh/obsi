@@ -88,6 +88,12 @@ func (a *App) tabs() []tabModel {
 			hint:       store.SnapshotHint{IncludeShards: true, IncludeCluster: true, IncludeNodes: true},
 			collectors: []string{"shards"},
 		},
+		TabReplication: tab[ReplicationModel]{
+			m: &a.replication, refresh: ReplicationModel.Refresh, setSize: ReplicationModel.SetSize,
+			handleKey: ReplicationModel.HandleKey, view: ReplicationModel.View,
+			inputMode:  func(ReplicationModel) bool { return false },
+			collectors: []string{"replication"},
+		},
 		TabSQL: tab[SQLModel]{
 			m: &a.sql, setSize: SQLModel.SetSize,
 			handleKey: SQLModel.HandleKey, view: SQLModel.View,

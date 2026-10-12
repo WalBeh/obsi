@@ -10,6 +10,7 @@ A lightweight TUI monitoring tool for CrateDB clusters. Single binary, zero depe
 - **Who changed what?** `c` on the Queries tab lists cluster and table settings, users and privileges, publications and subscriptions changed since obsi started, and before that as far as `sys.jobs_log` reaches, with old → new values.
 - **Why is this query slow?** `E` shows its plan, then `EXPLAIN ANALYZE` with the bind values you type, suggested from partition values and `pg_stats`: time per phase and node, the slowest Lucene shard queries, everything copyable.
 - **What's going on right now?** Alerts for nodes leaving, RED tables, disk and heap, failed snapshots and failing node checks; running queries with memory per query; the slowest and failed queries from `sys.jobs_log`; per-node metrics with sparklines.
+- **Is replication keeping up?** The Replication tab shows, on a subscriber, each subscribed table as preparing, copying, in sync or FAILED with CrateDB's reason, with changes per second; on a publisher, each subscriber cluster with the operations it hasn't pulled yet and when its retention lease expires.
 - **What does this partitioned table look like?** `enter` on the Tables tab lists its partitions with size bars, shard counts, health and delay.
 
 It starts read-only, and it notices when a port-forward suddenly points at a different cluster.
@@ -71,12 +72,13 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `4` | Tables | Table list with shard distribution, size stats, translog flush status, partition count, node-left delay (settable per table), health filter; `enter` lists a partitioned table's partitions |
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
+| `7` | Replication | Logical replication: subscriptions with per-table state, shards, docs, changes/s and the last change seen; publications with their tables and the subscriber clusters holding leases, how many operations each is behind and when its lease expires |
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
-| `1-6` | Switch tabs |
+| `1-7` | Switch tabs |
 | `tab` / `shift+tab` | Next/prev tab |
 | `j/k` or `↑/↓` | Navigate |
 | `s` | Cycle sort column (Nodes, Tables, Shards) |
@@ -168,6 +170,9 @@ interval = "10s"     # sys.jobs_log is a ring per node; longer misses more on bu
 [collectors.snapshots]
 interval = "15m"     # sys.snapshots lists the repository (S3, Azure) on every read
 
+[collectors.replication]
+interval = "10s"     # pg_catalog lookups; sys.shards only for replicated tables
+
 [tui]
 alert_bell = false   # ring the terminal bell when an alert is raised
 explain_timeout = "2m"  # EXPLAIN ANALYZE from the Queries tab is killed after this
@@ -204,6 +209,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard. Stuck queries (running longer than 24h, typically abandoned cursors) are hidden by default; press `h` to show them
 - Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration. Finished jobs come from `sys.jobs_log` with exact durations and errors; running ones from the `sys.jobs` poll. `sys.jobs_log` is an in-memory ring per node (`stats.jobs_log_size`), so jobs it no longer holds fall back to sampled durations, marked `≥` (short by up to one poll interval). Without `sys.jobs_log` (`stats.enabled = false`, no privileges) the whole board is sampled and the header says why. `f` lists failed queries, `g` groups by statement. `sys.jobs_log` is only polled while the board is open. obsi tags its own statements with `/* obsi */` and leaves them out of the Queries tab. Stuck queries are always left out
 - Config changes flight recorder: `c` on the Queries tab lists `SET/RESET GLOBAL`, `ALTER CLUSTER`, `ALTER TABLE ... SET/RESET/OPEN/CLOSE/REROUTE`, `CREATE/ALTER/DROP USER/ROLE`, `GRANT`, `REVOKE`, `DENY` and `CREATE/ALTER/DROP PUBLICATION/SUBSCRIPTION` from `sys.jobs_log`, including failed attempts and whatever the log held before obsi started. Cluster settings are compared on every poll, tables when an `ALTER TABLE` names them, for old → new values; a cluster setting that changed with no statement in the log is listed as such. Partition-level `ALTER TABLE` gets no diff, and an unqualified table name is assumed to be in `doc`. The log is a ring per node (`stats.jobs_log_size`), so on a busy cluster statements can rotate out between two 10s polls; the board shows those stretches as possible gaps. Session `SET`s from drivers, schema DDL and `REFRESH`/`OPTIMIZE` are left out. Passwords and keys in statements, including the password in a `CREATE SUBSCRIPTION` connection URL, are replaced by `***` before obsi keeps them
+- Logical replication (Replication tab): reads `pg_subscription`, `pg_subscription_rel`, `pg_publication` and `pg_publication_tables`, and `sys.shards` only for the replicated tables. A subscriber can't know how far behind the publisher it is, so it shows changes per second and when obsi last saw a change arrive; the lag lives on the publisher, in the retention leases each subscriber holds on the published primaries (`max_seq_no` minus the lease's `retaining_seq_no`). Subscribers are named by their cluster name. A failed table and a subscriber that hasn't renewed its leases for half of `soft_deletes.retention_lease.period` (12h by default, read from `SHOW CREATE TABLE`) raise an alert; once a lease expires the publisher may drop operations the subscriber still needs. Subscribed tables are marked read-only on the Tables tab. Copy progress isn't shown in bytes: CrateDB lists shards being copied as UNASSIGNED without progress, so the tab counts started shards and the time since the copy began. A table that stays initializing for 5 minutes gets a hint: after a restart, CrateDB 6.4.5's metadata tracker can die and leave new tables there until the subscription is dropped and created again. Pausing a subscription isn't possible (`ALTER SUBSCRIPTION` isn't implemented in CrateDB)
 - Local 3-node test cluster with scenarios for the Shards tab, see [docs/shardlab.md](docs/shardlab.md)
 - Optional JMX metrics for CrateDB Cloud (GC, memory pools, buffer pools, circuit breakers, per-query-type stats, network IO, per-device disk, container memory) via [`croudng`](https://github.com/crate/croudng) — see [docs/jmx.md](docs/jmx.md)
 

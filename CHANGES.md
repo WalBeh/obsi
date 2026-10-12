@@ -4,29 +4,18 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.4.0] - 2026-10-12
 
 ### Added
 
-- Replication throughput on the Replication tab: changes/s per table and
-  BEHIND per subscriber as sparklines, operations pulled/s per subscriber,
-  totals since obsi started, and for a finished initial copy the bytes,
-  time and MB/s per shard, with a hint when the copy's chunk settings
-  look like the limit on a slow link.
-
-- The Replication tab shows the replication settings and
-  `node_initial_primaries_recoveries` (`c` changes them), each published
-  table's retention lease period (`l` changes it, flagged under an hour)
-  and the `logical_replication` thread pool.
-
-- Subscriptions can be set up on the Replication tab (`--read-write`): `s`
-  takes a pasted subscribe ticket or host, mode (`pg_tunnel` by default),
-  user, password and publications, and refuses when a table to arrive
-  already exists here or another subscription has a table failed with
-  "Relation already exists". The password goes as a bind parameter and
-  never reaches `sys.jobs_log`. `d` on a subscription drops it after you
-  type its name.
-
+- Replication tab (`7`) for logical replication. On a subscriber: each
+  subscribed table as preparing, copying, in sync or FAILED with the
+  reason, started shards, docs, changes/s and when obsi last saw a change
+  arrive. On a publisher: publications with their tables, and per
+  subscriber cluster the operations it hasn't pulled yet, when it last
+  renewed its retention leases and when they expire. A failed table and a
+  subscriber that stopped pulling for half its lease period raise alerts;
+  subscribed tables are marked read-only on the Tables tab.
 - Publications can be set up on the Replication tab (`--read-write`): `n`
   creates one from a table list or all tables, `e` changes its tables,
   `d` drops it. The review shows the SQL, which users may read all chosen
@@ -37,16 +26,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The publisher side of the Replication tab marks subscribers that still
   pull tables no publication lists: dropping a publication doesn't stop
   them.
-
-- Replication tab (`7`) for logical replication. On a subscriber: each
-  subscribed table as preparing, copying, in sync or FAILED with the
-  reason, started shards, docs, changes/s and when obsi last saw a change
-  arrive. On a publisher: publications with their tables, and per
-  subscriber cluster the operations it hasn't pulled yet, when it last
-  renewed its retention leases and when they expire. A failed table and a
-  subscriber that stopped pulling for half its lease period raise alerts;
-  subscribed tables are marked read-only on the Tables tab.
-
+- Subscriptions can be set up on the Replication tab (`--read-write`): `s`
+  takes a pasted subscribe ticket or host, mode (`pg_tunnel` by default),
+  user, password and publications, and refuses when a table to arrive
+  already exists here or another subscription has a table failed with
+  "Relation already exists". The password goes as a bind parameter and
+  never reaches `sys.jobs_log`. `d` on a subscription drops it after you
+  type its name.
+- The Replication tab shows the replication settings and
+  `node_initial_primaries_recoveries` (`c` changes them), each published
+  table's retention lease period (`l` changes it, flagged under an hour)
+  and the `logical_replication` thread pool.
+- Replication throughput on the Replication tab: changes/s per table and
+  BEHIND per subscriber as sparklines, operations pulled/s per subscriber,
+  totals since obsi started, and for a finished initial copy the bytes,
+  time and MB/s per shard, with a hint when the copy's chunk settings
+  look like the limit on a slow link.
 - The changes board (`c`) lists `CREATE/ALTER/DROP PUBLICATION` and
   `CREATE/ALTER/DROP SUBSCRIPTION`.
 

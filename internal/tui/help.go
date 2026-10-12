@@ -90,7 +90,14 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			helpEntry{km.Yank.Help().Key, "copy the suggested fix"},
 			bindingHelp(km.RunFix))...)
 	case TabReplication:
-		return "Replication", []helpEntry{{"↑ ↓ pgup pgdn", "scroll"}}
+		return "Replication", []helpEntry{
+			{"↑ ↓", "select a publication (scroll without one)"},
+			{"pgup pgdn", "scroll"},
+			{"n", "new publication: name, tables, review with who can read them and lease periods"},
+			{km.Edit.Help().Key, "change the tables of the selected publication"},
+			{"d", "drop the selected publication"},
+			{km.Yank.Help().Key, "copy a subscribe ticket: CREATE SUBSCRIPTION to fill in, tables, publisher nodes and ports (also in read-only)"},
+		}
 	case TabSQL:
 		return "SQL", []helpEntry{
 			{"enter", "run query"},

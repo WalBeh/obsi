@@ -25,8 +25,11 @@ type ReplicaShards struct {
 type LeaseHolder struct {
 	Subscriber string // the subscriber's cluster name
 	Tables     int
-	Behind     int64     // operations not pulled yet, summed over primaries
-	LastSeen   time.Time // newest lease renewal
+	// Unpublished counts tables it still pulls that no publication lists
+	// any more: dropping a publication doesn't stop a subscriber.
+	Unpublished int
+	Behind      int64     // operations not pulled yet, summed over primaries
+	LastSeen    time.Time // newest lease renewal
 	// Expires is the earliest lease expiry, Period the
 	// soft_deletes.retention_lease.period of that lease's table.
 	Expires time.Time

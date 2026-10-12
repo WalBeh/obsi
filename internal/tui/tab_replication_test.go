@@ -45,7 +45,7 @@ func TestReplicationView(t *testing.T) {
 		"2s ago",
 		"1/4", "for 1m30s",
 		"no copy started yet",
-		"FAILED", "Relation already exists",
+		"FAILED", "Relation already exists", "Don't create another subscription",
 		"all  all tables (2)",
 		"4.2K", "7h0m ago", "expires in 4h59m of 12h0m",
 	} {
@@ -54,7 +54,7 @@ func TestReplicationView(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, "doc.broken") && !strings.HasSuffix(line, "—  —") {
+		if strings.HasPrefix(line, "    doc.broken") && !strings.HasSuffix(line, "—  —") {
 			t.Errorf("failed table shows a rate: %q", line)
 		}
 		if strings.Contains(line, "doc.synced") && strings.Contains(line, "no copy") {
@@ -71,12 +71,12 @@ func TestReplicationViewEmptyAndScroll(t *testing.T) {
 	}
 
 	m := NewReplicationModel(130, 8).Refresh(replicationSnap(now))
-	if !strings.Contains(m.View(), "↓") {
+	if !strings.Contains(m.View(), "↓ ") {
 		t.Fatalf("no scroll marker:\n%s", m.View())
 	}
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEnd})
 	lines := strings.Split(m.View(), "\n")
-	if len(lines) != 8 || !strings.Contains(lines[0], "↑") || strings.Contains(m.View(), "↓") {
+	if len(lines) != 8 || !strings.Contains(lines[0], "↑ ") || strings.Contains(m.View(), "↓ ") {
 		t.Errorf("at the end:\n%s", m.View())
 	}
 }

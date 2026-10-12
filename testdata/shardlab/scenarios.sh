@@ -41,18 +41,22 @@ many)
 	sql "INSERT INTO doc.many SELECT g, g FROM generate_series(1, 400) g"
 	;;
 # Logical replication to the subscriber on 44210 (compose --profile
-# replication): doc.repl and the partitioned doc.repl_p replicate,
-# doc.repl_x exists on both sides and fails with "Relation already exists".
+# replication): doc.repl and the partitioned doc.repl_p replicate.
 replication)
 	sql "CREATE TABLE IF NOT EXISTS doc.repl (id BIGINT, pad TEXT) CLUSTERED INTO 3 SHARDS WITH (number_of_replicas = 0)"
 	sql "INSERT INTO doc.repl SELECT g, md5(g::TEXT) FROM generate_series(1, 50000) g"
 	sql "CREATE TABLE IF NOT EXISTS doc.repl_p (id INT, day TEXT) PARTITIONED BY (day) CLUSTERED INTO 1 SHARDS WITH (number_of_replicas = 0)"
 	sql "INSERT INTO doc.repl_p VALUES (1, 'a'), (2, 'b'), (3, 'c')"
-	sql "CREATE TABLE IF NOT EXISTS doc.repl_x (id INT) WITH (number_of_replicas = 0)"
 	sql "CREATE PUBLICATION lab_pub FOR TABLE doc.repl, doc.repl_p"
-	subsql "CREATE TABLE IF NOT EXISTS doc.repl_x (id INT) WITH (number_of_replicas = 0)"
 	subsql "CREATE SUBSCRIPTION lab_sub CONNECTION 'crate://lab1:4300?user=crate&mode=sniff' PUBLICATION lab_pub"
-	sleep 10
+	;;
+# doc.repl_x exists on both sides and fails with "Relation already exists".
+# Don't create another subscription afterwards: 6.4.5 then tries to delete
+# the subscriber's doc.repl_x and the subscriber breaks for good (see
+# docs/shardlab.md); replication-reset and recreating the container help.
+replication-fail)
+	sql "CREATE TABLE IF NOT EXISTS doc.repl_x (id INT) WITH (number_of_replicas = 0)"
+	subsql "CREATE TABLE IF NOT EXISTS doc.repl_x (id INT) WITH (number_of_replicas = 0)"
 	sql "ALTER PUBLICATION lab_pub ADD TABLE doc.repl_x"
 	;;
 # Writes to doc.repl for a minute, for changes/s and the publisher's lag.
@@ -90,7 +94,7 @@ reset)
 	;;
 *)
 	echo "usage: $0 setup|too-many-replicas|disable-allocation|filter|stuck|slow|move|recover|many|node-down|node-up|reset" >&2
-	echo "       $0 replication|replication-write|replication-short-lease|sub-down|sub-up|replication-reset" >&2
+	echo "       $0 replication|replication-fail|replication-write|replication-short-lease|sub-down|sub-up|replication-reset" >&2
 	exit 1
 	;;
 esac

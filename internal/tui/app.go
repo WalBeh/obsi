@@ -107,6 +107,7 @@ func (a *App) newTabModels() {
 	a.overview.editor.readOnly = a.readOnly
 	a.shards.readOnly = a.readOnly
 	a.tables.readOnly = a.readOnly
+	a.replication.readOnly = a.readOnly
 }
 
 // switchCluster makes the cluster now behind the endpoint the one obsi
@@ -311,6 +312,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case NodeLeftDelayRequest:
 		a.overview = a.overview.openDelayConfirm(msg.Value)
+		return a, nil
+
+	case PublicationChecksRequest:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return runPublicationChecks(ctx, reg, msg) }
+
+	case PublicationChecksMsg:
+		a.replication = a.replication.setChecks(msg)
+		return a, nil
+
+	case ApplyPublicationMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return applyPublication(ctx, reg, msg) }
+
+	case PublicationTicketRequest:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return copyTicket(ctx, reg, msg.Pub) }
+
+	case ReplicationNoticeMsg:
+		a.replication = a.replication.notice(msg)
+		if msg.Ran {
+			a.collectors.TriggerCollector(a.ctx, "replication")
+			a.collectors.TriggerCollector(a.ctx, "changes")
+		}
 		return a, nil
 
 	case ApplyNodeLeftDelayMsg:

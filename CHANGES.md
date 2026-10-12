@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Subscriptions can be set up on the Replication tab (`--read-write`): `s`
+  takes a pasted subscribe ticket or host, mode (`pg_tunnel` by default),
+  user, password and publications, and refuses when a table to arrive
+  already exists here or another subscription has a table failed with
+  "Relation already exists". The password goes as a bind parameter and
+  never reaches `sys.jobs_log`. `d` on a subscription drops it after you
+  type its name.
+
 - Publications can be set up on the Replication tab (`--read-write`): `n`
   creates one from a table list or all tables, `e` changes its tables,
   `d` drops it. The review shows the SQL, which users may read all chosen

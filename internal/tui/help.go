@@ -91,11 +91,12 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			bindingHelp(km.RunFix))...)
 	case TabReplication:
 		return "Replication", []helpEntry{
-			{"↑ ↓", "select a publication (scroll without one)"},
+			{"↑ ↓", "select a subscription or publication (scroll without any)"},
+			{"s", "new subscription: paste a subscribe ticket or fill in host, mode (pg_tunnel or sniff), user, password, publications"},
 			{"pgup pgdn", "scroll"},
 			{"n", "new publication: name, tables, review with who can read them and lease periods"},
 			{km.Edit.Help().Key, "change the tables of the selected publication"},
-			{"d", "drop the selected publication"},
+			{"d", "drop the selected publication, or the selected subscription after typing its name (its tables become writable)"},
 			{km.Yank.Help().Key, "copy a subscribe ticket: CREATE SUBSCRIPTION to fill in, tables, publisher nodes and ports (also in read-only)"},
 		}
 	case TabSQL:

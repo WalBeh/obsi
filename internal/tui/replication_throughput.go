@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
@@ -151,4 +152,53 @@ func pulledCell(h store.LeaseHolder) string {
 		return fmt.Sprintf("%9s", "—")
 	}
 	return fmt.Sprintf("%9s", formatRecords(int64(h.PulledRate+0.5)))
+}
+
+// tableReplicas is what the Tables data says about a table's replicas on
+// this cluster.
+type tableReplicas struct {
+	setting     string // number_of_replicas, e.g. "1" or "0-1"
+	partitioned bool
+}
+
+// replicaLines flags a subscribed table whose replicas this cluster can't
+// place. number_of_replicas is a non-replicated setting, so a change here
+// holds for existing tables and partitions, but a new partition arrives
+// with the publisher's count and the table's value here follows it.
+func (m ReplicationModel) replicaLines(fqn string, r store.ReplicaTable) []string {
+	tr, ok := m.replicas[fqn]
+	want, okWant := cratedb.MinReplicas(tr.setting)
+	nodes := len(m.nodes)
+	if !ok || !okWant || nodes == 0 {
+		return nil
+	}
+	fit := fmt.Sprintf("'0-%d'", want)
+	var text string
+	style := styleHealthYellow
+	switch {
+	case r.UnassignedReplicas > 0 && want <= nodes-1 && r.PartitionReplicas > nodes-1:
+		// The table fits now (e.g. a range from the publisher); partitions
+		// that arrived before keep their count.
+		text = fmt.Sprintf("▲ %d replica %s can't be placed: older partitions here keep number_of_replicas %d from when they arrived, on %d %s. ALTER TABLE %s SET (number_of_replicas = %d) here fixes them; new partitions fit.",
+			r.UnassignedReplicas, plural(r.UnassignedReplicas, "copy", "copies"), r.PartitionReplicas, nodes, plural(nodes, "node", "nodes"), quoteFQN(fqn), nodes-1)
+	case want <= nodes-1:
+		return nil
+	case r.UnassignedReplicas > 0:
+		text = fmt.Sprintf("▲ %d replica %s can't be placed: number_of_replicas %s here on %d %s. Set number_of_replicas = %s on the publisher's table (new partitions arrive with it), or ALTER TABLE %s SET (number_of_replicas = %d) here for what exists.",
+			r.UnassignedReplicas, plural(r.UnassignedReplicas, "copy", "copies"), tr.setting, nodes, plural(nodes, "node", "nodes"), fit, quoteFQN(fqn), nodes-1)
+		if tr.partitioned {
+			text += " New partitions bring the publisher's count again."
+		}
+	case tr.partitioned:
+		style = styleDim
+		text = fmt.Sprintf("New partitions will arrive with number_of_replicas %s (the publisher's) and can't place their replicas on %d %s: set %s on the publisher's table.",
+			tr.setting, nodes, plural(nodes, "node", "nodes"), fit)
+	default:
+		return nil
+	}
+	var lines []string
+	for _, l := range wrapText(text, max(m.width-10, 40)) {
+		lines = append(lines, "      "+style.Render(l))
+	}
+	return lines
 }

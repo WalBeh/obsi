@@ -24,6 +24,13 @@ type ReplicaShards struct {
 	// the initial copy until something else recovers them.
 	CopiedBytes int64
 	CopyShardMs int64
+	// UnassignedReplicas counts replica copies sys.shards lists as
+	// UNASSIGNED, e.g. more replicas than this cluster has nodes for.
+	UnassignedReplicas int
+	// PartitionReplicas is the most replicas any partition here insists
+	// on (cratedb.MinReplicas); partitions keep the count they arrived
+	// with.
+	PartitionReplicas int
 }
 
 // LeaseHolder is a subscriber cluster as the publisher sees it: the
@@ -112,7 +119,8 @@ type ReplicationState struct {
 
 // ReplicationPoll is one replication poll. A part whose query failed has
 // its error in Errs under "subscriptions", "publications", "shards",
-// "leases" or "settings", and keeps what the store had.
+// "leases" or "settings", and keeps what the store had; "partitions" only
+// leaves PartitionReplicas at 0.
 type ReplicationPoll struct {
 	Subscriptions []cratedb.Subscription
 	Publications  []cratedb.Publication

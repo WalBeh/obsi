@@ -13,42 +13,43 @@ import (
 // and (future) markdown documentation. Adding or removing a label here
 // is the single source of truth; the markdown doc will reference these.
 const (
-	QueryClusterSettings   = "cluster.settings"
-	QuerySummit            = "cluster.summit"
-	QueryClusterChecks     = "health.checks"
-	QueryTableHealth       = "health.tables"
-	QueryClusterHealth     = "health.cluster"
-	QueryNodeChecks        = "health.node_checks"
-	QueryNodes             = "nodes.info"
-	QueryActiveJobs        = "queries.active_jobs"
-	QueryShards            = "shards.all"
-	QueryShardsFastPath    = "shards.fast_path"
-	QueryTables            = "shards.tables"
-	QueryViewCount         = "shards.view_count"
-	QueryAllocations       = "shards.allocations"
-	QueryStuckShards       = "shards.stuck"
-	QueryPartitionDelays   = "shards.partition_delays"
-	QueryBlobTables        = "shards.blob_tables"
-	QueryJobsLogCoverage   = "jobs_log.coverage"
-	QueryJobsLogEntries    = "jobs_log.entries"
-	QueryJobsLogGroups     = "jobs_log.groups"
-	QueryStatsEnabled      = "jobs_log.stats_enabled"
-	QueryChangesCoverage   = "changes.coverage"
-	QueryChangesLog        = "changes.log"
-	QueryChangesCluster    = "changes.cluster_settings"
-	QueryChangesTables     = "changes.table_settings"
-	QuerySnapshotRepos     = "snapshots.repositories"
-	QuerySnapshots         = "snapshots.list"
-	QueryReplSubscriptions = "replication.subscriptions"
-	QueryReplPublications  = "replication.publications"
-	QueryReplicaShards     = "replication.replica_shards"
-	QueryReplLeases        = "replication.leases"
-	QueryReplLeasePeriod   = "replication.lease_period"
-	QueryReplSettings      = "replication.settings"
-	QueryReplUser          = "replication.user"
-	QueryHeartbeat         = cratedb.QueryLabelHeartbeat
-	QueryBootstrap         = cratedb.QueryLabelBootstrap
-	QueryNodeDiscovery     = cratedb.QueryLabelNodeDiscovery
+	QueryClusterSettings       = "cluster.settings"
+	QuerySummit                = "cluster.summit"
+	QueryClusterChecks         = "health.checks"
+	QueryTableHealth           = "health.tables"
+	QueryClusterHealth         = "health.cluster"
+	QueryNodeChecks            = "health.node_checks"
+	QueryNodes                 = "nodes.info"
+	QueryActiveJobs            = "queries.active_jobs"
+	QueryShards                = "shards.all"
+	QueryShardsFastPath        = "shards.fast_path"
+	QueryTables                = "shards.tables"
+	QueryViewCount             = "shards.view_count"
+	QueryAllocations           = "shards.allocations"
+	QueryStuckShards           = "shards.stuck"
+	QueryPartitionDelays       = "shards.partition_delays"
+	QueryBlobTables            = "shards.blob_tables"
+	QueryJobsLogCoverage       = "jobs_log.coverage"
+	QueryJobsLogEntries        = "jobs_log.entries"
+	QueryJobsLogGroups         = "jobs_log.groups"
+	QueryStatsEnabled          = "jobs_log.stats_enabled"
+	QueryChangesCoverage       = "changes.coverage"
+	QueryChangesLog            = "changes.log"
+	QueryChangesCluster        = "changes.cluster_settings"
+	QueryChangesTables         = "changes.table_settings"
+	QuerySnapshotRepos         = "snapshots.repositories"
+	QuerySnapshots             = "snapshots.list"
+	QueryReplSubscriptions     = "replication.subscriptions"
+	QueryReplPublications      = "replication.publications"
+	QueryReplicaShards         = "replication.replica_shards"
+	QueryReplLeases            = "replication.leases"
+	QueryReplLeasePeriod       = "replication.lease_period"
+	QueryReplSettings          = "replication.settings"
+	QueryReplUser              = "replication.user"
+	QueryReplPartitionReplicas = "replication.partition_replicas"
+	QueryHeartbeat             = cratedb.QueryLabelHeartbeat
+	QueryBootstrap             = cratedb.QueryLabelBootstrap
+	QueryNodeDiscovery         = cratedb.QueryLabelNodeDiscovery
 )
 
 // QueryStat holds execution statistics for a single query label.
@@ -131,6 +132,7 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryReplLeasePeriod, "replication", leasePeriodRefresh},
 		{QueryReplSettings, "replication", ci("replication")},
 		{QueryReplUser, "replication", 0},
+		{QueryReplPartitionReplicas, "replication", ci("replication")},
 		{QueryHeartbeat, "registry", connCfg.HeartbeatInterval.Duration},
 		{QueryBootstrap, "registry", 0},
 		{QueryNodeDiscovery, "registry", connCfg.NodeRefreshInterval.Duration},

@@ -68,3 +68,43 @@ func TestReplicationThroughputView(t *testing.T) {
 		t.Errorf("sparklines on a narrow terminal:\n%s", narrow)
 	}
 }
+
+func TestReplicaLines(t *testing.T) {
+	snap := func(setting string, unassigned int, partitionReplicas ...int) store.StoreSnapshot {
+		pr := 0
+		if len(partitionReplicas) > 0 {
+			pr = partitionReplicas[0]
+		}
+		now := time.Now()
+		return store.StoreSnapshot{
+			Nodes: []store.NodeSnapshot{{NodeInfo: cratedb.NodeInfo{ID: "a", Name: "sub1", Version: "6.4.5"}}},
+			Tables: []cratedb.TableInfo{{SchemaName: "doc", TableName: "p",
+				Settings: cratedb.TableSettings{NumberOfReplicas: setting, PartitionedBy: []string{"day"}}}},
+			Replication: store.ReplicationState{UpdatedAt: now,
+				Subscriptions: []cratedb.Subscription{{Name: "s", Tables: []cratedb.SubscribedTable{{Schema: "doc", Table: "p", State: "r"}}}},
+				Replicas:      map[string]store.ReplicaTable{"doc.p": {ReplicaShards: store.ReplicaShards{Shards: 2, Started: 2, UnassignedReplicas: unassigned, PartitionReplicas: pr}, Rate: -1}},
+			},
+		}
+	}
+	view := func(s store.StoreSnapshot) string {
+		return strings.Join(strings.Fields(NewReplicationModel(160, 60).Refresh(s).View()), " ")
+	}
+	got := view(snap("1", 2))
+	for _, want := range []string{"2 replica copies can't be placed: number_of_replicas 1 here on 1 node",
+		"number_of_replicas = '0-1' on the publisher's table", `ALTER TABLE "doc"."p" SET (number_of_replicas = 0) here`,
+		"New partitions bring the publisher's count again"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("lacks %q:\n%s", want, got)
+		}
+	}
+	if got := view(snap("1", 0)); !strings.Contains(got, "New partitions will arrive with number_of_replicas 1") {
+		t.Errorf("future partitions not flagged:\n%s", got)
+	}
+	if got := view(snap("0-1", 1, 1)); !strings.Contains(got, "older partitions here keep number_of_replicas 1 from when they arrived") ||
+		strings.Contains(got, "on the publisher's table") {
+		t.Errorf("older partitions:\n%s", got)
+	}
+	if got := view(snap("0-1", 0)); strings.Contains(got, "replica") && strings.Contains(got, "can't place") {
+		t.Errorf("a range that fits is flagged:\n%s", got)
+	}
+}

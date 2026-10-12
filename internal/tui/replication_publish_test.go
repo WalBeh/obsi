@@ -74,32 +74,32 @@ func TestPublicationFormKeys(t *testing.T) {
 	m := pubModel()
 	m.readOnly = true
 	m, _ = keys(m, "n")
-	if m.form != nil || !strings.Contains(m.noticeText, "read-only") {
+	if pubFormOf(m) != nil || !strings.Contains(m.noticeText, "read-only") {
 		t.Fatalf("read-only opened the form: %q", m.noticeText)
 	}
 	m.readOnly = false
 
 	m, _ = keys(m, "n", "p", "1", "enter")
-	if m.form == nil || m.form.phase != pubName || !strings.Contains(m.form.err, "exists") {
-		t.Fatalf("taken name accepted: %+v", m.form)
+	if pubFormOf(m) == nil || pubFormOf(m).phase != pubName || !strings.Contains(pubFormOf(m).err, "exists") {
+		t.Fatalf("taken name accepted: %+v", pubFormOf(m))
 	}
 	m, _ = keys(m, "x", "enter", "down", " ", "enter")
-	if m.form.phase != pubReview {
-		t.Fatalf("phase = %d, err %q", m.form.phase, m.form.err)
+	if pubFormOf(m).phase != pubReview {
+		t.Fatalf("phase = %d, err %q", pubFormOf(m).phase, pubFormOf(m).err)
 	}
-	if got := m.form.stmts(); !reflect.DeepEqual(got, []string{`CREATE PUBLICATION "p1x" FOR TABLE "doc"."b"`}) {
+	if got := pubFormOf(m).stmts(); !reflect.DeepEqual(got, []string{`CREATE PUBLICATION "p1x" FOR TABLE "doc"."b"`}) {
 		t.Errorf("stmts = %q", got)
 	}
 	view := m.View()
 	if !strings.Contains(view, "checking privileges") {
 		t.Errorf("review without the pending checks:\n%s", view)
 	}
-	m = m.setChecks(PublicationChecksMsg{Readers: []string{"stale"}, form: m.form, seq: m.form.seq - 1})
-	m = m.setChecks(PublicationChecksMsg{Readers: []string{"other form"}, form: &pubForm{}, seq: m.form.seq})
-	if m.form.checks != nil {
-		t.Fatalf("stale checks applied: %+v", m.form.checks)
+	m = m.setChecks(PublicationChecksMsg{Readers: []string{"stale"}, form: pubFormOf(m), seq: pubFormOf(m).seq - 1})
+	m = m.setChecks(PublicationChecksMsg{Readers: []string{"other form"}, form: &pubForm{}, seq: pubFormOf(m).seq})
+	if pubFormOf(m).checks != nil {
+		t.Fatalf("stale checks applied: %+v", pubFormOf(m).checks)
 	}
-	m = m.setChecks(PublicationChecksMsg{Readers: []string{"crate", "repl"}, Periods: map[string]time.Duration{"doc.b": 2 * time.Minute}, Checked: 1, form: m.form, seq: m.form.seq})
+	m = m.setChecks(PublicationChecksMsg{Readers: []string{"crate", "repl"}, Periods: map[string]time.Duration{"doc.b": 2 * time.Minute}, Checked: 1, form: pubFormOf(m), seq: pubFormOf(m).seq})
 	view = m.View()
 	for _, want := range []string{"crate, repl", "doc.b 2m0s"} {
 		if !strings.Contains(view, want) {
@@ -107,7 +107,7 @@ func TestPublicationFormKeys(t *testing.T) {
 		}
 	}
 	m, cmd := keys(m, "y")
-	if m.form != nil || cmd == nil {
+	if pubFormOf(m) != nil || cmd == nil {
 		t.Fatal("y didn't run")
 	}
 	if apply, ok := cmd().(ApplyPublicationMsg); !ok || apply.Stmts[0] != `CREATE PUBLICATION "p1x" FOR TABLE "doc"."b"` {
@@ -116,12 +116,12 @@ func TestPublicationFormKeys(t *testing.T) {
 
 	// FOR ALL TABLES can't change tables; d asks first.
 	m, _ = keys(m, "down", "e")
-	if m.form != nil || !strings.Contains(m.noticeText, "FOR ALL TABLES") {
+	if pubFormOf(m) != nil || !strings.Contains(m.noticeText, "FOR ALL TABLES") {
 		t.Errorf("edit of an ALL TABLES publication: %q", m.noticeText)
 	}
 	m, _ = keys(m, "d")
-	if m.drop == nil || m.drop.name != "everything" {
-		t.Fatalf("drop = %+v", m.drop)
+	if pubDropOf(m) == nil || pubDropOf(m).name != "everything" {
+		t.Fatalf("drop = %+v", pubDropOf(m))
 	}
 	m, cmd = keys(m, "y")
 	if apply, ok := cmd().(ApplyPublicationMsg); !ok || apply.Stmts[0] != `DROP PUBLICATION "everything"` {
@@ -177,3 +177,11 @@ func TestReplicationArrowsScrollPastItems(t *testing.T) {
 		t.Errorf("down past the last item scrolled to %d of %d", m.scroll, m.maxScroll)
 	}
 }
+
+// Typed views of the open dialog, nil when another (or none) is open.
+func pubFormOf(m ReplicationModel) *pubForm           { f, _ := m.modal.(*pubForm); return f }
+func pubDropOf(m ReplicationModel) *pubDrop           { f, _ := m.modal.(*pubDrop); return f }
+func subFormOf(m ReplicationModel) *subForm           { f, _ := m.modal.(*subForm); return f }
+func subDropOf(m ReplicationModel) *subDrop           { f, _ := m.modal.(*subDrop); return f }
+func settingsOf(m ReplicationModel) *replSettingsForm { f, _ := m.modal.(*replSettingsForm); return f }
+func leaseOf(m ReplicationModel) *leaseForm           { f, _ := m.modal.(*leaseForm); return f }

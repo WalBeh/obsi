@@ -112,6 +112,18 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 	return "", nil
 }
 
+// tabNotes explains what a tab shows where the tab itself has no room.
+func tabNotes(tab Tab) []string {
+	if tab != TabReplication {
+		return nil
+	}
+	return []string{
+		"Subscriber side: how far behind the publisher a table is shows only on the publisher; here it's changes/s and when obsi last saw one arrive.",
+		"Publisher side: subscribers are the cluster names from the retention leases they hold on published primaries; BEHIND is the operations those leases haven't reached. A lease that expires lets the publisher drop operations the subscriber hasn't pulled yet.",
+		"Settings (c) are cluster settings read where the subscription runs, the subscriber.",
+	}
+}
+
 func globalHelp(km KeyMap) []helpEntry {
 	return []helpEntry{
 		{"1-7", "switch tab"},
@@ -146,6 +158,14 @@ func renderHelp(tab Tab, km KeyMap, view queriesView, width, height int) string 
 
 	sections := []string{styleModalTitle.Render("Keys: " + title)}
 	sections = append(sections, rows(local)...)
+	if notes := tabNotes(tab); len(notes) > 0 {
+		sections = append(sections, "", styleModalTitle.Render("About this tab"))
+		for _, n := range notes {
+			for _, l := range wrapText(n, 76) {
+				sections = append(sections, styleDim.Render(l))
+			}
+		}
+	}
 	sections = append(sections, "", styleModalTitle.Render("Global"))
 	sections = append(sections, rows(global)...)
 	sections = append(sections, "", styleDim.Render("[?/esc] close"))

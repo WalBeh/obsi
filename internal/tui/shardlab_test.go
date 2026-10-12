@@ -233,7 +233,7 @@ func TestSubscribelab(t *testing.T) {
 	m := NewReplicationModel(120, 40).Refresh(store.StoreSnapshot{Replication: store.ReplicationState{UpdatedAt: time.Now()}})
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(text), Paste: true})
-	f := m.subForm
+	f := subFormOf(m)
 	f.vals[subHost], f.vals[subUser], f.vals[subPassword] = "lab1", "crate", "not-in-the-log&1"
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m, cmd := m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
@@ -518,4 +518,64 @@ func TestLimitedUserlab(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestReplicaslab gives doc.repl_p a replica on the publisher, makes a new
+// partition and prints what the subscriber's Replication tab says, then
+// the same with '0-1'. Cleans up after itself.
+// go test -tags shardlab -run Replicaslab -v ./internal/tui
+func TestReplicaslab(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	ctx := context.Background()
+	cfg := config.DefaultConfig()
+	open := func(url string) *cratedb.Registry {
+		reg := cratedb.NewRegistry(url, "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+		if err := reg.Bootstrap(ctx); err != nil {
+			t.Fatal(err)
+		}
+		return reg
+	}
+	pub, sub := open("http://127.0.0.1:44200"), open("http://127.0.0.1:44210")
+	run := func(reg *cratedb.Registry, stmt string) {
+		if _, err := reg.Query(ctx, stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	defer func() {
+		pub.Query(ctx, `DELETE FROM doc.repl_p WHERE day IN ('rcheck1', 'rcheck2')`)
+		pub.Query(ctx, `ALTER TABLE doc.repl_p SET (number_of_replicas = 0)`)
+		time.Sleep(10 * time.Second)
+		sub.Query(ctx, `ALTER TABLE doc.repl_p SET (number_of_replicas = 0)`)
+	}()
+	show := func(title string) {
+		st := store.New(10, cfg.Collectors)
+		tr := collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
+		for _, c := range []collector.Collector{collector.NewNodesCollector(cfg.Collectors["nodes"], tr),
+			collector.NewShardsCollector(cfg.Collectors["shards"], tr), collector.NewReplicationCollector(cfg.Collectors["replication"], tr)} {
+			if err := c.Collect(ctx, sub, st); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out := NewReplicationModel(170, 80).Refresh(st.Snapshot(1, store.SnapshotHint{IncludeTables: true, IncludeNodes: true})).View()
+		fmt.Println("==", title)
+		show := false
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "doc.repl_p") {
+				show = true
+			} else if show && !strings.HasPrefix(l, "      ") {
+				show = false
+			}
+			if show {
+				fmt.Println("  |", strings.TrimRight(l, " "))
+			}
+		}
+	}
+	run(pub, `ALTER TABLE doc.repl_p SET (number_of_replicas = 1)`)
+	run(pub, `INSERT INTO doc.repl_p VALUES (1, 'rcheck1')`)
+	time.Sleep(12 * time.Second)
+	show("publisher at 1 replica, new partition rcheck1")
+	run(pub, `ALTER TABLE doc.repl_p SET (number_of_replicas = '0-1')`)
+	run(pub, `INSERT INTO doc.repl_p VALUES (2, 'rcheck2')`)
+	time.Sleep(12 * time.Second)
+	show("publisher at '0-1', new partition rcheck2")
 }

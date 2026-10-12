@@ -1,6 +1,11 @@
 package cratedb
 
-import "strings"
+import (
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // Subscription is a row of pg_subscription with its tables from
 // pg_subscription_rel.
@@ -57,4 +62,37 @@ func SplitRegclass(s string) (schema, table string) {
 		return "doc", parts[0]
 	}
 	return parts[len(parts)-2], parts[len(parts)-1]
+}
+
+// LeasePeriodSetting is the table setting that decides how long a
+// subscriber's retention lease keeps operations it hasn't pulled.
+const LeasePeriodSetting = "soft_deletes.retention_lease.period"
+
+// DefaultLeasePeriod applies when a table doesn't set LeasePeriodSetting.
+const DefaultLeasePeriod = 12 * time.Hour
+
+var leasePeriodRe = regexp.MustCompile(`"soft_deletes\.retention_lease\.period"\s*=\s*'?(\d+)`)
+
+// LeasePeriodFromDDL reads LeasePeriodSetting from SHOW CREATE TABLE. It's
+// listed (in ms) only when the table sets it; information_schema doesn't
+// have it at all.
+func LeasePeriodFromDDL(ddl string) (time.Duration, bool) {
+	if m := leasePeriodRe.FindStringSubmatch(ddl); m != nil {
+		if ms, err := strconv.ParseInt(m[1], 10, 64); err == nil && ms > 0 {
+			return time.Duration(ms) * time.Millisecond, true
+		}
+	}
+	return 0, false
+}
+
+// QuoteIdent quotes a SQL identifier, doubling quotes inside.
+func QuoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
+// MinReplicas is the replicas a number_of_replicas value insists on: n,
+// or the lower end of a range like 0-1 that expands to the nodes there
+// are.
+func MinReplicas(setting string) (int, bool) {
+	lo, _, _ := strings.Cut(setting, "-")
+	n, err := strconv.Atoi(strings.TrimSpace(lo))
+	return n, err == nil
 }

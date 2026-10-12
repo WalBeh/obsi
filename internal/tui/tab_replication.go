@@ -20,6 +20,7 @@ import (
 type ReplicationModel struct {
 	repl      store.ReplicationState
 	tables    []string // schema.table, candidates for a publication
+	replicas  map[string]tableReplicas
 	now       time.Time
 	width     int
 	height    int
@@ -27,14 +28,10 @@ type ReplicationModel struct {
 	maxScroll int
 
 	readOnly    bool
-	selected    int // subscriptions first, then publications
-	form        *pubForm
-	drop        *pubDrop
-	subForm     *subForm
-	subDrop     *subDrop
-	settings    *replSettingsForm
-	lease       *leaseForm
+	selected    int                  // subscriptions first, then publications
+	modal       replModal            // the open dialog, nil without one
 	persistent  bool                 // SET GLOBAL PERSISTENT, from set_global_mode
+	version     string               // the oldest node's, for cratedb.Quirk
 	nodes       []store.NodeSnapshot // for the logical_replication thread pool
 	noticeText  string
 	noticeIsErr bool
@@ -48,17 +45,26 @@ func NewReplicationModel(width, height int) ReplicationModel {
 func (m ReplicationModel) Refresh(snap store.StoreSnapshot) ReplicationModel {
 	m.repl, m.now = snap.Replication, time.Now()
 	m.tables = m.tables[:0]
+	m.replicas = map[string]tableReplicas{}
 	for _, t := range snap.Tables {
-		m.tables = append(m.tables, t.SchemaName+"."+t.TableName)
+		fqn := t.SchemaName + "." + t.TableName
+		m.tables = append(m.tables, fqn)
+		m.replicas[fqn] = tableReplicas{setting: t.Settings.NumberOfReplicas, partitioned: len(t.Settings.PartitionedBy) > 0}
 	}
 	sort.Strings(m.tables)
 	m.nodes = poolNodes(snap.Nodes)
+	m.version = ""
+	for _, n := range m.nodes {
+		if m.version == "" || cratedb.CompareVersions(n.Version, m.version) < 0 {
+			m.version = n.Version
+		}
+	}
 	m.selected = min(m.selected, max(m.items()-1, 0))
 	return m.clampScroll()
 }
 
 func (m ReplicationModel) inputMode() bool {
-	return m.form != nil || m.drop != nil || m.subForm != nil || m.subDrop != nil || m.settings != nil || m.lease != nil
+	return m.modal != nil
 }
 
 func (m ReplicationModel) items() int { return len(m.repl.Subscriptions) + len(m.repl.Publications) }
@@ -78,20 +84,20 @@ func (m ReplicationModel) selectedPub() (cratedb.Publication, bool) {
 }
 
 func (m ReplicationModel) setChecks(msg PublicationChecksMsg) ReplicationModel {
-	if m.form != nil && m.form == msg.form && m.form.seq == msg.seq && m.form.phase == pubReview {
-		m.form.checks = &msg
+	if f, ok := m.modal.(*pubForm); ok && f == msg.form && f.seq == msg.seq && f.phase == pubReview {
+		f.checks = &msg
 	}
 	return m
 }
 
 func (m ReplicationModel) notice(msg ReplicationNoticeMsg) ReplicationModel {
-	if f := m.subForm; f != nil && f.running {
+	if f, ok := m.modal.(*subForm); ok && f.running {
 		f.running = false
 		if msg.Error != "" {
 			f.err = msg.Error
 			return m
 		}
-		m.subForm = nil
+		m.modal = nil
 	}
 	m.noticeText, m.noticeIsErr, m.noticeAt = msg.Note, msg.Error != "", time.Now()
 	if msg.Error != "" {
@@ -127,45 +133,10 @@ func (m ReplicationModel) clampScroll() ReplicationModel {
 }
 
 func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) {
-	if m.form != nil {
-		done, cmd := m.form.key(msg)
+	if m.modal != nil {
+		done, cmd := m.modal.key(msg)
 		if done {
-			m.form = nil
-		}
-		return m, cmd
-	}
-	if m.drop != nil {
-		done, cmd := m.drop.key(msg)
-		if done {
-			m.drop = nil
-		}
-		return m, cmd
-	}
-	if m.subForm != nil {
-		done, cmd := m.subForm.key(msg)
-		if done {
-			m.subForm = nil
-		}
-		return m, cmd
-	}
-	if m.subDrop != nil {
-		done, cmd := m.subDrop.key(msg)
-		if done {
-			m.subDrop = nil
-		}
-		return m, cmd
-	}
-	if m.settings != nil {
-		done, cmd := m.settings.key(msg)
-		if done {
-			m.settings = nil
-		}
-		return m, cmd
-	}
-	if m.lease != nil {
-		done, cmd := m.lease.key(msg)
-		if done {
-			m.lease = nil
+			m.modal = nil
 		}
 		return m, cmd
 	}
@@ -178,13 +149,13 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 		case m.readOnly:
 			m = m.notice(ReplicationNoticeMsg{Error: readOnlyRefusal("replication can't be changed")})
 		case msg.String() == "n":
-			m.form = m.newPubForm(nil)
+			m.modal = m.newPubForm(nil)
 		case msg.String() == "s":
-			m.subForm = m.newSubForm()
+			m.modal = m.newSubForm()
 		case msg.String() == "c":
-			m.settings = &replSettingsForm{values: m.repl.Settings, persistent: m.persistent}
+			m.modal = &replSettingsForm{values: m.repl.Settings, persistent: m.persistent}
 		case msg.String() == "l" && hasPub:
-			m.lease = m.newLeaseForm(pub)
+			m.modal = m.newLeaseForm(pub)
 		case msg.String() == "l":
 			m = m.notice(ReplicationNoticeMsg{Error: "select a publication (↑↓) to change its tables' retention lease period"})
 		case hasSub && msg.String() == "d":
@@ -192,16 +163,16 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 			for _, t := range sub.Tables {
 				d.tables = append(d.tables, t.FQN())
 			}
-			m.subDrop = d
+			m.modal = d
 		case hasSub:
 			m = m.notice(ReplicationNoticeMsg{Error: "a subscription can't be changed (ALTER SUBSCRIPTION isn't implemented in CrateDB): drop it and subscribe again"})
 		case !hasPub:
 		case msg.String() == "d":
-			m.drop = &pubDrop{name: pub.Name}
+			m.modal = &pubDrop{name: pub.Name}
 		case pub.AllTables:
 			m = m.notice(ReplicationNoticeMsg{Error: pub.Name + " is FOR ALL TABLES: its tables can't be changed, only the publication dropped"})
 		default:
-			m.form = m.newPubForm(&pub)
+			m.modal = m.newPubForm(&pub)
 		}
 		return m, nil
 	case "y":
@@ -236,6 +207,12 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 	return m, nil
 }
 
+// replModal is a dialog of the tab: it takes every key until done.
+type replModal interface {
+	key(tea.KeyMsg) (done bool, cmd tea.Cmd)
+	render(width, height int) string
+}
+
 // followSelection scrolls the selected subscription or publication into
 // view.
 func (m ReplicationModel) followSelection() ReplicationModel {
@@ -258,19 +235,8 @@ func (m ReplicationModel) followSelection() ReplicationModel {
 func (m ReplicationModel) bodyHeight() int { return max(m.height-1, 3) }
 
 func (m ReplicationModel) View() string {
-	switch {
-	case m.form != nil:
-		return m.form.render(m.width, m.height)
-	case m.drop != nil:
-		return m.drop.render(m.width, m.height)
-	case m.subForm != nil:
-		return m.subForm.render(m.width, m.height)
-	case m.subDrop != nil:
-		return m.subDrop.render(m.width, m.height)
-	case m.settings != nil:
-		return m.settings.render(m.width, m.height)
-	case m.lease != nil:
-		return m.lease.render(m.width, m.height)
+	if m.modal != nil {
+		return m.modal.render(m.width, m.height)
 	}
 	return m.body() + "\n" + m.noticeLine()
 }
@@ -351,11 +317,6 @@ func (m ReplicationModel) layout() []string {
 			lines = append(lines, "")
 		}
 		lines = append(lines, m.renderPublications()...)
-	} else {
-		lines = append(lines, "", styleDim.Render("  n: new publication"))
-	}
-	if len(r.Subscriptions) == 0 {
-		lines = append(lines, styleDim.Render("  s: new subscription"))
 	}
 	if s := m.renderReplSettings(); len(s) > 0 {
 		lines = append(lines, "")
@@ -365,7 +326,7 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, "")
 		lines = append(lines, p...)
 	}
-	return lines
+	return append(lines, "", styleDim.Render("  ↑↓ select · n publication · s subscription · e tables · d drop · l lease period · c settings · y ticket · ? help"))
 }
 
 var crateMessageRe = regexp.MustCompile(`"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
@@ -384,6 +345,7 @@ var replParts = []struct{ key, what string }{
 	{"subscriptions", "subscriptions (pg_subscription)"},
 	{"publications", "publications (pg_publication)"},
 	{"shards", "subscribed shards (sys.shards), showing the last poll"},
+	{"partitions", "partition replica settings (information_schema.table_partitions)"},
 	{"leases", "subscriber leases (sys.shards), showing the last poll"},
 	{"settings", "replication settings (sys.cluster)"},
 }
@@ -426,8 +388,7 @@ func (m ReplicationModel) renderSubscriptions() []string {
 	if t := m.subscriberTotals(); t != "" {
 		lines = append(lines, t)
 	}
-	return append(lines, styleDim.Render("  How far behind the publisher a table is shows only there: run obsi against the publisher."),
-		styleDim.Render("  s new · d drop (selected subscription, ↑↓)"))
+	return lines
 }
 
 func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []string {
@@ -474,30 +435,23 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []
 	if r.Copy != nil && t.State == "r" {
 		lines = append(lines, m.copyLines(r.Copy)...)
 	}
+	lines = append(lines, m.replicaLines(t.FQN(), r)...)
 	if t.State == "e" && t.Reason != "" {
 		for _, l := range wrapText(t.Reason, max(m.width-8, 20)) {
 			lines = append(lines, "      "+styleHealthRed.Render(l))
 		}
-		// Seen on 6.4.5: the next CREATE SUBSCRIPTION restarts this
-		// subscription's tracking, which tries to delete the local table and
-		// breaks the subscriber.
-		if strings.HasPrefix(t.Reason, "Relation already exists") {
-			for _, l := range wrapText("Don't create another subscription on this cluster before dropping this one: CrateDB 6.4.5 then tries to delete the local "+t.FQN()+" and every subscription here fails.", max(m.width-8, 20)) {
+		if q := cratedb.QuirkDeletesLocalTable; cratedb.RelationExists(t.Reason) && q.Affects(m.version) {
+			for _, l := range wrapText("Don't create another subscription on this cluster before dropping this one: CrateDB (seen on "+q.SeenOn+") then tries to delete the local "+t.FQN()+" and every subscription here fails.", max(m.width-8, 20)) {
 				lines = append(lines, "      "+styleHealthYellow.Render(l))
 			}
 		}
 	}
-	// CrateDB 6.4.5's metadata tracker can die after a restart (NPE in
-	// MetadataTracker.processSubscription); new tables then stay
-	// initializing until the subscription is created again.
-	if t.State == "i" && !r.CopySince.IsZero() && m.now.Sub(r.CopySince) > stuckPreparing {
+	if t.State == "i" && !r.CopySince.IsZero() && m.now.Sub(r.CopySince) > stuckPreparing && cratedb.QuirkTrackerDies.Affects(m.version) {
 		lines = append(lines, "      "+styleHealthYellow.Render(
 			"no copy started yet; if it stays like this, look for MetadataTracker errors in the subscriber's log"))
 	}
 	return lines
 }
-
-var pubKeys = styleDim.Render("  n new · e tables · d drop · l lease period · y copy a subscribe ticket (selected publication, ↑↓)")
 
 // connTarget shows host and mode of a masked connection string,
 // crate://lab1:4300?user=*&password=*&mode=sniff -> crate://lab1:4300 (sniff).
@@ -548,7 +502,7 @@ func (m ReplicationModel) renderPublications() []string {
 	}
 	lines = append(lines, "")
 	if len(m.repl.Subscribers) == 0 {
-		return append(lines, styleDim.Render("  No subscriber holds a lease on the published tables."), pubKeys)
+		return append(lines, styleDim.Render("  No subscriber holds a lease on the published tables."))
 	}
 	subs := append([]store.LeaseHolder(nil), m.repl.Subscribers...)
 	sort.Slice(subs, func(i, j int) bool { return subs[i].Subscriber < subs[j].Subscriber })
@@ -592,11 +546,6 @@ func (m ReplicationModel) renderPublications() []string {
 	if unpublished {
 		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: dropping or shrinking a publication doesn't stop"),
 			styleHealthYellow.Render("    a subscriber, only DROP SUBSCRIPTION on its side does"))
-	}
-	lines = append(lines, styleDim.Render("  Subscribers are cluster names from their retention leases. A lease that expires lets the"),
-		styleDim.Render("  publisher drop operations the subscriber hasn't pulled yet."))
-	if len(m.repl.Publications) > 0 {
-		lines = append(lines, pubKeys)
 	}
 	return lines
 }

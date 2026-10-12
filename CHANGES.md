@@ -4,6 +4,21 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- The Replication tab flags subscribed tables whose replicas the
+  subscriber can't place, e.g. 1 replica from a 3-node publisher on a
+  1-node subscriber, with the fix on either side. `number_of_replicas`
+  isn't replicated, but each new partition arrives with the publisher's
+  count, so a range like `'0-1'` on the publisher fits both.
+
+### Changed
+
+- The Replication tab's general explanations moved into its `?` help;
+  the tab keeps one key line and only the notes about what's on screen.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

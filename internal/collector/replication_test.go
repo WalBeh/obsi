@@ -1,10 +1,13 @@
 package collector
 
 import (
+	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/waltergrande/cratedb-observer/internal/config"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
@@ -86,9 +89,9 @@ func TestParseLeases(t *testing.T) {
 	}
 	got := parseLeases(rows, now, period, map[string]bool{"doc.a": true})
 	want := []store.LeaseHolder{
-		{Subscriber: "dr", Tables: 2, Unpublished: 1, Behind: 5, Unknown: 1, LastSeen: now.Add(-time.Second),
+		{Subscriber: "dr", Tables: 2, On: []string{"doc.a", "doc.b"}, Unpublished: 1, Behind: 5, Unknown: 1, LastSeen: now.Add(-time.Second),
 			Expires: now.Add(-5*time.Second + time.Minute), Period: time.Minute},
-		{Subscriber: "old", Tables: 1, Behind: 60, LastSeen: now.Add(-3 * time.Hour),
+		{Subscriber: "old", Tables: 1, On: []string{"doc.a"}, Behind: 60, LastSeen: now.Add(-3 * time.Hour),
 			Expires: now.Add(9 * time.Hour), Period: 12 * time.Hour},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -106,5 +109,39 @@ func TestParseLeasePeriod(t *testing.T) {
 	}
 	if got := parseLeasePeriod(`CREATE TABLE "doc"."t" (a INT)`); got != defaultLeasePeriod {
 		t.Errorf("default: got %s", got)
+	}
+}
+
+// Review findings on phase 4: Reset doesn't wait for a running poll, and
+// tables whose period can't be read don't block the others.
+func TestReplicationCollectorResetAndFailedReads(t *testing.T) {
+	cfg := config.DefaultConfig()
+	c := NewReplicationCollector(cfg.Collectors["replication"], NewQueryTracker(cfg.Collectors, cfg.Connection))
+	c.mu.Lock()
+	done := make(chan struct{})
+	go func() { c.Reset(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Reset waited for the collector's lock")
+	}
+	c.mu.Unlock()
+
+	reg := cratedb.NewRegistry("http://127.0.0.1:1", "crate", "", 100*time.Millisecond, 100*time.Millisecond, time.Hour, time.Hour, false)
+	var tables []string
+	for i := range maxPeriodReads + 5 {
+		tables = append(tables, fmt.Sprintf("doc.t%02d", i))
+	}
+	ctx := context.Background()
+	c.refreshPeriods(ctx, reg, append(tables, tables[0]))
+	if len(c.periods) != maxPeriodReads {
+		t.Fatalf("first poll recorded %d tables, want %d", len(c.periods), maxPeriodReads)
+	}
+	c.refreshPeriods(ctx, reg, tables)
+	if len(c.periods) != len(tables) {
+		t.Errorf("second poll didn't move on: %d of %d recorded", len(c.periods), len(tables))
+	}
+	if c.period("doc.t00") != defaultLeasePeriod {
+		t.Errorf("failed read period = %s", c.period("doc.t00"))
 	}
 }

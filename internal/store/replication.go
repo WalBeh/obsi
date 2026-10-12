@@ -25,6 +25,7 @@ type ReplicaShards struct {
 type LeaseHolder struct {
 	Subscriber string // the subscriber's cluster name
 	Tables     int
+	On         []string // the tables, schema.table
 	// Unpublished counts tables it still pulls that no publication lists
 	// any more: dropping a publication doesn't stop a subscriber.
 	Unpublished int

@@ -256,8 +256,16 @@ type leaseForm struct {
 func (m ReplicationModel) newLeaseForm(p cratedb.Publication) *leaseForm {
 	f := &leaseForm{pub: p.Name, tables: p.Tables, periods: m.repl.LeasePeriods}
 	f.poll, _ = parseDelay(m.repl.Settings["replication.logical.reads_poll_duration"])
+	mine := map[string]bool{}
+	for _, t := range p.Tables {
+		mine[t] = true
+	}
 	for _, h := range m.repl.Subscribers {
-		if h.MaxSilence > f.maxSilence {
+		pulls := false
+		for _, t := range h.On {
+			pulls = pulls || mine[t]
+		}
+		if pulls && h.MaxSilence > f.maxSilence {
 			f.maxSilence, f.silentSub = h.MaxSilence, h.Subscriber
 		}
 	}

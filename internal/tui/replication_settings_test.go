@@ -22,8 +22,13 @@ func settingsModel() ReplicationModel {
 			UpdatedAt:     now,
 			Subscriptions: []cratedb.Subscription{{Name: "s", Tables: []cratedb.SubscribedTable{{Schema: "doc", Table: "x", State: "r"}}}},
 			Publications:  []cratedb.Publication{{Name: "p", Tables: []string{"doc.a", "doc.b", "doc.c", "doc.d"}}},
-			Subscribers: []store.LeaseHolder{{Subscriber: "dr", Tables: 2, Unknown: 1, LastSeen: now, Expires: now.Add(time.Hour), Period: 12 * time.Hour,
-				MaxSilence: 40 * time.Minute}},
+			Subscribers: []store.LeaseHolder{
+				{Subscriber: "dr", Tables: 2, On: []string{"doc.a", "doc.b"}, Unknown: 1, LastSeen: now, Expires: now.Add(time.Hour), Period: 12 * time.Hour,
+					MaxSilence: 40 * time.Minute},
+				// Pulls another publication's table: not this form's business.
+				{Subscriber: "elsewhere", Tables: 1, On: []string{"doc.zzz"}, LastSeen: now, Expires: now.Add(time.Hour), Period: 12 * time.Hour,
+					MaxSilence: 3 * time.Hour},
+			},
 			Settings: map[string]string{
 				"replication.logical.ops_batch_size":                           "1000",
 				"replication.logical.reads_poll_duration":                      "50ms",

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/config"
@@ -69,8 +70,13 @@ type ReplicationCollector struct {
 	periods    map[string]leasePeriod // schema.table
 	leasesSeen bool
 	leasesAt   time.Time
+	// reset asks the next Collect to forget the above. Reset only sets it:
+	// it's called from the TUI, which mustn't wait for a running poll.
+	reset atomic.Bool
 }
 
+// leasePeriod is a table's period as last read; d is 0 when the read
+// failed, so the table waits for the next refresh like the others.
 type leasePeriod struct {
 	d  time.Duration
 	at time.Time
@@ -83,16 +89,15 @@ func NewReplicationCollector(cfg config.CollectorConfig, tracker *QueryTracker) 
 func (c *ReplicationCollector) Name() string            { return "replication" }
 func (c *ReplicationCollector) Interval() time.Duration { return c.interval }
 
-func (c *ReplicationCollector) Reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.periods = map[string]leasePeriod{}
-	c.leasesSeen, c.leasesAt = false, time.Time{}
-}
+func (c *ReplicationCollector) Reset() { c.reset.Store(true) }
 
 func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registry, st *store.Store) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.reset.Swap(false) {
+		c.periods = map[string]leasePeriod{}
+		c.leasesSeen, c.leasesAt = false, time.Time{}
+	}
 	fail := func(err error) error {
 		st.SetReplicationError(err.Error())
 		return err
@@ -134,7 +139,7 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 	}
 	periods := map[string]time.Duration{}
 	for t := range publishedTables(pubs) {
-		if p, ok := c.periods[t]; ok {
+		if p, ok := c.periods[t]; ok && p.d > 0 {
 			periods[t] = p.d
 		}
 	}
@@ -191,7 +196,12 @@ func (c *ReplicationCollector) period(fqn string) time.Duration {
 // this round.
 func (c *ReplicationCollector) refreshPeriods(ctx context.Context, reg *cratedb.Registry, tables []string) {
 	reads := 0
+	seen := map[string]bool{}
 	for _, fqn := range tables {
+		if seen[fqn] {
+			continue
+		}
+		seen[fqn] = true
 		if p, ok := c.periods[fqn]; ok && time.Since(p.at) < leasePeriodRefresh {
 			continue
 		}
@@ -202,6 +212,7 @@ func (c *ReplicationCollector) refreshPeriods(ctx context.Context, reg *cratedb.
 		schema, table, _ := strings.Cut(fqn, ".")
 		resp, err := trackedQuery(ctx, c.tracker, QueryReplLeasePeriod, reg, fmt.Sprintf("SHOW CREATE TABLE %s.%s", quoteIdent(schema), quoteIdent(table)))
 		if err != nil || len(resp.Rows) == 0 {
+			c.periods[fqn] = leasePeriod{at: time.Now()}
 			continue
 		}
 		c.periods[fqn] = leasePeriod{d: parseLeasePeriod(cratedb.ToString(resp.Rows[0][0])), at: time.Now()}
@@ -379,6 +390,7 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 	out := make([]store.LeaseHolder, 0, len(bySub))
 	for _, a := range bySub {
 		a.holder.Tables = len(a.tables)
+		a.holder.On = sortedKeys(a.tables)
 		for t := range a.tables {
 			if !published[t] {
 				a.holder.Unpublished++

@@ -106,6 +106,7 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			{"↑ ↓", "select a repository or snapshot; it opens with its details (scroll past either end)"},
 			{"enter", "on a repository: list only its snapshots"},
 			{"/", "filter snapshots by repository.name (esc clears)"},
+			{km.Yank.Help().Key, "copy the selected snapshot's details, failures, repository settings (masked) and cluster state, for a ticket or chat"},
 			{"pgup pgdn", "scroll"},
 			{km.Refresh.Help().Key, "list snapshots now (reads every repository)"},
 		}

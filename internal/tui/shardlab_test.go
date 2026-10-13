@@ -630,7 +630,8 @@ func TestSnapshotslab(t *testing.T) {
 	st := store.New(10, cfg.Collectors)
 	tr := collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
 	snaps := collector.NewSnapshotsCollector(cfg.Collectors["snapshots"], tr)
-	for _, c := range []collector.Collector{collector.NewNodesCollector(cfg.Collectors["nodes"], tr), snaps} {
+	for _, c := range []collector.Collector{collector.NewNodesCollector(cfg.Collectors["nodes"], tr),
+		collector.NewHealthCollector(cfg.Collectors["health"], tr), snaps} {
 		if err := c.Collect(ctx, reg, st); err != nil {
 			t.Fatal(err)
 		}
@@ -667,6 +668,9 @@ func TestSnapshotslab(t *testing.T) {
 			if !strings.Contains(out, " on bak2: node shutdown") {
 				t.Errorf("PARTIAL failures without the node name:\n%s", out)
 			}
+			sn, repo, _ := m.selectedSnapshot()
+			full := st.Snapshot(1, store.SnapshotHint{IncludeNodes: true, IncludeHealth: true})
+			fmt.Println(snapshotReport(sn, repo, full, reg.Status().ClusterName, time.Now()))
 			break
 		}
 	}

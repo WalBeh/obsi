@@ -211,6 +211,7 @@ func saveProfile(cfg *config.Config, passwordSet bool) {
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
+	tui.Version = cmd.Root().Version
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 

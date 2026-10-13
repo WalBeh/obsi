@@ -24,6 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   sparklines, the settings, the thread pool and lease periods show only
   when they say something. The key line lists the keys for that side;
   `?` has all of them.
+- The Snapshots tab reads the same way: a headline (repositories, the
+  newest snapshot, FAILED or PARTIAL ones, how fresh the listing is),
+  each repository as a group row with its snapshots below it and relative
+  times, state marks, and the selected row's details in a pane at the
+  bottom instead of opening inside the list.
 
 ### Fixed
 

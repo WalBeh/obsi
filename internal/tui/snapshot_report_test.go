@@ -65,8 +65,7 @@ func TestSnapshotsYank(t *testing.T) {
 	if cmd != nil || !strings.Contains(m.View(), "select a snapshot") {
 		t.Errorf("y on a repository: cmd %v\n%s", cmd != nil, m.View())
 	}
-	// Repositories, two running, then nightly.
-	m = pressSnap(m, "down", "down", "down", "down", "down", "down")
+	m = selectRow(t, m, "lab_fs", "nightly")
 	_, cmd = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
 	req, ok := cmd().(SnapshotReportRequest)
 	if !ok || req.Snapshot.Name != "nightly" || req.Repository.Settings["location"] != "/repo/lab_fs" {

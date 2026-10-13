@@ -150,7 +150,8 @@ func TestReadOnlyToggle(t *testing.T) {
 	if typeModal(tg, "y") != nil {
 		t.Error("ran while a restore runs")
 	}
-	m.modal, m.selected = nil, 2 // lab_empty, writable and idle
+	m.modal = nil
+	m = selectRow(t, m, "lab_empty", "") // writable and idle
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	if out := m.View(); !strings.Contains(out, "CREATE SNAPSHOT and DROP SNAPSHOT into this repository fail") {
 		t.Errorf("read-only warning:\n%s", out)
@@ -161,7 +162,7 @@ func TestReadOnlyToggle(t *testing.T) {
 	}
 	m.modal = nil
 	m.st.Repositories = append(m.st.Repositories, cratedb.Repository{Name: "web", Type: "url"})
-	m.selected = len(m.st.Repositories) - 1
+	m = selectRow(t, m, "web", "")
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	if m.modal != nil || !strings.Contains(m.View(), "has no readonly setting") {
 		t.Errorf("w on url:\n%s", m.View())

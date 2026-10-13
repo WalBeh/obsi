@@ -73,6 +73,10 @@ func (m OverviewModel) renderReplication() string {
 		}
 		parts = append(parts, p)
 	}
+	for _, rs := range hiddenCopies(r, m.snap.Snapshots.Restores) {
+		sub, _ := rs.Subscription()
+		parts = append(parts, styleHealthYellow.Render(sub+" copying (another user's subscription)"))
+	}
 	if len(parts) == 0 {
 		return ""
 	}

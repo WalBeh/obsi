@@ -128,3 +128,42 @@ func TestReplicationOwnerNote(t *testing.T) {
 		}
 	}
 }
+
+// A subscription another user owns shows only while its initial copy
+// runs, as a restore from _logical_replication_<name> (seen on 6.4.5).
+func TestReplicationHiddenCopy(t *testing.T) {
+	st := store.ReplicationState{UpdatedAt: time.Now(), User: "crate", Superuser: true,
+		Subscriptions: []cratedb.Subscription{{Name: "mine"}}}
+	snap := store.StoreSnapshot{Replication: st, Snapshots: store.SnapshotsState{Restores: []cratedb.SnapshotRestore{
+		{Repository: "_logical_replication_s_owner2", Name: "_latest_", State: "STARTED", Shards: 60, Done: 52},
+		{Repository: "_logical_replication_mine", Name: "_latest_", State: "STARTED", Shards: 4},
+		{Repository: "backups", Name: "nightly", State: "STARTED", Shards: 10},
+	}}}
+	flat := strings.Join(strings.Fields(NewReplicationModel(200, 40).Refresh(snap).View()), " ")
+	if !strings.Contains(flat, "Subscription s_owner2 is copying its tables now (52/60 shards, from sys.snapshot_restore). It isn't listed because a user other than crate owns it") {
+		t.Errorf("hidden copy missing:\n%s", flat)
+	}
+	if strings.Contains(flat, "Subscription mine is copying") || strings.Contains(flat, "nightly") {
+		t.Errorf("listed subscription or a real restore flagged:\n%s", flat)
+	}
+	ov := NewOverviewModel(200, 40, true)
+	ov.snap = snap
+	if out := ov.renderReplication(); !strings.Contains(out, "s_owner2 copying (another user's subscription)") || strings.Contains(out, "mine copying") {
+		t.Errorf("overview:\n%s", out)
+	}
+	sm := NewSnapshotsModel(200, 40).Refresh(store.StoreSnapshot{Snapshots: store.SnapshotsState{UpdatedAt: time.Now(), Restores: snap.Snapshots.Restores}})
+	out := sm.View()
+	for _, want := range []string{"Restores running", "backups.nightly", "Replication copies running", "subscription s_owner2  STARTED  52/60 shards"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("snapshots tab missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "_logical_replication_") {
+		t.Errorf("internal repository shown as a restore:\n%s", out)
+	}
+	ov.snap.Snapshots.UpdatedAt, ov.snap.Snapshots.ListedAt = time.Now(), time.Now()
+	ov.snap.Snapshots.Repositories = []cratedb.Repository{{Name: "backups"}}
+	if line := ov.renderSnapshots(); !strings.Contains(line, "· 1 restore") {
+		t.Errorf("restore count on the Overview counts copies:\n%s", line)
+	}
+}

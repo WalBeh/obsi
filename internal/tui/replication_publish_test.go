@@ -135,7 +135,7 @@ func TestUnpublishedLeaseMarked(t *testing.T) {
 		{Subscriber: "dr", Tables: 1, Unpublished: 1, LastSeen: now, Expires: now.Add(12 * time.Hour), Period: 12 * time.Hour},
 	}}}
 	view := NewReplicationModel(120, 30).Refresh(snap).View()
-	if !strings.Contains(view, "1*") || !strings.Contains(view, "DROP SUBSCRIPTION on its side does") {
+	if !strings.Contains(view, "1*") || !strings.Contains(view, "DROP SUBSCRIPTION on its side stops it") {
 		t.Errorf("unpublished lease not marked:\n%s", view)
 	}
 }

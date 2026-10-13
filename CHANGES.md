@@ -4,6 +4,14 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- The drop-publication dialog now says that subscribers keep the tables
+  but stop getting new partitions and new columns, and silently skip rows
+  that use a column added later.
+
 ## [0.4.1] - 2026-10-13
 
 ### Added

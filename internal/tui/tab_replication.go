@@ -544,8 +544,8 @@ func (m ReplicationModel) renderPublications() []string {
 			styleDim.Render("    behind they are isn't known; the next change sets it"))
 	}
 	if unpublished {
-		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: a dropped publication doesn't stop a subscriber"),
-			styleHealthYellow.Render("    (only its new partitions); DROP SUBSCRIPTION on its side does"))
+		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: a dropped publication doesn't stop a subscriber, only"),
+			styleHealthYellow.Render("    its new partitions and columns, so it diverges; DROP SUBSCRIPTION on its side stops it"))
 	}
 	return lines
 }

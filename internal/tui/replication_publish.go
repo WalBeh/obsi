@@ -463,7 +463,7 @@ func (d *pubDrop) render(width, height int) string {
 	}
 	text := "The tables here are not touched."
 	if q := cratedb.QuirkDropKeepsSubscribers; q.Affects(d.version) {
-		text = "Subscribers that already replicate its tables keep receiving their changes and keep them read-only; only new partitions stop arriving (seen on " + q.SeenOn + "). DROP SUBSCRIPTION on the subscriber stops them, or remove the tables from the publication first (e), which does. " + text
+		text = "Subscribers that already replicate its tables keep receiving their changes and keep them read-only, but new partitions and new columns stop arriving: rows that use a column added later are skipped there without an error, so they diverge (seen on " + q.SeenOn + "). DROP SUBSCRIPTION on the subscriber stops them, or remove the tables from the publication first (e), which does. " + text
 	}
 	lines = append(lines, wrapText(text, innerWidth-4)...)
 	lines = append(lines, "", styleDim.Render("[y] drop   [n] cancel"))

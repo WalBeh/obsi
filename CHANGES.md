@@ -4,7 +4,7 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.4.1] - 2026-10-13
 
 ### Added
 
@@ -14,7 +14,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Overview has a Replication line when there is replication: what
   this cluster pulls and whether it's in sync, what it serves, to whom,
   how far behind, and who stopped pulling.
-
 - The Replication tab flags subscribed tables whose replicas the
   subscriber can't place, e.g. 1 replica from a 3-node publisher on a
   1-node subscriber, with the fix on either side. `number_of_replicas`

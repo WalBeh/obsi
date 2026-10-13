@@ -15,6 +15,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `sys.snapshot_restore`, which every user can read. The Snapshots tab
   lists such copies as replication copies instead of restores.
 
+### Changed
+
+- The Replication tab reads at a glance: a headline per side says
+  whether all is well (tables in sync, copying or failed; operations
+  behind; settings and the thread pool), subscriptions are one table with
+  each subscription as a group row, states carry a mark (● ◐ ✕), and
+  sparklines, the settings, the thread pool and lease periods show only
+  when they say something. The key line lists the keys for that side;
+  `?` has all of them.
+
 ### Fixed
 
 - The Replication tab said superusers see every publication and

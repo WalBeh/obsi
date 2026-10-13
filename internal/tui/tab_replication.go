@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
@@ -308,26 +309,22 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, styleDim.Render("  waiting for the first replication poll"))
 		return lines
 	case len(r.Subscriptions) == 0 && len(r.Publications) == 0 && len(r.Subscribers) == 0:
-		none := []string{"  No publications or subscriptions on this cluster."}
+		none := []string{"  " + styleValue.Render("No publications or subscriptions on this cluster.")}
 		if r.User != "" {
-			none = []string{"  No publications or subscriptions owned by " + r.User + "."}
+			none = []string{"  " + styleValue.Render("No publications or subscriptions owned by "+r.User+".")}
 			for _, l := range wrapText(ownerNote(r.User), max(m.width-4, 40)) {
 				none = append(none, "  "+styleHealthYellow.Render(l))
 			}
-			none = append(none, "")
 		}
-		return append(append(lines, none...),
-			styleDim.Render("  Logical replication shows here: what this cluster pulls (CREATE SUBSCRIPTION)"),
-			styleDim.Render("  and what it serves to other clusters (CREATE PUBLICATION)."),
-			"", styleDim.Render("  n: new publication · s: new subscription"))
+		return append(append(lines, none...), "", styleDim.Render("  n publish · s subscribe · ? all keys"))
 	}
+	lines = append(lines, m.headline()...)
 	if len(r.Subscriptions) > 0 {
+		lines = append(lines, "")
 		lines = append(lines, m.renderSubscriptions()...)
 	}
 	if len(r.Publications) > 0 || len(r.Subscribers) > 0 {
-		if len(lines) > 0 {
-			lines = append(lines, "")
-		}
+		lines = append(lines, "")
 		lines = append(lines, m.renderPublications()...)
 	}
 	if s := m.renderReplSettings(); len(s) > 0 {
@@ -338,11 +335,7 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, "")
 		lines = append(lines, p...)
 	}
-	lines = append(lines, "")
-	if r.User != "" {
-		lines = append(lines, styleDim.Render("  Shows what "+r.User+" owns: CrateDB hides other users' publications and subscriptions, also from superusers."))
-	}
-	return append(lines, styleDim.Render("  ↑↓ select · n publication · s subscription · e tables · d drop · l lease period · c settings · y ticket · ? help"))
+	return append(lines, "", m.keyLine())
 }
 
 // hiddenCopies are initial copies of subscriptions pg_subscription
@@ -397,35 +390,58 @@ var replParts = []struct{ key, what string }{
 // points at the subscriber's log. The copy starts within seconds normally.
 const stuckPreparing = 5 * time.Minute
 
-var subStates = map[string]string{"i": "preparing", "d": "copying", "r": "in sync", "e": "FAILED"}
+// subActivity is true once some subscribed table changed while obsi
+// watched: until then a sparkline column is empty bars.
+func (m ReplicationModel) subActivity() bool {
+	for _, r := range m.repl.Replicas {
+		for _, v := range r.History {
+			if v > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
+// renderSubscriptions is one table for all subscriptions: each a group
+// row with its tables below, one column header for all.
 func (m ReplicationModel) renderSubscriptions() []string {
-	lines := []string{sectionTitle("Subscriptions · this cluster pulls")}
-	nameW := 20
+	nameW := len("SUBSCRIPTION / TABLE") - 2
 	for _, s := range m.repl.Subscriptions {
 		for _, t := range s.Tables {
 			nameW = max(nameW, min(len(t.FQN()), 40))
 		}
 	}
+	spark := m.sparks() && m.subActivity()
+	sparkHdr := ""
+	if spark {
+		sparkHdr = fmt.Sprintf("  %-*s", sparkWidth, spanLabel(m.repl.HistorySpan))
+	}
+	header := fmt.Sprintf("  %-*s  %6s  %8s  %9s%s  %s", nameW+2, "SUBSCRIPTION / TABLE", "SHARDS", "DOCS", "CHANGES/s", sparkHdr, "LAST CHANGE")
+	lines := []string{styleColumns.Render(header)}
 	for i, s := range m.repl.Subscriptions {
 		marker := "  "
 		if i == m.selected {
 			marker = "▸ "
 		}
-		lines = append(lines, fmt.Sprintf("%s%s  ← %s   publications %s",
-			marker, styleValue.Render(s.Name), connTarget(s.ConnInfo), strings.Join(s.Publications, ", ")))
+		counts := map[string]int{}
+		for _, t := range s.Tables {
+			counts[t.State]++
+		}
+		left := marker + styleValue.Render(s.Name) + styleDim.Render("  ← "+connTarget(s.ConnInfo)+" · "+strings.Join(s.Publications, ", "))
+		right := stateCounts(counts)
+		if gap := lipgloss.Width(header) - lipgloss.Width(left) - lipgloss.Width(right); gap > 1 && right != "" {
+			left += strings.Repeat(" ", gap) + right
+		} else if right != "" {
+			left += "  " + right
+		}
+		lines = append(lines, left)
 		if len(s.Tables) == 0 {
 			lines = append(lines, styleDim.Render("    no tables yet"))
 			continue
 		}
-		spark := ""
-		if m.sparks() {
-			spark = fmt.Sprintf("  %-*s", sparkWidth, spanLabel(m.repl.HistorySpan))
-		}
-		lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %-9s  %-6s  %8s  %9s%s  %s",
-			nameW, "TABLE", "STATE", "SHARDS", "DOCS", "CHANGES/s", spark, "LAST CHANGE")))
 		for _, t := range s.Tables {
-			lines = append(lines, m.subscribedRow(t, nameW)...)
+			lines = append(lines, m.subscribedRow(t, nameW, spark)...)
 		}
 	}
 	if t := m.subscriberTotals(); t != "" {
@@ -434,19 +450,10 @@ func (m ReplicationModel) renderSubscriptions() []string {
 	return lines
 }
 
-func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []string {
+// subscribedRow is a table under its subscription. The last column is
+// the last change while in sync, else its state.
+func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int, spark bool) []string {
 	r, ok := m.repl.Replicas[t.FQN()]
-	state := subStates[t.State]
-	if state == "" {
-		state = t.State
-	}
-	stateStyle := styleHealthGreen
-	switch t.State {
-	case "i", "d":
-		stateStyle = styleHealthYellow
-	case "e":
-		stateStyle = styleHealthRed
-	}
 	shards, docs, rate, last := "—", "—", "—", "—"
 	if ok && r.Shards > 0 {
 		shards = fmt.Sprintf("%d/%d", r.Started, r.Shards)
@@ -460,21 +467,24 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []
 	switch {
 	case t.State == "e":
 		// The shards are the subscriber's own table, if any; nothing replicates.
-		rate = "—"
-	case !r.CopySince.IsZero():
-		last = "for " + formatDuration(m.now.Sub(r.CopySince))
+		rate, last = "—", subStateMark(t.State)
+	case t.State != "r":
+		last = subStateMark(t.State)
+		if !r.CopySince.IsZero() {
+			last += styleDim.Render(" for " + formatDuration(m.now.Sub(r.CopySince)))
+		}
 	case !r.LastChange.IsZero():
 		last = formatAgo(m.now.Sub(r.LastChange))
 	}
-	spark := ""
-	if m.sparks() {
-		spark = "  " + strings.Repeat(" ", sparkWidth)
+	sparkCell := ""
+	if spark {
+		sparkCell = "  " + strings.Repeat(" ", sparkWidth)
 		if t.State == "r" {
-			spark = "  " + sparkline0(r.History, m.repl.HistoryLen, sparkWidth)
+			sparkCell = "  " + sparkline0(r.History, m.repl.HistoryLen, sparkWidth)
 		}
 	}
-	lines := []string{fmt.Sprintf("    %-*s  %s  %-6s  %8s  %9s%s  %s",
-		nameW, truncateString(t.FQN(), nameW), stateStyle.Render(fmt.Sprintf("%-9s", state)), shards, docs, rate, spark, last)}
+	lines := []string{fmt.Sprintf("    %-*s  %6s  %8s  %9s%s  %s",
+		nameW, truncateString(t.FQN(), nameW), shards, docs, rate, sparkCell, last)}
 	if r.Copy != nil && t.State == "r" {
 		lines = append(lines, m.copyLines(r.Copy)...)
 	}
@@ -497,21 +507,21 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int) []
 }
 
 // connTarget shows host and mode of a masked connection string,
-// crate://lab1:4300?user=*&password=*&mode=sniff -> crate://lab1:4300 (sniff).
+// crate://lab1:4300?user=*&password=*&mode=sniff -> lab1:4300 · sniff.
 func connTarget(conn string) string {
 	u, err := url.Parse(conn)
 	if err != nil || u.Host == "" {
 		return conn
 	}
-	target := u.Scheme + "://" + u.Host
+	target := u.Host
 	if mode := u.Query().Get("mode"); mode != "" {
-		target += " (" + mode + ")"
+		target += " · " + mode
 	}
 	return target
 }
 
 func (m ReplicationModel) renderPublications() []string {
-	lines := []string{sectionTitle("Publications · this cluster serves")}
+	lines := []string{styleColumns.Render("  PUBLICATION / TABLES")}
 	if len(m.repl.Publications) == 0 {
 		none := "  none (dropped?) · n: new publication"
 		if m.repl.User != "" {
@@ -545,7 +555,7 @@ func (m ReplicationModel) renderPublications() []string {
 	}
 	lines = append(lines, "")
 	if len(m.repl.Subscribers) == 0 {
-		return append(lines, styleDim.Render("  No subscriber holds a lease on the published tables."))
+		return append(lines, styleDim.Render("  No subscriber holds a lease on the published tables yet."))
 	}
 	subs := append([]store.LeaseHolder(nil), m.repl.Subscribers...)
 	sort.Slice(subs, func(i, j int) bool { return subs[i].Subscriber < subs[j].Subscriber })
@@ -553,12 +563,20 @@ func (m ReplicationModel) renderPublications() []string {
 	for _, h := range subs {
 		nameW = max(nameW, min(len(h.Subscriber), 30))
 	}
+	// A BEHIND sparkline only once some subscriber was behind.
+	showSpark := false
+	for _, h := range subs {
+		for _, v := range h.History {
+			showSpark = showSpark || v > 0
+		}
+	}
+	showSpark = showSpark && m.sparks()
 	spark := ""
-	if m.sparks() {
+	if showSpark {
 		spark = fmt.Sprintf("  %-*s", sparkWidth, "BEHIND, "+strings.TrimPrefix(spanLabel(m.repl.HistorySpan), "LAST "))
 	}
-	lines = append(lines, styleHeader.Render(fmt.Sprintf("    %-*s  %6s  %12s%s  %9s  %-10s  %s",
-		nameW, "SUBSCRIBER", "TABLES", "BEHIND (ops)", spark, "PULLED/s", "LAST SEEN", "RETENTION LEASE")))
+	lines = append(lines, styleColumns.Render(fmt.Sprintf("  %-*s  %6s  %12s%s  %9s  %-10s  %s",
+		nameW+2, "SUBSCRIBER", "TABLES", "BEHIND (ops)", spark, "PULLED/s", "LAST SEEN", "RETENTION LEASE")))
 	unpublished, unknown := false, false
 	for _, h := range subs {
 		tables := fmt.Sprintf("%6d", h.Tables)
@@ -572,7 +590,7 @@ func (m ReplicationModel) renderPublications() []string {
 			unknown = true
 		}
 		spark := ""
-		if m.sparks() {
+		if showSpark {
 			spark = "  " + sparkline0(h.History, m.repl.HistoryLen, sparkWidth)
 		}
 		lines = append(lines, fmt.Sprintf("    %-*s  %s  %12s%s  %s  %-10s  %s",

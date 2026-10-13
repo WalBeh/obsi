@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestReplicationView(t *testing.T) {
 	now := time.Now()
 	view := NewReplicationModel(130, 60).Refresh(replicationSnap(now)).View()
 	for _, want := range []string{
-		"s1  ← crate://pub:4300 (sniff)   publications p1",
+		"s1  ← pub:4300 · sniff · p1",
 		"in sync",
 		"1.5K",
 		"2s ago",
@@ -54,7 +55,7 @@ func TestReplicationView(t *testing.T) {
 		}
 	}
 	for _, line := range strings.Split(view, "\n") {
-		if f := strings.Fields(line); strings.HasPrefix(line, "    doc.broken") && (f[len(f)-1] != "—" || f[len(f)-2] != "—") {
+		if f := strings.Fields(line); strings.HasPrefix(line, "    doc.broken") && (f[len(f)-1] != "FAILED" || f[len(f)-3] != "—") {
 			t.Errorf("failed table shows a rate: %q", line)
 		}
 		if strings.Contains(line, "doc.synced") && strings.Contains(line, "no copy") {
@@ -122,7 +123,7 @@ func TestReplicationOwnerNote(t *testing.T) {
 	view = NewReplicationModel(240, 40).Refresh(store.StoreSnapshot{Replication: st}).View()
 	flat := strings.Join(strings.Fields(view), " ")
 	for _, want := range []string{"none owned by crate (others' don't show)", "* pulls tables no publication visible to crate lists: one another user owns",
-		"Shows what crate owns: CrateDB hides other users' publications and subscriptions, also from superusers."} {
+		"showing what crate owns"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
@@ -172,5 +173,66 @@ func TestReplicationHiddenCopy(t *testing.T) {
 	ov.snap.Snapshots.Repositories = []cratedb.Repository{{Name: "backups"}}
 	if line := ov.renderSnapshots(); !strings.Contains(line, "· 1 restore") {
 		t.Errorf("restore count on the Overview counts copies:\n%s", line)
+	}
+}
+
+// The headline says whether things are fine before any row is read.
+func TestReplicationHeadline(t *testing.T) {
+	now := time.Now()
+	flat := strings.Join(strings.Fields(NewReplicationModel(200, 60).Refresh(replicationSnap(now)).View()), " ")
+	for _, want := range []string{
+		"Pulling 4 tables from 1 subscription ✕ 1 FAILED · ◐ 1 copying · ◐ 1 preparing · ● 1 in sync · last change 2s ago · settings default",
+		"Serving 1 publication to 1 subscriber ▲ 4.2K behind ▲ 1 stopped pulling",
+		"s1 ← pub:4300 · sniff · p1 ✕ 1 FAILED",
+		"doc.copying 1/4 — — ◐ copying for 1m30s",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("view lacks %q:\n%s", want, flat)
+		}
+	}
+	snap := replicationSnap(now)
+	snap.Replication.Subscriptions[0].Tables = snap.Replication.Subscriptions[0].Tables[:1]
+	snap.Replication.Subscribers = []store.LeaseHolder{{Subscriber: "dr", Tables: 2, LastSeen: now, Expires: now.Add(12 * time.Hour), Period: 12 * time.Hour}}
+	flat = strings.Join(strings.Fields(NewReplicationModel(200, 60).Refresh(snap).View()), " ")
+	for _, want := range []string{"Pulling 1 table from 1 subscription ● all in sync", "to 1 subscriber ● 0 behind"} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("view lacks %q:\n%s", want, flat)
+		}
+	}
+}
+
+// Detail shows only when it says something: no sparkline without a
+// change, no settings block or pool line while all is default and idle,
+// no lease line for the default period.
+func TestReplicationQuietDetails(t *testing.T) {
+	now := time.Now()
+	snap := replicationSnap(now)
+	snap.Replication.Settings = map[string]string{"replication.logical.ops_batch_size": "50000"}
+	snap.Replication.LeasePeriods = map[string]time.Duration{"doc.a": cratedb.DefaultLeasePeriod, "doc.b": cratedb.DefaultLeasePeriod}
+	snap.Nodes = []store.NodeSnapshot{{NodeInfo: cratedb.NodeInfo{Name: "n1", ThreadPools: []cratedb.ThreadPoolStats{{Name: "logical_replication", Threads: 4}}}}}
+	view := NewReplicationModel(200, 60).Refresh(snap).View()
+	sparkHeader := regexp.MustCompile(`LAST \d`)
+	if sparkHeader.MatchString(view) {
+		t.Errorf("sparkline column without a change:\n%s", view)
+	}
+	for _, unwanted := range []string{"Subscriber settings", "thread pool:", "retention lease period", "BEHIND, "} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("view shows %q:\n%s", unwanted, view)
+		}
+	}
+	if !strings.Contains(view, "settings default · pool idle") {
+		t.Errorf("headline lacks the settings and pool summary:\n%s", view)
+	}
+	snap.Replication.Settings["replication.logical.ops_batch_size"] = "1000"
+	snap.Replication.Replicas["doc.synced"] = store.ReplicaTable{ReplicaShards: store.ReplicaShards{Shards: 3, Started: 3}, History: []float64{0, 5, 2}}
+	snap.Nodes[0].ThreadPools[0].Queue = 3
+	view = NewReplicationModel(200, 60).Refresh(snap).View()
+	if !sparkHeader.MatchString(view) {
+		t.Errorf("no sparkline column after a change:\n%s", view)
+	}
+	for _, want := range []string{"1 setting changed (c)", "pool queue 3", "Subscriber settings", "thread pool:"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
 	}
 }

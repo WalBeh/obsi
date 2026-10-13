@@ -137,10 +137,12 @@ func (m ReplicationModel) subscriberTotals() string {
 
 func (m ReplicationModel) publisherTotals() string {
 	var parts []string
+	var pulled int64
 	for _, h := range m.repl.Subscribers {
 		parts = append(parts, fmt.Sprintf("%s %s", h.Subscriber, formatRecords(h.Pulled)))
+		pulled += h.Pulled
 	}
-	if len(parts) == 0 {
+	if pulled == 0 {
 		return ""
 	}
 	sort.Strings(parts)

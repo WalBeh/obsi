@@ -168,7 +168,7 @@ func (m ReplicationModel) HandleKey(msg tea.KeyMsg) (ReplicationModel, tea.Cmd) 
 			m = m.notice(ReplicationNoticeMsg{Error: "a subscription can't be changed (ALTER SUBSCRIPTION isn't implemented in CrateDB): drop it and subscribe again"})
 		case !hasPub:
 		case msg.String() == "d":
-			m.modal = &pubDrop{name: pub.Name}
+			m.modal = &pubDrop{name: pub.Name, version: m.version}
 		case pub.AllTables:
 			m = m.notice(ReplicationNoticeMsg{Error: pub.Name + " is FOR ALL TABLES: its tables can't be changed, only the publication dropped"})
 		default:
@@ -544,8 +544,8 @@ func (m ReplicationModel) renderPublications() []string {
 			styleDim.Render("    behind they are isn't known; the next change sets it"))
 	}
 	if unpublished {
-		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: dropping or shrinking a publication doesn't stop"),
-			styleHealthYellow.Render("    a subscriber, only DROP SUBSCRIPTION on its side does"))
+		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: a dropped publication doesn't stop a subscriber"),
+			styleHealthYellow.Render("    (only its new partitions); DROP SUBSCRIPTION on its side does"))
 	}
 	return lines
 }

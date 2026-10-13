@@ -75,9 +75,12 @@ And about logical replication (6.4.5):
   `./repro-deletes-local-table.sh` runs it (and breaks the subscriber)
 - an expired retention lease isn't removed right away; a subscriber that
   came back a little after expiry still caught up
-- `DROP PUBLICATION` and `ALTER PUBLICATION ... DROP TABLE` don't stop a
-  subscriber that already replicates the tables: changes keep arriving
-  and the leases keep being renewed until `DROP SUBSCRIPTION`
+- after `DROP PUBLICATION` its subscribers keep replicating the tables
+  they have, over 6 minutes and counting: changes to existing shards and
+  partitions arrive, the tables stay read-only and `r`, the leases are
+  renewed; new partitions don't arrive. `ALTER PUBLICATION ... DROP
+  TABLE` on the other hand stops the table at once: lease released, gone
+  from `pg_subscription_rel`, writable on the subscriber
 - `CREATE PUBLICATION ... FOR TABLE t` refuses a table that's already in
   a publication, `ALTER PUBLICATION ... ADD TABLE t` accepts it
 - `mode=pg_tunnel` (port 5432) works like `sniff` (4300); one subscriber

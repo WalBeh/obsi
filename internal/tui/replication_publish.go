@@ -410,7 +410,7 @@ func (f *pubForm) renderReview(width int) []string {
 			}
 		}
 		if len(removed) > 0 {
-			note(styleHealthYellow, fmt.Sprintf("Removing %s doesn't stop subscribers that already replicate it: they keep receiving changes until DROP SUBSCRIPTION on their side (seen on 6.4.5).", strings.Join(removed, ", ")))
+			note(styleHealthYellow, fmt.Sprintf("Subscribers stop replicating %s: it leaves their subscription and becomes a regular writable table there.", strings.Join(removed, ", ")))
 		}
 	}
 	switch c := f.checks; {
@@ -443,7 +443,7 @@ func (f *pubForm) renderReview(width int) []string {
 }
 
 // pubDrop confirms DROP PUBLICATION.
-type pubDrop struct{ name string }
+type pubDrop struct{ name, version string }
 
 func (d *pubDrop) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 	switch msg.String() {
@@ -461,7 +461,11 @@ func (d *pubDrop) render(width, height int) string {
 	lines := []string{
 		styleModalTitle.Render("Drop publication " + d.name + "?"), "",
 	}
-	lines = append(lines, wrapText("Subscribers that already replicate its tables keep receiving changes and keep them read-only (seen on 6.4.5): only DROP SUBSCRIPTION on the subscriber stops that. The tables here are not touched.", innerWidth-4)...)
+	text := "The tables here are not touched."
+	if q := cratedb.QuirkDropKeepsSubscribers; q.Affects(d.version) {
+		text = "Subscribers that already replicate its tables keep receiving their changes and keep them read-only; only new partitions stop arriving (seen on " + q.SeenOn + "). DROP SUBSCRIPTION on the subscriber stops them, or remove the tables from the publication first (e), which does. " + text
+	}
+	lines = append(lines, wrapText(text, innerWidth-4)...)
 	lines = append(lines, "", styleDim.Render("[y] drop   [n] cancel"))
 	return placeModal(lipgloss.JoinVertical(lipgloss.Left, lines...), innerWidth, width, height)
 }

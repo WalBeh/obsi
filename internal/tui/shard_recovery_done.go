@@ -104,7 +104,21 @@ func (m ShardsModel) addFinished(msg FinishedRecoveriesMsg) ShardsModel {
 	return m
 }
 
-// localStage says what a primary opening from its own disk is doing;
+// localSource is where a primary that copies from no other node gets
+// its data. A logical replication copy is a restore too (SNAPSHOT).
+func localSource(typ string) string {
+	switch typ {
+	case "SNAPSHOT":
+		return "snapshot or replication copy"
+	case "EMPTY_STORE":
+		return "new, empty"
+	case "LOCAL_SHARDS":
+		return "local shards"
+	}
+	return "own disk"
+}
+
+// localStage says what a primary opening without a peer is doing;
 // sys.shards has the stage but no translog progress.
 func localStage(stage string) string {
 	switch stage {
@@ -130,7 +144,7 @@ func recoveryStatus(r recovery, elapsed time.Duration) (string, bool) {
 	fastest := r.fastest()
 	switch {
 	case r.from == "":
-		return "own disk: " + localStage(r.shard.RecoveryStage), false
+		return localSource(r.shard.RecoveryType) + ": " + localStage(r.shard.RecoveryStage), false
 	case fastest == 0:
 		return "", false
 	case elapsed > fastest:

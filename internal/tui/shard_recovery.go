@@ -201,11 +201,14 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		localSlots = strconv.Itoa(cs.NodeInitialPrimariesRecoveries)
 	}
 	in, out, local := map[string]int{}, map[string]int{}, map[string]int{}
-	locals := 0
+	locals, restores := 0, 0
 	for _, r := range m.recoveries {
 		if r.from == "" {
 			local[r.to]++
 			locals++
+			if r.shard.RecoveryType == "SNAPSHOT" {
+				restores++
+			}
 			continue
 		}
 		in[r.to]++
@@ -215,8 +218,14 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		len(m.recoveries)-locals, m.queued, slots, rateLabel(cs.RecoveryMaxBytesPerSec))}
 	showLocal := locals > 0 || m.queuedLocal > 0
 	if showLocal {
-		lines = append(lines, fmt.Sprintf("  Primaries opening (own disk, snapshot or replication): %d running · %d queued · %s per node (node_initial_primaries_recoveries), not throttled by max_bytes_per_sec",
-			locals, m.queuedLocal, localSlots))
+		line := fmt.Sprintf("  Primaries opening (own disk, snapshot or replication): %d running · %d queued · %s per node (node_initial_primaries_recoveries)",
+			locals, m.queuedLocal, localSlots)
+		// RESTORE SNAPSHOT reads through both limits; own disk and a
+		// replication copy through neither.
+		if restores > 0 {
+			line += " · from a snapshot also max_bytes_per_sec and the repository's max_restore_bytes_per_sec"
+		}
+		lines = append(lines, line)
 	}
 	var nodes []string
 	for id, name := range m.nodeNames {
@@ -295,6 +304,9 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		from := r.from
 		if from == "" {
 			from = "local disk"
+			if r.shard.RecoveryType == "SNAPSHOT" {
+				from = "snapshot"
+			}
 		}
 		fastest := "?"
 		if d := r.fastest(); d > 0 {

@@ -31,7 +31,12 @@ type StatusBarModel struct {
 	shardQueryDur time.Duration
 	readOnly      bool
 	alerts        store.AlertsState
-	width         int
+	// user is who obsi connects as (CURRENT_USER once the replication poll
+	// read it); CrateDB lists publications and subscriptions only to their
+	// owner, so it matters what this user can see.
+	user      string
+	superuser bool
+	width     int
 }
 
 // NewStatusBarModel creates a new status bar.
@@ -99,6 +104,17 @@ func (m StatusBarModel) View() string {
 		cluster = fmt.Sprintf(" │ %s", name)
 	}
 
+	user := ""
+	if u := m.user; u != "" || s.Username != "" {
+		if u == "" {
+			u = s.Username
+		}
+		user = " │ " + u
+		if m.superuser {
+			user += styleDim.Render(" (superuser)")
+		}
+	}
+
 	nodes := fmt.Sprintf(" │ nodes: %d", s.TotalNodes)
 
 	shardsStr := ""
@@ -149,7 +165,7 @@ func (m StatusBarModel) View() string {
 		modeStr = " │ " + styleHealthYellow.Render("read-write")
 	}
 
-	left := connIndicator + connPath + cluster + nodes + shardsStr + latencyStr + throttleStr + alertStr + modeStr
+	left := connIndicator + connPath + cluster + user + nodes + shardsStr + latencyStr + throttleStr + alertStr + modeStr
 
 	help := styleDim.Render("?:help  t:throttle  r:reconnect  q:quit")
 

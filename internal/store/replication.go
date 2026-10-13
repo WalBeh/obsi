@@ -39,8 +39,9 @@ type LeaseHolder struct {
 	Subscriber string // the subscriber's cluster name
 	Tables     int
 	On         []string // the tables, schema.table
-	// Unpublished counts tables it still pulls that no publication lists
-	// any more: dropping a publication doesn't stop a subscriber.
+	// Unpublished counts tables it still pulls that no publication visible
+	// to obsi's user lists: dropped (which doesn't stop a subscriber), or in
+	// a publication another user owns.
 	Unpublished int
 	Behind      int64 // operations not pulled yet, summed over primaries
 	// Unknown counts primaries whose lease still says 0 although the shard
@@ -110,8 +111,8 @@ type ReplicationState struct {
 	// Errs has the parts whose query failed on the last poll (see
 	// ReplicationPoll); those show what an earlier poll had.
 	Errs map[string]string
-	// User is who obsi connects as. Unless Superuser, CrateDB lists only
-	// the publications and subscriptions User owns.
+	// User is who obsi connects as. CrateDB lists only the publications
+	// and subscriptions User owns, also when User is a superuser.
 	User      string
 	Superuser bool
 	UpdatedAt time.Time

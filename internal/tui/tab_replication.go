@@ -289,22 +289,20 @@ func (m ReplicationModel) layout() []string {
 			lines = append(lines, "  "+styleHealthRed.Render(l))
 		}
 	}
-	if !r.Superuser && r.User != "" {
-		for _, l := range wrapText(fmt.Sprintf("obsi connects as %s, not a superuser: CrateDB lists publications and subscriptions only to their owner and superusers, so others' are missing here, and which tables a subscriber pulls are still published can't be told.", r.User), max(m.width-4, 40)) {
-			lines = append(lines, "  "+styleHealthYellow.Render(l))
-		}
-	}
 	switch {
 	case r.UpdatedAt.IsZero():
 		lines = append(lines, styleDim.Render("  waiting for the first replication poll"))
 		return lines
 	case len(r.Subscriptions) == 0 && len(r.Publications) == 0 && len(r.Subscribers) == 0:
-		none := "  No publications or subscriptions on this cluster."
-		if !r.Superuser && r.User != "" {
-			none = "  No publications or subscriptions owned by " + r.User + "."
+		none := []string{"  No publications or subscriptions on this cluster."}
+		if r.User != "" {
+			none = []string{"  No publications or subscriptions owned by " + r.User + "."}
+			for _, l := range wrapText(ownerNote(r.User), max(m.width-4, 40)) {
+				none = append(none, "  "+styleHealthYellow.Render(l))
+			}
+			none = append(none, "")
 		}
-		return append(lines,
-			none,
+		return append(append(lines, none...),
 			styleDim.Render("  Logical replication shows here: what this cluster pulls (CREATE SUBSCRIPTION)"),
 			styleDim.Render("  and what it serves to other clusters (CREATE PUBLICATION)."),
 			"", styleDim.Render("  n: new publication · s: new subscription"))
@@ -326,7 +324,16 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, "")
 		lines = append(lines, p...)
 	}
-	return append(lines, "", styleDim.Render("  ↑↓ select · n publication · s subscription · e tables · d drop · l lease period · c settings · y ticket · ? help"))
+	lines = append(lines, "")
+	if r.User != "" {
+		lines = append(lines, styleDim.Render("  Shows what "+r.User+" owns: CrateDB hides other users' publications and subscriptions, also from superusers."))
+	}
+	return append(lines, styleDim.Render("  ↑↓ select · n publication · s subscription · e tables · d drop · l lease period · c settings · y ticket · ? help"))
+}
+
+// ownerNote explains why other users' replication doesn't show.
+func ownerNote(user string) string {
+	return fmt.Sprintf("CrateDB lists publications and subscriptions only to the user who created them, superusers included: obsi connects as %s, so replication set up by another user (e.g. admin on CrateDB Cloud) doesn't show here. Connect as that user to see it.", user)
 }
 
 var crateMessageRe = regexp.MustCompile(`"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
@@ -471,8 +478,8 @@ func (m ReplicationModel) renderPublications() []string {
 	lines := []string{sectionTitle("Publications · this cluster serves")}
 	if len(m.repl.Publications) == 0 {
 		none := "  none (dropped?) · n: new publication"
-		if !m.repl.Superuser && m.repl.User != "" {
-			none = "  none owned by " + m.repl.User + " · n: new publication"
+		if m.repl.User != "" {
+			none = "  none owned by " + m.repl.User + " (others' don't show) · n: new publication"
 		}
 		lines = append(lines, styleDim.Render(none))
 	}
@@ -544,8 +551,18 @@ func (m ReplicationModel) renderPublications() []string {
 			styleDim.Render("    behind they are isn't known; the next change sets it"))
 	}
 	if unpublished {
-		lines = append(lines, styleHealthYellow.Render("  * pulls tables no publication lists any more: a dropped publication doesn't stop a subscriber, only"),
-			styleHealthYellow.Render("    its new partitions and columns, so it diverges; DROP SUBSCRIPTION on its side stops it"))
+		who := "obsi's user"
+		if m.repl.User != "" {
+			who = m.repl.User
+		}
+		text := fmt.Sprintf("* pulls tables no publication visible to %s lists: one another user owns (CrateDB shows publications only to their owner), or one that was dropped. A dropped publication doesn't stop a subscriber, only its new partitions and columns, so it diverges; DROP SUBSCRIPTION on its side stops it.", who)
+		for i, l := range wrapText(text, max(m.width-6, 40)) {
+			indent := "  "
+			if i > 0 {
+				indent = "    "
+			}
+			lines = append(lines, styleHealthYellow.Render(indent+l))
+		}
 	}
 	return lines
 }

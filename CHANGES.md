@@ -4,6 +4,22 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- The status bar shows who obsi connects as, and whether that user is a
+  superuser.
+
+### Fixed
+
+- The Replication tab said superusers see every publication and
+  subscription. CrateDB lists them only to the user who created them,
+  superusers included, so `crate` doesn't see what `admin` set up; the
+  tab now says so when it finds none. A subscriber pulling tables from
+  another user's publication was marked as pulling unpublished tables;
+  the mark now says it may be either.
+
 ## [0.5.0] - 2026-10-13
 
 ### Added

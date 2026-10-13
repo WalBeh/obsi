@@ -25,9 +25,10 @@ type subForm struct {
 	// refused connection doesn't lose what was typed.
 	running bool
 	taken   map[string]bool
-	// partial: obsi isn't a superuser and sees only its own
-	// subscriptions, so taken and failed may miss some.
+	// partial: CrateDB shows obsi only the subscriptions user owns,
+	// superusers included, so taken and failed may miss some.
 	partial bool
+	user    string
 	version string            // for cratedb.Quirk
 	local   map[string]bool   // tables on this cluster
 	failed  map[string]string // table -> subscription, failed as "Relation already exists"
@@ -74,7 +75,7 @@ var subscriptionTimeout = time.Minute
 
 func (m ReplicationModel) newSubForm() *subForm {
 	f := &subForm{taken: map[string]bool{}, local: map[string]bool{}, failed: map[string]string{}, version: m.version,
-		partial: !m.repl.Superuser && m.repl.User != ""}
+		partial: m.repl.User != "", user: m.repl.User}
 	f.vals[subMode], f.vals[subSSL], f.vals[subPort] = "pg_tunnel", "prefer", "5432"
 	for _, s := range m.repl.Subscriptions {
 		f.taken[s.Name] = true
@@ -371,7 +372,7 @@ func (f *subForm) render(width, height int) string {
 			note(styleHealthYellow, "sslmode "+f.vals[subSSL]+": if the publisher has TLS on 5432, this cluster must trust its certificate; otherwise CREATE SUBSCRIPTION doesn't answer at all (seen on "+cratedb.QuirkTLSHangs.SeenOn+"). obsi gives up after a minute.")
 		}
 		if f.partial {
-			note(styleDim, "obsi isn't a superuser and sees only its own subscriptions: the checks below can't see failed tables of others.")
+			note(styleDim, "CrateDB shows obsi only the subscriptions "+f.user+" created, superusers included: the checks below can't see failed tables of others.")
 		}
 		note(styleDim, "A refused connection or unknown user fails at once; an unreachable host after CrateDB's 30s connect timeout.")
 		for _, b := range f.blockers() {

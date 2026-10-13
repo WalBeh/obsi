@@ -134,10 +134,10 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 			}
 		}
 	}
-	// Publications are only listed to their owner and superusers: then
-	// which leased tables are unpublished isn't known.
+	// CrateDB lists publications only to their owner, superusers too: a
+	// leased table no visible publication lists may be in another user's.
 	var published map[string]bool
-	if c.superuser && p.Errs["publications"] == "" {
+	if p.Errs["publications"] == "" {
 		published = publishedTables(p.Publications)
 	}
 	if len(p.Publications) > 0 || c.leasesSeen || time.Since(c.leasesAt) >= leasesRecheck {

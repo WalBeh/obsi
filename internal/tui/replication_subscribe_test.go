@@ -205,7 +205,7 @@ func TestSubscriptionFormLabFindings(t *testing.T) {
 	f.vals[subName], f.vals[subHost], f.vals[subUser], f.vals[subPubs] = "n", "pub", "repl", "p"
 	m, _ = keys(m, "enter")
 	view := m.View()
-	for _, want := range []string{"sslmode prefer", "doesn't answer at all", "sees only its own subscriptions"} {
+	for _, want := range []string{"sslmode prefer", "doesn't answer at all", "only the subscriptions mon created, superusers included"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("review lacks %q:\n%s", want, view)
 		}

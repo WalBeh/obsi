@@ -130,9 +130,15 @@ that isn't a superuser.
 - a table the subscriber's user can't read is left out without an error;
   it doesn't even appear in `pg_subscription_rel`
 - `pg_tunnel` through the balancer works, copy and changes
-- a user that isn't a superuser sees only the publications and
-  subscriptions it owns, whatever it's granted; without DQL on `sys` it
-  can't read `sys.shards` or `sys.cluster` either
+- every user sees only the publications and subscriptions it owns,
+  whatever it's granted, superusers included: `crate` doesn't see a
+  subscription `owner2` created on pub2 (`pg_catalog` filters on the
+  owner, `SystemCollectSource` always passes the session user); without
+  DQL on `sys` a user can't read `sys.shards` or `sys.cluster` either
+- `EXPLAIN INSERT INTO t SELECT … WHERE false` on a subscribed table fails
+  with "included in a logical replication subscription", without running
+  anything: a way to tell a subscribed table whose subscription isn't
+  visible (needs DML on the table)
 - with ~1,700 shards the lease scan over `sys.shards` took ~6ms, the
   catalog queries under 1ms, `SHOW CREATE TABLE` 0.2ms
 

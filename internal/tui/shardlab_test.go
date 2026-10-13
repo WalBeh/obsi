@@ -615,3 +615,63 @@ func TestMarkerslab(t *testing.T) {
 		fmt.Println("  |", strings.ReplaceAll(ov.renderReplication(), "\n", "\n  | "))
 	}
 }
+
+// TestSnapshotslab prints the Snapshots tab for the backup cluster
+// (profile backup, ./scenarios.sh backup, backup-partial) and checks when
+// the collector lists snapshots again.
+func TestSnapshotslab(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	ctx := context.Background()
+	cfg := config.DefaultConfig()
+	reg := cratedb.NewRegistry("http://127.0.0.1:44230", "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+	if err := reg.Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(10, cfg.Collectors)
+	tr := collector.NewQueryTracker(cfg.Collectors, cfg.Connection)
+	snaps := collector.NewSnapshotsCollector(cfg.Collectors["snapshots"], tr)
+	for _, c := range []collector.Collector{collector.NewNodesCollector(cfg.Collectors["nodes"], tr), snaps} {
+		if err := c.Collect(ctx, reg, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hint := store.SnapshotHint{IncludeCluster: true, IncludeNodes: true}
+	first := st.Snapshot(1, hint).Snapshots
+	if first.ListedAt.IsZero() || len(first.Snapshots) == 0 {
+		t.Fatalf("no listing: %+v", first)
+	}
+	running := false
+	for _, s := range first.Snapshots {
+		running = running || s.State == "IN_PROGRESS"
+	}
+	time.Sleep(10 * time.Millisecond)
+	snaps.Collect(ctx, reg, st)
+	if again := st.Snapshot(1, hint).Snapshots.ListedAt.After(first.ListedAt); again != running {
+		t.Errorf("listed again = %v, want %v (a snapshot running: %v)", again, running, running)
+	}
+	before := st.Snapshot(1, hint).Snapshots.ListedAt
+	snaps.Force()
+	snaps.Collect(ctx, reg, st)
+	if !st.Snapshot(1, hint).Snapshots.ListedAt.After(before) {
+		t.Error("Force didn't list again")
+	}
+	snap := st.Snapshot(1, hint)
+	m := NewSnapshotsModel(170, 200).Refresh(snap)
+	// Open the PARTIAL one, if any.
+	for i, s := range m.shown() {
+		if s.State == "PARTIAL" {
+			for range len(m.st.Repositories) + i {
+				m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyDown})
+			}
+			out := m.View()
+			if !strings.Contains(out, " on bak2: node shutdown") {
+				t.Errorf("PARTIAL failures without the node name:\n%s", out)
+			}
+			break
+		}
+	}
+	fmt.Println(m.View())
+	ov := NewOverviewModel(170, 80, true)
+	ov.snap = snap
+	fmt.Println(ov.renderSnapshots())
+}

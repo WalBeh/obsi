@@ -39,7 +39,8 @@ func DefaultConfig() *Config {
 				Interval:            Duration{1 * time.Minute},
 				AllocationsInterval: Duration{30 * time.Second},
 			},
-			// sys.snapshots lists the repository (S3, Azure) on every read.
+			// sys.snapshots reads every repository (S3, Azure) on each query;
+			// repositories and restores are read every minute regardless.
 			"snapshots": {
 				Enabled:  true,
 				Interval: Duration{15 * time.Minute},

@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 sql() { ./sql.sh "$1" | jq -c '.rowcount // .error.message'; }
 subsql() { SQL_PORT=44210 ./sql.sh "$1" | jq -c '.rowcount // .error.message'; }
 pub2sql() { SQL_PORT=44220 ./sql.sh "$1" | jq -c '.rowcount // .error.message'; }
+baksql() { SQL_PORT=44230 ./sql.sh "$1" | jq -c '.rowcount // .error.message'; }
 
 case "$1" in
 setup)
@@ -130,10 +131,52 @@ reset)
 	sql "ALTER TABLE doc.norep RESET (\"routing.allocation.require._name\")"
 	sql "DROP TABLE IF EXISTS doc.many"
 	;;
+# Snapshots on the backup cluster (profile backup, 44230): an fs and an s3
+# repository with a finished snapshot each, and a throttled one for slow
+# snapshots. backup-running leaves a snapshot running for minutes;
+# backup-partial stops bak2 while one runs, so its shards fail (PARTIAL),
+# then starts it again; backup-restore restores doc.parted as
+# doc.restored_parted, throttled so sys.snapshot_restore shows it a while.
+backup)
+	curl -s -o /dev/null --aws-sigv4 "aws:amz:us-east-1:s3" --user obsilab:obsilab-secret -X PUT http://127.0.0.1:44290/lab-bucket
+	baksql "CREATE REPOSITORY lab_fs TYPE fs WITH (location = '/repo/lab_fs', compress = true)"
+	baksql "CREATE REPOSITORY lab_s3 TYPE s3 WITH (bucket = 'lab-bucket', endpoint = 's3:9000', protocol = 'http', use_path_style_access = true, access_key = 'obsilab', secret_key = 'obsilab-secret')"
+	baksql "CREATE REPOSITORY lab_slow TYPE fs WITH (location = '/repo/lab_slow', max_snapshot_bytes_per_sec = '100kb')"
+	baksql "CREATE TABLE IF NOT EXISTS doc.t1 (id INT, pad TEXT) CLUSTERED INTO 4 SHARDS WITH (number_of_replicas = 0)"
+	baksql "INSERT INTO doc.t1 SELECT g, repeat(md5(g::TEXT), 10) FROM generate_series(1, 20000) g"
+	baksql "CREATE TABLE IF NOT EXISTS doc.parted (id INT, day TEXT, pad TEXT) PARTITIONED BY (day) CLUSTERED INTO 2 SHARDS WITH (number_of_replicas = 0)"
+	baksql "INSERT INTO doc.parted SELECT g, 'd' || (g % 3)::TEXT, repeat(md5(g::TEXT), 20) FROM generate_series(1, 30000) g"
+	baksql "REFRESH TABLE doc.t1, doc.parted"
+	baksql "CREATE SNAPSHOT lab_fs.nightly1 ALL WITH (wait_for_completion = true)"
+	baksql "CREATE SNAPSHOT lab_s3.t1_only TABLE doc.t1 WITH (wait_for_completion = true)"
+	baksql "CREATE SNAPSHOT lab_s3.one_day TABLE doc.parted PARTITION (day = 'd1') WITH (wait_for_completion = true)"
+	;;
+backup-running) baksql "CREATE SNAPSHOT lab_slow.running_$(date +%H%M%S) ALL" ;;
+backup-partial)
+	baksql "CREATE SNAPSHOT lab_slow.partial_$(date +%H%M%S) ALL"
+	sleep 5
+	docker stop obsi-shardlab-bak2-1 >/dev/null
+	sleep 15
+	docker start obsi-shardlab-bak2-1 >/dev/null
+	;;
+backup-restore)
+	baksql "ALTER REPOSITORY lab_fs SET (max_restore_bytes_per_sec = '200kb')"
+	baksql "RESTORE SNAPSHOT lab_fs.nightly1 TABLE doc.parted WITH (table_rename_pattern = '(.+)', table_rename_replacement = 'restored_\$1')"
+	;;
+# Recreates the backup cluster and its storage: dropping snapshots over
+# SQL waits behind a running snapshot in the same repository, and a
+# throttled one runs for minutes. Touches only bak1, bak2 and s3.
+backup-reset)
+	docker compose -p obsi-shardlab --profile backup rm -sf bak1 bak2 s3 >/dev/null 2>&1
+	docker volume rm obsi-shardlab_bakrepo >/dev/null 2>&1 || true
+	docker compose -p obsi-shardlab --profile backup up -d bak1 bak2 s3 >/dev/null 2>&1
+	until [ "$(SQL_PORT=44230 ./sql.sh "SELECT count(*) FROM sys.nodes" 2>/dev/null | jq -r '.rows[0][0] // 0')" = 2 ]; do sleep 2; done
+	;;
 *)
 	echo "usage: $0 setup|too-many-replicas|disable-allocation|filter|stuck|slow|move|recover|many|node-down|node-up|reset" >&2
 	echo "       $0 replication|replication-fail|replication-write|replication-short-lease|sub-down|sub-up|replication-reset" >&2
 	echo "       $0 replication-auth|replication-auth-reset|limited-user|limited-user-sys|limited-user-reset" >&2
+	echo "       $0 backup|backup-running|backup-partial|backup-restore|backup-reset" >&2
 	exit 1
 	;;
 esac

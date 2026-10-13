@@ -6,30 +6,61 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
 
-// SnapshotsState is what the last snapshots poll saw. Repositories 0 with
-// UpdatedAt set means the cluster has no repository at all.
+// SnapshotsState is what the snapshot polls saw. Repositories and
+// restores are cluster state, read every poll; the snapshot listing reads
+// the repositories themselves and is refreshed less often (ListedAt).
 type SnapshotsState struct {
-	Repositories int
+	Repositories []cratedb.Repository
+	Restores     []cratedb.SnapshotRestore
 	Snapshots    []cratedb.SnapshotInfo // newest first
-	Err          string
+	ListedAt     time.Time              // last sys.snapshots read
+	ListTook     time.Duration
+	ListEvery    time.Duration // configured time between sys.snapshots reads
+	Err          string        // the last repositories poll failed
+	ListErr      string        // the last sys.snapshots read failed
 	UpdatedAt    time.Time
 }
 
-// UpdateSnapshots stores the latest snapshot listing.
-func (s *Store) UpdateSnapshots(repos int, snaps []cratedb.SnapshotInfo) {
+// UpdateRepositories stores the repositories and running restores.
+func (s *Store) UpdateRepositories(repos []cratedb.Repository, restores []cratedb.SnapshotRestore, listEvery time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	s.snapshots = SnapshotsState{Repositories: repos, Snapshots: snaps, UpdatedAt: now}
+	s.snapshots.Repositories, s.snapshots.Restores = repos, restores
+	s.snapshots.Err, s.snapshots.UpdatedAt, s.snapshots.ListEvery = "", now, listEvery
+	if len(repos) == 0 {
+		s.snapshots.Snapshots, s.snapshots.ListErr = nil, ""
+		s.alerts.sync("snapshots", now, nil)
+	}
 	s.lastUpdated["snapshots"] = now
+}
+
+// UpdateSnapshots stores the latest snapshot listing.
+func (s *Store) UpdateSnapshots(snaps []cratedb.SnapshotInfo, took time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	s.snapshots.Snapshots, s.snapshots.ListedAt, s.snapshots.ListTook, s.snapshots.ListErr = snaps, now, took, ""
 	s.alerts.sync("snapshots", now, snapshotAlerts(snaps))
 }
 
-// SetSnapshotsError keeps the last listing and records why the poll failed.
-func (s *Store) SetSnapshotsError(msg string) {
+// SetSnapshotsError keeps the last data and records why a poll failed:
+// the repositories poll, or with list the sys.snapshots read.
+func (s *Store) SetSnapshotsError(list bool, msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.snapshots.Err = msg
+	if list {
+		s.snapshots.ListErr = msg
+	} else {
+		s.snapshots.Err = msg
+	}
+}
+
+func (st SnapshotsState) copy() SnapshotsState {
+	st.Repositories = copySlice(st.Repositories)
+	st.Restores = copySlice(st.Restores)
+	st.Snapshots = copySlice(st.Snapshots)
+	return st
 }
 
 // snapshotAlerts raises when the newest finished snapshot of a repository

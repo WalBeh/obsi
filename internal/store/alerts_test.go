@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 )
@@ -98,18 +99,23 @@ func TestConnectionAlert(t *testing.T) {
 // The newest finished snapshot per repository decides; IN_PROGRESS is skipped.
 func TestSnapshotAlerts(t *testing.T) {
 	s := New(10, nil)
-	s.UpdateSnapshots(2, []cratedb.SnapshotInfo{
+	s.UpdateSnapshots([]cratedb.SnapshotInfo{
 		{Repository: "a", Name: "a3", State: "IN_PROGRESS"},
 		{Repository: "a", Name: "a2", State: "FAILED"},
 		{Repository: "b", Name: "b2", State: "SUCCESS"},
 		{Repository: "b", Name: "b1", State: "FAILED"},
-	})
+	}, time.Second)
 	if got := firing(s.Snapshot(1, SnapshotHint{}).Alerts); len(got) != 1 || got[0] != "snapshot a/a2 FAILED" {
 		t.Fatalf("firing = %v", got)
 	}
-	s.UpdateSnapshots(2, []cratedb.SnapshotInfo{{Repository: "a", Name: "a3", State: "SUCCESS"}})
+	s.UpdateSnapshots([]cratedb.SnapshotInfo{{Repository: "a", Name: "a3", State: "SUCCESS"}}, time.Second)
 	if st := s.Snapshot(1, SnapshotHint{}).Alerts; st.Firing != 0 {
 		t.Errorf("firing = %v, want none after a good snapshot", firing(st))
+	}
+	s.UpdateSnapshots([]cratedb.SnapshotInfo{{Repository: "a", Name: "a4", State: "FAILED"}}, time.Second)
+	s.UpdateRepositories(nil, nil, time.Minute)
+	if st := s.Snapshot(1, SnapshotHint{}).Alerts; st.Firing != 0 {
+		t.Errorf("firing = %v, want none once the last repository is dropped", firing(st))
 	}
 }
 

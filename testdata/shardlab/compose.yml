@@ -2,7 +2,11 @@
 # The replication profile adds a single-node subscriber on 44210; the
 # replication-auth profile a publisher with password auth and TLS on its
 # PostgreSQL port (44220, user repl) and a TCP balancer in front of the
-# lab's PostgreSQL ports (lb:5432 inside the network).
+# lab's PostgreSQL ports (lb:5432 inside the network). The backup profile
+# is a separate 2-node cluster (shardbak, 44230-44231; bak2 isn't
+# master-eligible, so it can be stopped mid-snapshot) with an fs
+# repository path shared by both nodes, and RustFS for s3 (API on 44290,
+# credentials obsilab/obsilab-secret; scenarios.sh backup makes the bucket).
 x-node: &node
   image: crate:6.4.5
   environment:
@@ -44,3 +48,26 @@ services:
     image: haproxy:3.0-alpine
     profiles: [replication-auth]
     volumes: ["./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"]
+  bak1:
+    <<: *node
+    profiles: [backup]
+    ports: ["127.0.0.1:44230:4200"]
+    volumes: ["bakrepo:/repo"]
+    entrypoint: ["sh", "-c", "chown crate /repo && exec /docker-entrypoint.sh \"$$@\"", "--"]
+    command: ["crate", "-Ccluster.name=shardbak", "-Cnode.name=bak1", "-Cdiscovery.seed_hosts=bak1", "-Ccluster.initial_master_nodes=bak1", "-Cpath.repo=/repo"]
+  bak2:
+    <<: *node
+    profiles: [backup]
+    ports: ["127.0.0.1:44231:4200"]
+    volumes: ["bakrepo:/repo"]
+    entrypoint: ["sh", "-c", "chown crate /repo && exec /docker-entrypoint.sh \"$$@\"", "--"]
+    command: ["crate", "-Ccluster.name=shardbak", "-Cnode.name=bak2", "-Cnode.master=false", "-Cdiscovery.seed_hosts=bak1", "-Cpath.repo=/repo"]
+  s3:
+    image: rustfs/rustfs:latest
+    profiles: [backup]
+    ports: ["127.0.0.1:44290:9000"]
+    environment:
+      RUSTFS_ACCESS_KEY: obsilab
+      RUSTFS_SECRET_KEY: obsilab-secret
+volumes:
+  bakrepo:

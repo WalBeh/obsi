@@ -115,9 +115,46 @@ type SnapshotInfo struct {
 	Repository string
 	Name       string
 	State      string // SUCCESS, PARTIAL, FAILED, IN_PROGRESS, INCOMPATIBLE
-	Started    time.Time
-	Finished   time.Time
-	Failures   int
+	// Started and Finished are zero while running, and when CrateDB
+	// couldn't read the snapshot's info from the repository (then FAILED).
+	Started     time.Time
+	Finished    time.Time
+	Version     string // CrateDB version that wrote it
+	Reason      string
+	TotalShards int
+	GlobalState bool     // include_global_state: settings, users, ... too
+	Tables      []string // schema.table, whole tables
+	Partitions  []SnapshotPartition
+	Failures    []string // one per failed shard, as CrateDB words it
+}
+
+// SnapshotPartition is a partition a snapshot took on its own.
+type SnapshotPartition struct {
+	Table  string // schema.table
+	Values []string
+}
+
+// Repository is a row of sys.repositories. CrateDB masks the credentials
+// in Settings as [xxxxx].
+type Repository struct {
+	Name     string
+	Type     string // fs, s3, azure, gcs, url
+	Settings map[string]string
+}
+
+// ReadOnly is true when CrateDB refuses to write snapshots there.
+func (r Repository) ReadOnly() bool {
+	return r.Type == "url" || r.Settings["readonly"] == "true"
+}
+
+// SnapshotRestore is a running RESTORE SNAPSHOT from sys.snapshot_restore.
+type SnapshotRestore struct {
+	Repository string
+	Name       string
+	State      string // INIT, STARTED, SUCCESS, FAILURE
+	Shards     int
+	Done       int
+	Failed     int
 }
 
 // ClusterCheck represents a row from sys.checks.

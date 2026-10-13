@@ -8,8 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A Snapshots tab (`8`): the repositories with type, read-only or
+  writable and their settings; every snapshot with state, duration,
+  shards, tables and partitions, and for a PARTIAL one each failed shard
+  by table, partition, node and reason; running restores. `enter` on a
+  repository lists its snapshots, `/` filters.
 - The changes board lists `CREATE/ALTER/DROP REPOSITORY` under a new
   `repository` kind.
+
+### Changed
+
+- The Overview shows one Snapshots line, the newest snapshot per
+  repository, instead of the last 10; the list moved to the Snapshots tab.
+- Snapshots are listed again every minute while one runs, when a
+  repository is added, dropped or changed, and on `R`, besides the 15
+  minute interval; repositories and restores are read every minute.
+- On terminals narrower than the eight tabs need, the tab names get
+  less padding.
 
 ### Fixed
 

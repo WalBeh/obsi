@@ -11,6 +11,7 @@ A lightweight TUI monitoring tool for CrateDB clusters. Single binary, zero depe
 - **Why is this query slow?** `E` shows its plan, then `EXPLAIN ANALYZE` with the bind values you type, suggested from partition values and `pg_stats`: time per phase and node, the slowest Lucene shard queries, everything copyable.
 - **What's going on right now?** Alerts for nodes leaving, RED tables, disk and heap, failed snapshots and failing node checks; running queries with memory per query; the slowest and failed queries from `sys.jobs_log`; per-node metrics with sparklines.
 - **Is replication keeping up?** The Replication tab shows, on a subscriber, each subscribed table as preparing, copying, in sync or FAILED with CrateDB's reason, with changes per second; on a publisher, each subscriber cluster with the operations it hasn't pulled yet and when its retention lease expires. Publications are set up there too, with a check of which users can read the chosen tables, and `y` copies a ticket that `s` on the subscriber turns into the subscription.
+- **Did the backups run?** The Snapshots tab lists the repositories, whether each is writable, and every snapshot with its state, duration, tables and partitions; a PARTIAL one names each failed shard with its table, partition, node and reason. Running restores show their shards done.
 - **What does this partitioned table look like?** `enter` on the Tables tab lists its partitions with size bars, shard counts, health and delay.
 
 It starts read-only, and it notices when a port-forward suddenly points at a different cluster.
@@ -66,19 +67,20 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 
 | Key | Tab | What it shows |
 |-----|-----|---------------|
-| `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, a replication summary when there is replication, last 10 snapshots |
+| `1` | Overview | Cluster settings (inline editable), node-left delay across tables vs. the longest node absence (settable for all tables), health checks, node/zone topology, CrateDB version, table health, a replication summary when there is replication, the newest snapshot per repository |
 | `2` | Nodes | Per-node metrics with sparklines, disk IO, thread pool pressure, watermark bars |
 | `3` | Queries | Active queries with duration, memory + dominant operation, node, username, statement preview; slowest, failed and grouped queries from `sys.jobs_log`; config changes since start (`c`); explain a query (`E`) |
 | `4` | Tables | Table list with replication markers (`⇠` pulled, `⇢` published), shard distribution, size stats, translog flush status, partition count, node-left delay (settable per table), health filter; `enter` lists a partitioned table's partitions |
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 | `7` | Replication | Logical replication: subscriptions with per-table state, shards, docs, changes/s and the last change seen; publications with their tables and the subscriber clusters holding leases, how many operations each is behind and when its lease expires; create, change and drop publications (`n`/`e`/`d`), copy a subscribe ticket (`y`); create a subscription from a pasted ticket (`s`) and drop one (`d`, type its name); the replication settings (`c`) and each published table's retention lease period (`l`); the `logical_replication` thread pool; sparklines of changes/s per table and BEHIND per subscriber, operations pulled/s, and what each finished initial copy moved |
+| `8` | Snapshots | Repositories with type, read-only or writable and their settings (credentials masked by CrateDB); every snapshot with state, duration, shards, tables and partitions, the failed shards of a PARTIAL one by table, partition and node; running restores; `enter` on a repository lists its snapshots, `/` filters |
 
 ## Keys
 
 | Key | Action |
 |-----|--------|
-| `1-7` | Switch tabs |
+| `1-8` | Switch tabs |
 | `tab` / `shift+tab` | Next/prev tab |
 | `j/k` or `↑/↓` | Navigate |
 | `s` | Cycle sort column (Nodes, Tables, Shards) |
@@ -87,6 +89,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `e` | Edit cluster settings (Overview tab) |
 | `f` | Toggle unhealthy table filter (Tables tab) |
 | `enter` | Tables tab: partitions of the selected partitioned table — values, shards, records, size bar, health, node-left delay; `s` sorts, `y` copies, `esc` back |
+| `enter` | Snapshots tab: on a repository, list only its snapshots |
 | `e` | Tables tab: set the node-left delay (`unassigned.node_left.delayed_timeout`) of the selected table, partitions included, after a confirm |
 | `K` | Kill selected query (Queries tab) |
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
@@ -168,7 +171,7 @@ interval = "15s"     # only polled while the slowest board is open
 interval = "10s"     # sys.jobs_log is a ring per node; longer misses more on busy clusters
 
 [collectors.snapshots]
-interval = "15m"     # sys.snapshots lists the repository (S3, Azure) on every read
+interval = "15m"     # sys.snapshots reads every repository (S3, Azure) on each query
 
 [collectors.replication]
 interval = "10s"     # pg_catalog lookups; sys.shards only for replicated tables
@@ -204,7 +207,7 @@ Collector/TUI/logging settings are global (shared across profiles).
 - IO throughput and IOPS derived from cumulative counters
 - Thread pool pressure monitoring (write/search/generic) with rejection delta tracking
 - Query latency stats (avg/p90/max) in status bar
-- Snapshots on the Overview: the last 10 from `sys.snapshots` with state, duration and failure count, or a warning when no repository is configured. Checks `sys.repositories` first and polls every 15 minutes, since listing a repository reads the bucket
+- Snapshots (Snapshots tab, a line on the Overview): `sys.repositories` and `sys.snapshot_restore` are cluster state, read every minute. `sys.snapshots` reads every repository on each query, the index plus two files per snapshot whatever the `WHERE` or `LIMIT`, so obsi lists them every 15 minutes, every minute while a snapshot runs, when a repository is added, dropped or changed, and on `R`. A repository CrateDB can't read lists no snapshots and gives no error; obsi says so when a repository lists none. A snapshot whose files can't be read shows as FAILED without times
 - Alerts on transitions: a node leaving, lost connection, a table going YELLOW/RED, a failing `sys.checks` entry, disk past a watermark, heap above 85% (clears below 80%), the newest snapshot in a repository FAILED or PARTIAL. The newest one sits next to the tabs, the count in the status bar, `a` lists them. Each condition raises once until it clears
 - Per-query memory accounting: `sys.jobs` joined with `sys.operations` shows the dominant operation and total `used_bytes` per running query; `i` opens a details modal, `y` yanks job + ops + statement to the clipboard. Stuck queries (running longer than 24h, typically abandoned cursors) are hidden by default; press `h` to show them
 - Slowest queries since startup: `S` on the Queries tab shows the top 20 jobs by duration. Finished jobs come from `sys.jobs_log` with exact durations and errors; running ones from the `sys.jobs` poll. `sys.jobs_log` is an in-memory ring per node (`stats.jobs_log_size`), so jobs it no longer holds fall back to sampled durations, marked `≥` (short by up to one poll interval). Without `sys.jobs_log` (`stats.enabled = false`, no privileges) the whole board is sampled and the header says why. `f` lists failed queries, `g` groups by statement. `sys.jobs_log` is only polled while the board is open. obsi tags its own statements with `/* obsi */` and leaves them out of the Queries tab. Stuck queries are always left out

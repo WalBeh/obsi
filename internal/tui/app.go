@@ -26,9 +26,10 @@ const (
 	TabShards
 	TabSQL
 	TabReplication
+	TabSnapshots
 )
 
-var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards", "SQL", "Replication"}
+var tabNames = []string{"Overview", "Nodes", "Queries", "Tables", "Shards", "SQL", "Replication", "Snapshots"}
 
 // StoreTickMsg triggers a TUI refresh from the store.
 type StoreTickMsg struct{}
@@ -43,6 +44,7 @@ type App struct {
 	shards       ShardsModel
 	sql          SQLModel
 	replication  ReplicationModel
+	snapshots    SnapshotsModel
 	statusBar    StatusBarModel
 	queryLog     QueryLogOverlay
 	showQueryLog bool
@@ -104,6 +106,7 @@ func (a *App) newTabModels() {
 	a.sql = NewSQLModel(0, 0, a.registry, a.ctx)
 	a.sql.readOnly = a.readOnly
 	a.replication = NewReplicationModel(0, 0)
+	a.snapshots = NewSnapshotsModel(0, 0)
 	a.overview.editor.readOnly = a.readOnly
 	a.shards.readOnly = a.readOnly
 	a.tables.readOnly = a.readOnly
@@ -210,6 +213,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.setActiveTab(TabSQL)
 		case key.Matches(msg, a.keyMap.Tab7):
 			a.setActiveTab(TabReplication)
+		case key.Matches(msg, a.keyMap.Tab8):
+			a.setActiveTab(TabSnapshots)
 		case key.Matches(msg, a.keyMap.NextTab):
 			a.setActiveTab((a.activeTab + 1) % Tab(len(tabNames)))
 		case key.Matches(msg, a.keyMap.PrevTab):
@@ -532,20 +537,28 @@ func (a *App) View() string {
 }
 
 func (a *App) renderTabBar() string {
-	var tabs []string
-	for i, name := range tabNames {
-		if Tab(i) == a.activeTab {
-			tabs = append(tabs, styleTabActive.Render(name))
-		} else {
-			tabs = append(tabs, styleTabInactive.Render(name))
-		}
+	bar := tabBar(a.activeTab, 2)
+	// 80 columns don't fit eight tabs with the usual padding.
+	if lipgloss.Width(bar) > a.width-2 {
+		bar = tabBar(a.activeTab, 1)
 	}
-	bar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 	room := a.width - lipgloss.Width(bar) - 2
 	if banner := alertBanner(a.alerts, room); banner != "" {
 		bar += strings.Repeat(" ", room-lipgloss.Width(banner)+1) + banner
 	}
 	return bar
+}
+
+func tabBar(active Tab, pad int) string {
+	var tabs []string
+	for i, name := range tabNames {
+		style := styleTabInactive
+		if Tab(i) == active {
+			style = styleTabActive
+		}
+		tabs = append(tabs, style.Padding(0, pad).Render(name))
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
 }
 
 func (a *App) delegateKey(msg tea.KeyMsg) tea.Cmd {

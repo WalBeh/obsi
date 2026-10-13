@@ -171,6 +171,9 @@ func (m *Manager) TriggerCollector(ctx context.Context, name string) {
 	}
 	for _, c := range m.collectors {
 		if c.Name() == name {
+			if f, ok := c.(Forcer); ok {
+				f.Force()
+			}
 			go func(c Collector) {
 				slog.Info("manual refresh triggered", "collector", c.Name())
 				if err := c.Collect(ctx, m.registry, m.store); err != nil {

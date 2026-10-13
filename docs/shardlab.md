@@ -148,6 +148,36 @@ publisher and shows the subscriber's flag, then fixes it with `'0-1'`.
   subscriber's table-level value follows it; a range such as `'0-1'` on
   the publisher arrives as a range and expands to what each cluster has
 
+The `backup` profile is a separate 2-node cluster (`shardbak`,
+127.0.0.1:44230-44231) with an `fs` repository path shared by both nodes,
+and RustFS as S3 (127.0.0.1:44290; MinIO's images are gone from Docker
+Hub). bak2 isn't master-eligible, so stopping it fails the shards it
+holds without taking the cluster down.
+
+```bash
+docker compose -p obsi-shardlab --profile backup up -d bak1 bak2 s3
+./scenarios.sh backup                # lab_fs, lab_s3, lab_slow; SUCCESS snapshots
+./scenarios.sh backup-partial        # PARTIAL after ~5m: bak2 stopped mid-snapshot
+./scenarios.sh backup-running        # a throttled snapshot, IN_PROGRESS for minutes
+./scenarios.sh backup-restore        # doc.restored_parted, throttled restore
+../../obsi http://127.0.0.1:44230    # press 8
+./scenarios.sh backup-reset          # recreates bak1, bak2, s3 and the repository volume
+```
+
+`go test -tags shardlab -run Snapshotslab -v ./internal/tui` prints the
+Snapshots tab and the Overview line, and checks when the collector lists
+again.
+
+- a shard that fails mid-snapshot makes it PARTIAL; `failures` has one
+  `SnapshotShardFailure{shardId=[<index>/<uuid>][<n>], reason='node
+  shutdown', nodeId='…'}` per shard. CrateDB never asks for a partial
+  snapshot, so a table without its primaries fails `CREATE SNAPSHOT`
+  right away ("Indices don't have primary shards") instead
+- `DROP SNAPSHOT` in a repository waits while a snapshot runs there,
+  even for the running one; with a throttled snapshot that is minutes
+- `ALTER REPOSITORY … SET (max_restore_bytes_per_sec = '200kb')` works on
+  6.4.5; `sys.repositories` shows the new value at once
+
 `-run Settingslab` changes a replication setting on the subscriber and a
 lease period on the lab the way the Replication tab does.
 

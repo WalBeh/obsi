@@ -26,11 +26,6 @@ var replSettings = []replSetting{
 	{"cluster.routing.allocation.node_initial_primaries_recoveries", "node_initial_primaries_recoveries", "4", "shards a node copies at once; also snapshot restores and new tables"},
 }
 
-const leasePeriodSetting = "soft_deletes.retention_lease.period"
-
-// defaultLeasePeriod is CrateDB's soft_deletes.retention_lease.period.
-const defaultLeasePeriod = 12 * time.Hour
-
 func (m ReplicationModel) settingValue(s replSetting) (string, bool) {
 	v, ok := m.repl.Settings[s.path]
 	return v, ok && !strings.EqualFold(v, s.def)
@@ -61,7 +56,7 @@ func (m ReplicationModel) renderReplSettings() []string {
 	for _, l := range wrapText(strings.Join(parts, " · "), max(m.width-4, 40)) {
 		lines = append(lines, "  "+l)
 	}
-	return append(lines, styleDim.Render("  c change (cluster settings, read where the subscription runs)"))
+	return lines
 }
 
 // leasePeriodLine is the lease periods of a publication's tables: the
@@ -77,7 +72,7 @@ func (m ReplicationModel) leasePeriodLine(p cratedb.Publication) string {
 			continue
 		}
 		known++
-		if d == defaultLeasePeriod {
+		if d == cratedb.DefaultLeasePeriod {
 			continue
 		}
 		cell := t + " " + shortDelay(d)
@@ -282,9 +277,9 @@ func (f *leaseForm) period(t string) string {
 func (f *leaseForm) stmt() (string, []interface{}) {
 	t := quoteFQN(f.tables[f.cursor])
 	if f.reset {
-		return fmt.Sprintf(`ALTER TABLE %s RESET ("%s")`, t, leasePeriodSetting), nil
+		return fmt.Sprintf(`ALTER TABLE %s RESET ("%s")`, t, cratedb.LeasePeriodSetting), nil
 	}
-	return fmt.Sprintf(`ALTER TABLE %s SET ("%s" = ?)`, t, leasePeriodSetting), []interface{}{strings.TrimSpace(f.buf)}
+	return fmt.Sprintf(`ALTER TABLE %s SET ("%s" = ?)`, t, cratedb.LeasePeriodSetting), []interface{}{strings.TrimSpace(f.buf)}
 }
 
 func (f *leaseForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
@@ -295,9 +290,9 @@ func (f *leaseForm) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 		case "y":
 			stmt, args := f.stmt()
 			t := f.tables[f.cursor]
-			done := fmt.Sprintf("%s of %s set to %s", leasePeriodSetting, t, strings.TrimSpace(f.buf))
+			done := fmt.Sprintf("%s of %s set to %s", cratedb.LeasePeriodSetting, t, strings.TrimSpace(f.buf))
 			if f.reset {
-				done = fmt.Sprintf("%s of %s reset to 12h", leasePeriodSetting, t)
+				done = fmt.Sprintf("%s of %s reset to 12h", cratedb.LeasePeriodSetting, t)
 			}
 			apply := ApplyReplicationMsg{Stmt: stmt, Args: args, Done: done, Periods: true}
 			return true, func() tea.Msg { return apply }
@@ -380,7 +375,7 @@ func (f *leaseForm) render(width, height int) string {
 		v := f.period(t)
 		if f.editing && i == f.cursor {
 			v = styleEditInput.Render(f.buf + "▏")
-		} else if d, ok := f.periods[t]; ok && d != defaultLeasePeriod {
+		} else if d, ok := f.periods[t]; ok && d != cratedb.DefaultLeasePeriod {
 			v = styleHealthYellow.Render(v)
 		}
 		row := t + "  " + v

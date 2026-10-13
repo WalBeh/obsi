@@ -28,6 +28,7 @@ type subForm struct {
 	// partial: obsi isn't a superuser and sees only its own
 	// subscriptions, so taken and failed may miss some.
 	partial bool
+	version string            // for cratedb.Quirk
 	local   map[string]bool   // tables on this cluster
 	failed  map[string]string // table -> subscription, failed as "Relation already exists"
 	err     string
@@ -72,13 +73,13 @@ type ApplyReplicationMsg struct {
 var subscriptionTimeout = time.Minute
 
 func (m ReplicationModel) newSubForm() *subForm {
-	f := &subForm{taken: map[string]bool{}, local: map[string]bool{}, failed: map[string]string{},
+	f := &subForm{taken: map[string]bool{}, local: map[string]bool{}, failed: map[string]string{}, version: m.version,
 		partial: !m.repl.Superuser && m.repl.User != ""}
 	f.vals[subMode], f.vals[subSSL], f.vals[subPort] = "pg_tunnel", "prefer", "5432"
 	for _, s := range m.repl.Subscriptions {
 		f.taken[s.Name] = true
 		for _, t := range s.Tables {
-			if t.State == "e" && strings.HasPrefix(t.Reason, "Relation already exists") {
+			if t.State == "e" && cratedb.RelationExists(t.Reason) && cratedb.QuirkDeletesLocalTable.Affects(m.version) {
 				f.failed[t.FQN()] = s.Name
 			}
 		}
@@ -153,9 +154,9 @@ func (f *subForm) stmt() string {
 	pubs := f.pubs()
 	q := make([]string, len(pubs))
 	for i, p := range pubs {
-		q[i] = quoteIdent(p)
+		q[i] = cratedb.QuoteIdent(p)
 	}
-	return fmt.Sprintf("CREATE SUBSCRIPTION %s CONNECTION ? PUBLICATION %s", quoteIdent(f.vals[subName]), strings.Join(q, ", "))
+	return fmt.Sprintf("CREATE SUBSCRIPTION %s CONNECTION ? PUBLICATION %s", cratedb.QuoteIdent(f.vals[subName]), strings.Join(q, ", "))
 }
 
 // shown is the statement with the connection string inlined, the password
@@ -168,10 +169,9 @@ func (f *subForm) shown(mask string) string {
 	return strings.Replace(f.stmt(), "CONNECTION ?", "CONNECTION '"+f.conninfo(pw)+"'", 1)
 }
 
-// tlsHangs: in 6.4.5 a pg_tunnel subscription that tries TLS doesn't
-// answer when the subscriber doesn't trust the publisher's certificate.
+// tlsHangs: see cratedb.QuirkTLSHangs.
 func (f *subForm) tlsHangs() bool {
-	return f.vals[subMode] == "pg_tunnel" && f.vals[subSSL] != "disable"
+	return f.vals[subMode] == "pg_tunnel" && f.vals[subSSL] != "disable" && cratedb.QuirkTLSHangs.Affects(f.version)
 }
 
 func (f *subForm) timeoutHint() string {
@@ -213,7 +213,7 @@ func validHost(h string) bool {
 func (f *subForm) blockers() []string {
 	var out []string
 	for t, sub := range f.failed {
-		out = append(out, fmt.Sprintf("Subscription %s has %s failed with \"Relation already exists\". In 6.4.5 the next CREATE SUBSCRIPTION makes it try to delete the local %s, and every subscription here fails. Drop %s first (d).", sub, t, t, sub))
+		out = append(out, fmt.Sprintf("Subscription %s has %s failed with \"Relation already exists\". Then the next CREATE SUBSCRIPTION makes it try to delete the local %s, and every subscription here fails (seen on %s). Drop %s first (d).", sub, t, t, cratedb.QuirkDeletesLocalTable.SeenOn, sub))
 	}
 	var exist []string
 	for _, t := range f.tables {
@@ -363,10 +363,12 @@ func (f *subForm) render(width, height int) string {
 		}
 		if f.vals[subMode] == "sniff" {
 			note(styleDim, "sniff connects to the transport port of every publisher node: their published addresses must be reachable from this cluster.")
-			note(styleHealthYellow, "sniff doesn't check the password (seen on 6.4.5): the user only has to exist on the publisher. pg_tunnel does.")
+			if q := cratedb.QuirkSniffNoPassword; q.Affects(f.version) {
+				note(styleHealthYellow, "sniff doesn't check the password (seen on "+q.SeenOn+"): the user only has to exist on the publisher. pg_tunnel does.")
+			}
 		}
 		if f.tlsHangs() {
-			note(styleHealthYellow, "sslmode "+f.vals[subSSL]+": if the publisher has TLS on 5432, this cluster must trust its certificate; otherwise CREATE SUBSCRIPTION doesn't answer at all (seen on 6.4.5). obsi gives up after a minute.")
+			note(styleHealthYellow, "sslmode "+f.vals[subSSL]+": if the publisher has TLS on 5432, this cluster must trust its certificate; otherwise CREATE SUBSCRIPTION doesn't answer at all (seen on "+cratedb.QuirkTLSHangs.SeenOn+"). obsi gives up after a minute.")
 		}
 		if f.partial {
 			note(styleDim, "obsi isn't a superuser and sees only its own subscriptions: the checks below can't see failed tables of others.")
@@ -430,7 +432,7 @@ func (d *subDrop) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 		if d.typed != d.name {
 			return false, nil
 		}
-		apply := ApplyReplicationMsg{Stmt: "DROP SUBSCRIPTION " + quoteIdent(d.name), Done: "subscription " + d.name + " dropped"}
+		apply := ApplyReplicationMsg{Stmt: "DROP SUBSCRIPTION " + cratedb.QuoteIdent(d.name), Done: "subscription " + d.name + " dropped"}
 		return true, func() tea.Msg { return apply }
 	case tea.KeyBackspace:
 		if d.typed != "" {

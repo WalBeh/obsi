@@ -50,6 +50,9 @@ func (m OverviewModel) Refresh(snap store.StoreSnapshot) OverviewModel {
 		sections = append(sections, s)
 	}
 	sections = append(sections, m.renderTableHealth())
+	if s := m.renderReplication(); s != "" {
+		sections = append(sections, s)
+	}
 	sections = append(sections, m.renderSnapshots())
 	sections = append(sections, m.renderSummit())
 	content := strings.Join(sections, "\n\n")

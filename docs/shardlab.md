@@ -130,7 +130,14 @@ that isn't a superuser.
 `-run Throughputlab` writes to doc.repl and pauses the subscriber while
 polling both sides; `-run Copylab` subscribes a ~300MB table twice, with
 the default chunk_size and 64kb; `-run LimitedUserlab` polls both sides
-as `mon`.
+as `mon`; `-run Replicaslab` gives `doc.repl_p` a replica on the
+publisher and shows the subscriber's flag, then fixes it with `'0-1'`.
+
+- `number_of_replicas` is one of the settings CrateDB doesn't replicate:
+  a value set on the subscriber holds for existing tables and partitions,
+  but a new partition arrives with the publisher's count and the
+  subscriber's table-level value follows it; a range such as `'0-1'` on
+  the publisher arrives as a range and expands to what each cluster has
 
 `-run Settingslab` changes a replication setting on the subscriber and a
 lease period on the lab the way the Replication tab does.

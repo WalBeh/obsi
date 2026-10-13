@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,7 +26,8 @@ type pubForm struct {
 	cursor  int
 	taken   map[string]bool // existing publication names
 	checks  *PublicationChecksMsg
-	seq     int // of the last checks request; older answers are dropped
+	seq     int    // of the last checks request; older answers are dropped
+	version string // for cratedb.Quirk
 	err     string
 }
 
@@ -90,7 +90,7 @@ const shortLeasePeriod = time.Hour
 const maxPeriodChecks = 50
 
 func (m ReplicationModel) newPubForm(edit *cratedb.Publication) *pubForm {
-	f := &pubForm{checked: map[string]bool{}, taken: map[string]bool{}}
+	f := &pubForm{checked: map[string]bool{}, taken: map[string]bool{}, version: m.version}
 	inPubs := map[string][]string{}
 	for _, p := range m.repl.Publications {
 		f.taken[p.Name] = true
@@ -158,7 +158,7 @@ func (f *pubForm) chosen() []string {
 
 func quoteFQN(fqn string) string {
 	schema, table := cratedb.SplitRegclass(fqn)
-	return quoteIdent(schema) + "." + quoteIdent(table)
+	return cratedb.QuoteIdent(schema) + "." + cratedb.QuoteIdent(table)
 }
 
 func quoteFQNs(tables []string) string {
@@ -169,11 +169,11 @@ func quoteFQNs(tables []string) string {
 	return strings.Join(q, ", ")
 }
 
-// stmts is what the review runs. CREATE PUBLICATION ... FOR TABLE refuses
-// a table that is already in a publication (6.4.5), ALTER PUBLICATION ...
-// ADD TABLE takes it, so then the publication is created empty first.
+// stmts is what the review runs. Where CREATE PUBLICATION ... FOR TABLE
+// refuses a table already in a publication (cratedb.QuirkCreateRefusesPublished),
+// the publication is created empty and the tables added.
 func (f *pubForm) stmts() []string {
-	name := quoteIdent(f.name)
+	name := cratedb.QuoteIdent(f.name)
 	tables := f.chosen()
 	if f.editing {
 		if len(tables) == 0 {
@@ -192,7 +192,7 @@ func (f *pubForm) stmts() []string {
 		return []string{fmt.Sprintf("CREATE PUBLICATION %s FOR ALL TABLES", name)}
 	case len(tables) == 0:
 		return []string{"CREATE PUBLICATION " + name}
-	case len(f.elsewhere()) > 0:
+	case len(f.elsewhere()) > 0 && cratedb.QuirkCreateRefusesPublished.Affects(f.version):
 		return []string{"CREATE PUBLICATION " + name,
 			fmt.Sprintf("ALTER PUBLICATION %s ADD TABLE %s", name, quoteFQNs(tables))}
 	}
@@ -395,7 +395,7 @@ func (f *pubForm) renderReview(width int) []string {
 	if f.all {
 		note(styleDim, "Every table, including ones created later. CrateDB leaves out blob tables, views and foreign tables.")
 	}
-	if e := f.elsewhere(); len(e) > 0 && !f.editing && !f.all {
+	if e := f.elsewhere(); len(e) > 0 && !f.editing && !f.all && cratedb.QuirkCreateRefusesPublished.Affects(f.version) {
 		names := make([]string, len(e))
 		for i, c := range e {
 			names[i] = c.fqn
@@ -448,7 +448,7 @@ type pubDrop struct{ name string }
 func (d *pubDrop) key(msg tea.KeyMsg) (done bool, cmd tea.Cmd) {
 	switch msg.String() {
 	case "y":
-		apply := ApplyPublicationMsg{Stmts: []string{"DROP PUBLICATION " + quoteIdent(d.name)}, Done: "publication " + d.name + " dropped"}
+		apply := ApplyPublicationMsg{Stmts: []string{"DROP PUBLICATION " + cratedb.QuoteIdent(d.name)}, Done: "publication " + d.name + " dropped"}
 		return true, func() tea.Msg { return apply }
 	case "n", "esc":
 		return true, nil
@@ -484,16 +484,12 @@ func runPublicationChecks(ctx context.Context, reg *cratedb.Registry, req Public
 			continue
 		}
 		out.Checked++
-		if m := leasePeriodRe.FindStringSubmatch(cratedb.ToString(resp.Rows[0][0])); m != nil {
-			if ms, err := strconv.ParseInt(m[1], 10, 64); err == nil {
-				out.Periods[t] = time.Duration(ms) * time.Millisecond
-			}
+		if d, ok := cratedb.LeasePeriodFromDDL(cratedb.ToString(resp.Rows[0][0])); ok {
+			out.Periods[t] = d
 		}
 	}
 	return out
 }
-
-var leasePeriodRe = regexp.MustCompile(`"soft_deletes\.retention_lease\.period"\s*=\s*'?(\d+)`)
 
 func readers(ctx context.Context, reg *cratedb.Registry, tables []string) ([]string, error) {
 	resp, err := reg.Query(ctx, `SELECT grantee, class, ident, state FROM sys.privileges WHERE type = 'DQL'`+cratedb.QueryTag)
@@ -580,6 +576,6 @@ func ticket(ctx context.Context, reg *cratedb.Registry, pub cratedb.Publication)
 	b.WriteString("-- <user> needs DQL on the tables; ones it can't read are skipped without an error.\n")
 	b.WriteString("-- Add &sslmode=require to insist on TLS.\n")
 	fmt.Fprintf(&b, "CREATE SUBSCRIPTION %s CONNECTION 'crate://<host>:5432?user=<user>&password=<password>&mode=pg_tunnel' PUBLICATION %s;\n",
-		quoteIdent(pub.Name), quoteIdent(pub.Name))
+		cratedb.QuoteIdent(pub.Name), cratedb.QuoteIdent(pub.Name))
 	return b.String(), nil
 }

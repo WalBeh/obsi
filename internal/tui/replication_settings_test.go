@@ -65,13 +65,13 @@ func TestReplicationSettingsView(t *testing.T) {
 func TestReplicationSettingsForm(t *testing.T) {
 	m := settingsModel()
 	m.readOnly = true
-	if m, _ = keys(m, "c"); m.settings != nil {
+	if m, _ = keys(m, "c"); settingsOf(m) != nil {
 		t.Fatal("read-only opened the settings")
 	}
 	m.readOnly = false
 	m, _ = keys(m, "c", "enter")
-	if m.settings == nil || m.settings.buf != "1000" {
-		t.Fatalf("edit didn't start from the value: %+v", m.settings)
+	if settingsOf(m) == nil || settingsOf(m).buf != "1000" {
+		t.Fatalf("edit didn't start from the value: %+v", settingsOf(m))
 	}
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
@@ -82,15 +82,15 @@ func TestReplicationSettingsForm(t *testing.T) {
 		t.Errorf("request = %+v", req)
 	}
 	m, cmd = keys(m, "c", "down", "x")
-	if apply, ok := cmd().(ApplyReplicationMsg); !ok || m.settings != nil || apply.Stmt != `RESET GLOBAL "replication.logical.reads_poll_duration"` {
-		t.Errorf("reset = %+v, form open %v", apply, m.settings != nil)
+	if apply, ok := cmd().(ApplyReplicationMsg); !ok || settingsOf(m) != nil || apply.Stmt != `RESET GLOBAL "replication.logical.reads_poll_duration"` {
+		t.Errorf("reset = %+v, form open %v", apply, settingsOf(m) != nil)
 	}
 }
 
 func TestLeaseForm(t *testing.T) {
 	m := settingsModel()
 	m, _ = keys(m, "down", "l") // the publication is after the subscription
-	f := m.lease
+	f := leaseOf(m)
 	if f == nil || f.pub != "p" {
 		t.Fatalf("lease form: %+v", f)
 	}

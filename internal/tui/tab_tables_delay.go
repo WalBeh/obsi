@@ -130,7 +130,7 @@ type YankTableDDLMsg struct{ Schema, Name string }
 type TablesNoticeMsg struct{ Note, Error string }
 
 func yankTableDDL(ctx context.Context, reg *cratedb.Registry, msg YankTableDDLMsg) TablesNoticeMsg {
-	resp, err := reg.Query(ctx, fmt.Sprintf("SHOW CREATE TABLE %s.%s", quoteIdent(msg.Schema), quoteIdent(msg.Name))+cratedb.QueryTag)
+	resp, err := reg.Query(ctx, fmt.Sprintf("SHOW CREATE TABLE %s.%s", cratedb.QuoteIdent(msg.Schema), cratedb.QuoteIdent(msg.Name))+cratedb.QueryTag)
 	if err != nil {
 		return TablesNoticeMsg{Error: "SHOW CREATE TABLE failed: " + firstLine(err.Error())}
 	}

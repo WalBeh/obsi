@@ -54,11 +54,11 @@ func typeRepl(m ReplicationModel, s string) ReplicationModel {
 func TestSubscriptionForm(t *testing.T) {
 	m := subModel()
 	m, _ = keys(m, "s")
-	if m.subForm == nil {
+	if subFormOf(m) == nil {
 		t.Fatal("s didn't open the form")
 	}
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(labTicket), Paste: true})
-	f := m.subForm
+	f := subFormOf(m)
 	if f.vals[subName] != "lab_pub2" || f.vals[subPubs] != "lab_pub2" || f.field != subHost {
 		t.Fatalf("ticket not applied: %+v", f.vals)
 	}
@@ -97,21 +97,21 @@ func TestSubscriptionForm(t *testing.T) {
 	}
 	// doc.repl_p exists here: not run.
 	m, cmd := keys(m, "y")
-	if cmd != nil || m.subForm == nil || !strings.Contains(f.err, "not run") {
+	if cmd != nil || subFormOf(m) == nil || !strings.Contains(f.err, "not run") {
 		t.Fatalf("ran despite an existing table: %q", f.err)
 	}
 	f.tables = []string{"doc.repl"}
 	m, cmd = keys(m, "y")
-	if m.subForm == nil || !strings.Contains(m.View(), "running") {
+	if subFormOf(m) == nil || !strings.Contains(m.View(), "running") {
 		t.Fatal("form closed before the statement ran")
 	}
 	// A refused connection keeps what was typed.
 	m = m.notice(ReplicationNoticeMsg{Error: "Connection refused"})
-	if m.subForm == nil || f.running || f.vals[subPassword] != "p&ss w" || !strings.Contains(m.View(), "Connection refused") {
-		t.Fatalf("error lost the form: %+v", m.subForm)
+	if subFormOf(m) == nil || f.running || f.vals[subPassword] != "p&ss w" || !strings.Contains(m.View(), "Connection refused") {
+		t.Fatalf("error lost the form: %+v", subFormOf(m))
 	}
 	m, cmd = keys(m, "y")
-	if m = m.notice(ReplicationNoticeMsg{Note: "created", Ran: true}); m.subForm != nil {
+	if m = m.notice(ReplicationNoticeMsg{Note: "created", Ran: true}); subFormOf(m) != nil {
 		t.Error("form still open after success")
 	}
 	apply, ok := cmd().(ApplyReplicationMsg)
@@ -126,7 +126,7 @@ func TestSubscriptionBlockedByRelationExists(t *testing.T) {
 	m := subModel()
 	m.repl.Subscriptions[0].Tables[0] = cratedb.SubscribedTable{Schema: "doc", Table: "mine", State: "e", Reason: "Relation already exists"}
 	m, _ = keys(m, "s")
-	f := m.subForm
+	f := subFormOf(m)
 	f.vals[subName], f.vals[subHost], f.vals[subUser], f.vals[subPubs] = "new", "h", "u", "p"
 	m, _ = keys(m, "enter")
 	if b := f.blockers(); len(b) != 1 || !strings.Contains(b[0], "Drop old first") {
@@ -141,7 +141,7 @@ func TestSubscriptionDropTyped(t *testing.T) {
 	m := subModel()
 	m.readOnly = true
 	m, _ = keys(m, "d")
-	if m.subDrop != nil {
+	if subDropOf(m) != nil {
 		t.Fatal("read-only opened the drop")
 	}
 	m.readOnly = false
@@ -150,8 +150,8 @@ func TestSubscriptionDropTyped(t *testing.T) {
 		t.Errorf("e on a subscription: %q", m.noticeText)
 	}
 	m, _ = keys(m, "d")
-	if m.subDrop == nil || !strings.Contains(m.View(), "doc.mine") {
-		t.Fatalf("drop confirm: %+v", m.subDrop)
+	if subDropOf(m) == nil || !strings.Contains(m.View(), "doc.mine") {
+		t.Fatalf("drop confirm: %+v", subDropOf(m))
 	}
 	m = typeRepl(m, "ol")
 	if _, cmd := keys(m, "enter"); cmd != nil {
@@ -168,7 +168,7 @@ func TestSubscriptionDropTyped(t *testing.T) {
 // host, SSL skipped in sniff mode.
 func TestSubscriptionFormEdges(t *testing.T) {
 	m, _ := keys(subModel(), "s")
-	f := m.subForm
+	f := subFormOf(m)
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(strings.ReplaceAll(labTicket, "\n", "\r")), Paste: true})
 	if f.vals[subPubs] != "lab_pub2" || len(f.tables) != 2 {
 		t.Fatalf("\\r ticket not parsed: %+v %v", f.vals, f.tables)
@@ -201,7 +201,7 @@ func TestSubscriptionFormLabFindings(t *testing.T) {
 	m := subModel()
 	m.repl.User = "mon"
 	m, _ = keys(m, "s")
-	f := m.subForm
+	f := subFormOf(m)
 	f.vals[subName], f.vals[subHost], f.vals[subUser], f.vals[subPubs] = "n", "pub", "repl", "p"
 	m, _ = keys(m, "enter")
 	view := m.View()

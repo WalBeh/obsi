@@ -227,9 +227,13 @@ func (m TablesModel) View() string {
 		healthFilter = " │ " + styleHealthYellow.Render("unhealthy only")
 	}
 
-	lines = append(lines, fmt.Sprintf("  %d tables, %d total shards │ %s%s%s%s │ %s",
+	legend := ""
+	if m.anyReplMark() {
+		legend = " │ " + styleHealthYellow.Render("⇠") + " subscribed " + styleDim.Render("⇢") + " published"
+	}
+	lines = append(lines, fmt.Sprintf("  %d tables, %d total shards │ %s%s%s%s%s │ %s",
 		len(m.snap.Tables), m.snap.TotalShards,
-		sortIndicator, filterInfo, healthFilter,
+		sortIndicator, filterInfo, healthFilter, legend,
 		styleDim.Render(lastRefresh),
 		styleDim.Render("s:sort  /:search  f:unhealthy  enter:partitions  e:node-left delay  y:copy DDL  R:refresh")))
 	if n := m.noticeLine(); n != "" {
@@ -288,17 +292,23 @@ func (m TablesModel) View() string {
 		}
 
 		tableName := fmt.Sprintf("%s.%s", t.SchemaName, t.TableName)
-		tableName = truncateString(tableName, 30)
+		// The replication marker takes the last two columns of the name.
+		mark := m.replMark(tableName)
+		nameW := 30
+		if mark != "" {
+			nameW = 28
+		}
+		tableName = fmt.Sprintf("%-*s", nameW, truncateString(tableName, nameW))
 
 		// Color table name by health status
-		health := m.tableHealth[t.SchemaName+"."+t.TableName]
-		switch health {
+		switch m.tableHealth[t.SchemaName+"."+t.TableName] {
 		case "RED":
-			tableName = styleHealthRed.Render(fmt.Sprintf("%-30s", tableName))
+			tableName = styleHealthRed.Render(tableName)
 		case "YELLOW":
-			tableName = styleHealthYellow.Render(fmt.Sprintf("%-30s", tableName))
-		default:
-			tableName = fmt.Sprintf("%-30s", tableName)
+			tableName = styleHealthYellow.Render(tableName)
+		}
+		if mark != "" {
+			tableName += " " + mark
 		}
 
 		translogCol := ""
@@ -362,6 +372,9 @@ func (m TablesModel) renderDetail(t cratedb.TableInfo) string {
 		title += "  " + styleHealthYellow.Render("⇠ subscription "+sub+", read-only")
 	}
 	lines = append(lines, title)
+	if p := m.publishedLine(t.SchemaName + "." + t.TableName); p != "" {
+		lines = append(lines, "    "+styleDim.Render(p))
+	}
 
 	// Table settings — only show operator-relevant values, highlight non-defaults
 	ts := t.Settings

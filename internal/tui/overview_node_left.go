@@ -164,10 +164,8 @@ type delayTarget struct {
 }
 
 func (t delayTarget) stmt(value string) string {
-	return fmt.Sprintf(`ALTER TABLE %s.%s SET ("%s" = '%s');`, quoteIdent(t.schema), quoteIdent(t.name), nodeLeftSetting, value)
+	return fmt.Sprintf(`ALTER TABLE %s.%s SET ("%s" = '%s');`, cratedb.QuoteIdent(t.schema), cratedb.QuoteIdent(t.name), nodeLeftSetting, value)
 }
-
-func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
 // NodeLeftDelayRequest asks the Overview to confirm a delay for all tables.
 type NodeLeftDelayRequest struct{ Value string }
@@ -312,7 +310,7 @@ func applyNodeLeftDelay(ctx context.Context, reg *cratedb.Registry, msg ApplyNod
 	res := NodeLeftDelayResultMsg{Origin: msg.Origin}
 	stmt := `ALTER TABLE %s.%s SET ("` + nodeLeftSetting + `" = ?)`
 	for i, t := range msg.Tables {
-		if _, err := reg.Query(ctx, fmt.Sprintf(stmt, quoteIdent(t[0]), quoteIdent(t[1]))+cratedb.ChangeTag, msg.Value); err != nil {
+		if _, err := reg.Query(ctx, fmt.Sprintf(stmt, cratedb.QuoteIdent(t[0]), cratedb.QuoteIdent(t[1]))+cratedb.ChangeTag, msg.Value); err != nil {
 			res.Error = fmt.Sprintf("set on %d of %d tables, then %s.%s: %v", i, len(msg.Tables), t[0], t[1], err)
 			return res
 		}

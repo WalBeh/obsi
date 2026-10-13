@@ -71,12 +71,12 @@ func TestReplicationViewEmptyAndScroll(t *testing.T) {
 	}
 
 	m := NewReplicationModel(130, 8).Refresh(replicationSnap(now))
-	if !strings.Contains(m.View(), "↓ ") {
+	if !strings.Contains(m.View(), "more lines") {
 		t.Fatalf("no scroll marker:\n%s", m.View())
 	}
 	m, _ = m.HandleKey(tea.KeyMsg{Type: tea.KeyEnd})
 	lines := strings.Split(m.View(), "\n")
-	if len(lines) != 8 || !strings.Contains(lines[0], "↑ ") || strings.Contains(m.View(), "↓ ") {
+	if len(lines) != 8 || !strings.Contains(lines[0], "↑ ") || strings.Count(m.View(), "more lines") != 1 {
 		t.Errorf("at the end:\n%s", m.View())
 	}
 }

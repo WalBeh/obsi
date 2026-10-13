@@ -49,13 +49,14 @@ func TestParseReplicaShards(t *testing.T) {
 		// table, partition, id, primary, state, docs, max_seq_no, size, copied bytes, copy ms
 		{"doc.a", "", float64(0), true, "STARTED", float64(10), float64(9), float64(1000), float64(900), float64(40)},
 		{"doc.a", "", float64(0), false, "STARTED", float64(10), float64(9), float64(1000), float64(1000), float64(50)},
-		{"doc.a", "", float64(1), false, "UNASSIGNED", float64(0), nil, nil, nil, nil},
+		{"doc.a", "", float64(1), false, "UNASSIGNED", float64(0), nil, nil, nil, nil},      // being copied
+		{"doc.p", "04132", float64(0), false, "UNASSIGNED", float64(0), nil, nil, nil, nil}, // a replica without a node
 		{"doc.p", "04132", float64(0), true, "STARTED", float64(3), float64(2), float64(300), float64(300), float64(10)},
 		{"doc.p", "04134", float64(0), true, "STARTED", float64(0), float64(-1), float64(100), nil, nil},
 	})
 	want := map[string]store.ReplicaShards{
 		"doc.a": {Shards: 2, Started: 1, Docs: 10, SeqNo: 10, Size: 1000, CopiedBytes: 900, CopyShardMs: 40},
-		"doc.p": {Shards: 2, Started: 2, Docs: 3, SeqNo: 3, Size: 400, CopiedBytes: 300, CopyShardMs: 10},
+		"doc.p": {Shards: 2, Started: 2, Docs: 3, SeqNo: 3, Size: 400, CopiedBytes: 300, CopyShardMs: 10, UnassignedReplicas: 1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -100,19 +101,6 @@ func TestParseLeases(t *testing.T) {
 	}
 }
 
-func TestParseLeasePeriod(t *testing.T) {
-	ddl := `CREATE TABLE IF NOT EXISTS "doc"."t" (...) WITH (
-   "soft_deletes.retention_lease.period" = 120000,
-   "store.type" = 'fs'
-)`
-	if got := parseLeasePeriod(ddl); got != 2*time.Minute {
-		t.Errorf("got %s", got)
-	}
-	if got := parseLeasePeriod(`CREATE TABLE "doc"."t" (a INT)`); got != defaultLeasePeriod {
-		t.Errorf("default: got %s", got)
-	}
-}
-
 // Review findings on phase 4: Reset doesn't wait for a running poll, and
 // tables whose period can't be read don't block the others.
 func TestReplicationCollectorResetAndFailedReads(t *testing.T) {
@@ -142,7 +130,7 @@ func TestReplicationCollectorResetAndFailedReads(t *testing.T) {
 	if len(c.periods) != len(tables) {
 		t.Errorf("second poll didn't move on: %d of %d recorded", len(c.periods), len(tables))
 	}
-	if c.period("doc.t00") != defaultLeasePeriod {
+	if c.period("doc.t00") != cratedb.DefaultLeasePeriod {
 		t.Errorf("failed read period = %s", c.period("doc.t00"))
 	}
 }

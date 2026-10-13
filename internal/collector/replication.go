@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,19 +34,14 @@ FROM sys.shards
 WHERE schema_name || '.' || table_name = ANY(?)`
 	// Not limited to published tables: a subscriber keeps pulling a table
 	// after it left its publication, or the publication was dropped.
+	partitionReplicasQuery = `SELECT table_schema || '.' || table_name, number_of_replicas
+FROM information_schema.table_partitions
+WHERE table_schema || '.' || table_name = ANY(?)`
 	leasesQuery = `SELECT now(), schema_name || '.' || table_name, seq_no_stats['max_seq_no'], retention_leases['leases']
 FROM sys.shards
 WHERE "primary" AND state = 'STARTED'
-  AND array_to_string(retention_leases['leases']['source'], ',') LIKE '%` + leaseSourcePrefix + `%'`
+  AND array_to_string(retention_leases['leases']['source'], ',') LIKE '%` + cratedb.LeaseSourcePrefix + `%'`
 )
-
-// leaseSourcePrefix starts the source of a retention lease a subscriber
-// holds; the rest is the subscriber's cluster name.
-const leaseSourcePrefix = "logical_replication:"
-
-// defaultLeasePeriod is soft_deletes.retention_lease.period when the table
-// doesn't set it. SHOW CREATE TABLE is the only place a set value shows.
-const defaultLeasePeriod = 12 * time.Hour
 
 const leasePeriodRefresh = 10 * time.Minute
 
@@ -61,8 +55,6 @@ const replSettingsQuery = `SELECT settings['replication']['logical'], settings['
 // maxPeriodReads caps SHOW CREATE TABLE per poll, so a publication with
 // many tables is read over a few polls.
 const maxPeriodReads = 20
-
-var leasePeriodRe = regexp.MustCompile(`"soft_deletes\.retention_lease\.period"\s*=\s*'?(\d+)`)
 
 type ReplicationCollector struct {
 	interval time.Duration
@@ -130,6 +122,16 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 	case len(tables) > 0:
 		if resp := part("shards", QueryReplicaShards, replicaShardsQuery, tables); resp != nil {
 			p.Shards = parseReplicaShards(resp.Rows)
+			if resp := part("partitions", QueryReplPartitionReplicas, partitionReplicasQuery, tables); resp != nil {
+				for _, row := range resp.Rows {
+					fqn := cratedb.ToString(row[0])
+					if n, ok := cratedb.MinReplicas(cratedb.ToString(row[1])); ok {
+						r := p.Shards[fqn]
+						r.PartitionReplicas = max(r.PartitionReplicas, n)
+						p.Shards[fqn] = r
+					}
+				}
+			}
 		}
 	}
 	// Publications are only listed to their owner and superusers: then
@@ -158,7 +160,7 @@ func (c *ReplicationCollector) Collect(ctx context.Context, reg *cratedb.Registr
 	st.UpdateReplication(p)
 	// Missing privileges would warn every poll; only a cluster that
 	// answers nothing is an error.
-	if len(p.Errs) == 5 {
+	if len(p.Errs) >= 5 {
 		return errors.New(p.Errs["subscriptions"])
 	}
 	return nil
@@ -215,7 +217,7 @@ func (c *ReplicationCollector) period(fqn string) time.Duration {
 	if p, ok := c.periods[fqn]; ok && p.d > 0 {
 		return p.d
 	}
-	return defaultLeasePeriod
+	return cratedb.DefaultLeasePeriod
 }
 
 // refreshPeriods reads soft_deletes.retention_lease.period of published
@@ -238,7 +240,7 @@ func (c *ReplicationCollector) refreshPeriods(ctx context.Context, reg *cratedb.
 		}
 		reads++
 		schema, table, _ := strings.Cut(fqn, ".")
-		resp, err := trackedQuery(ctx, c.tracker, QueryReplLeasePeriod, reg, fmt.Sprintf("SHOW CREATE TABLE %s.%s", quoteIdent(schema), quoteIdent(table)))
+		resp, err := trackedQuery(ctx, c.tracker, QueryReplLeasePeriod, reg, fmt.Sprintf("SHOW CREATE TABLE %s.%s", cratedb.QuoteIdent(schema), cratedb.QuoteIdent(table)))
 		if err != nil || len(resp.Rows) == 0 {
 			c.periods[fqn] = leasePeriod{at: time.Now()}
 			continue
@@ -247,15 +249,11 @@ func (c *ReplicationCollector) refreshPeriods(ctx context.Context, reg *cratedb.
 	}
 }
 
-func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
-
 func parseLeasePeriod(ddl string) time.Duration {
-	if m := leasePeriodRe.FindStringSubmatch(ddl); m != nil {
-		if ms, err := strconv.ParseInt(m[1], 10, 64); err == nil && ms > 0 {
-			return time.Duration(ms) * time.Millisecond
-		}
+	if d, ok := cratedb.LeasePeriodFromDDL(ddl); ok {
+		return d
 	}
-	return defaultLeasePeriod
+	return cratedb.DefaultLeasePeriod
 }
 
 func parseSubscriptions(rows [][]interface{}) []cratedb.Subscription {
@@ -346,6 +344,16 @@ func parseReplicaShards(rows [][]interface{}) map[string]store.ReplicaShards {
 		r.CopyShardMs += cratedb.ToInt64(row[9])
 		out[k.fqn] = r
 	}
+	// A replica waiting for a node; shards still being copied are
+	// UNASSIGNED without a started primary and don't count.
+	for _, row := range rows {
+		k := shardKey{cratedb.ToString(row[0]), cratedb.ToString(row[1]), cratedb.ToInt64(row[2])}
+		if !cratedb.ToBool(row[3]) && cratedb.ToString(row[4]) == "UNASSIGNED" && started[k] {
+			r := out[k.fqn]
+			r.UnassignedReplicas++
+			out[k.fqn] = r
+		}
+	}
 	return out
 }
 
@@ -356,7 +364,7 @@ func leasedTables(rows [][]interface{}) []string {
 	for _, row := range rows {
 		fqn := cratedb.ToString(row[1])
 		for _, l := range leases(row[3]) {
-			if strings.HasPrefix(cratedb.ToString(l["source"]), leaseSourcePrefix) && !seen[fqn] {
+			if strings.HasPrefix(cratedb.ToString(l["source"]), cratedb.LeaseSourcePrefix) && !seen[fqn] {
 				seen[fqn] = true
 				out = append(out, fqn)
 			}
@@ -391,7 +399,7 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 		fqn := cratedb.ToString(row[1])
 		maxSeq := cratedb.ToInt64(row[2])
 		for _, l := range leases(row[3]) {
-			name, ok := strings.CutPrefix(cratedb.ToString(l["source"]), leaseSourcePrefix)
+			name, ok := strings.CutPrefix(cratedb.ToString(l["source"]), cratedb.LeaseSourcePrefix)
 			if !ok {
 				continue
 			}
@@ -402,9 +410,7 @@ func parseLeases(rows [][]interface{}, now time.Time, period func(string) time.D
 			}
 			a.tables[fqn] = true
 			h := &a.holder
-			// After a file copy the lease stays at 0 until the first change
-			// arrives (6.4.5), whatever the subscriber holds.
-			if retaining := cratedb.ToInt64(l["retaining_seq_no"]); retaining == 0 && maxSeq > 0 {
+			if retaining := cratedb.ToInt64(l["retaining_seq_no"]); cratedb.LeaseUnpulled(retaining, maxSeq) {
 				h.Unknown++
 			} else {
 				h.Behind += max(maxSeq-retaining, 0)

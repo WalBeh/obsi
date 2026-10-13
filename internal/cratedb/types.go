@@ -2,6 +2,8 @@ package cratedb
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -16,7 +18,23 @@ type CrateDBError struct {
 }
 
 func (e *CrateDBError) Error() string {
+	if e.NotCrateDB() {
+		msg := fmt.Sprintf("%s answered %d %q, which isn't CrateDB: something in front of it has no route to the cluster",
+			e.Endpoint, e.StatusCode, strings.TrimSpace(e.Body))
+		if u, err := url.Parse(e.Endpoint); err == nil && strings.HasSuffix(strings.TrimSuffix(u.Hostname(), "."), ".cratedb.net") {
+			msg += ". On CrateDB Cloud a suspended cluster looks like this (suspending removes its route): resume it in the console"
+		}
+		return msg
+	}
 	return fmt.Sprintf("cratedb error (status %d) from %s: %s", e.StatusCode, e.Endpoint, e.Body)
+}
+
+// NotCrateDB is true for a 404 from /_sql that isn't JSON: CrateDB answers
+// those as JSON, an ingress or proxy without a route as plain text
+// ("404 page not found" from Traefik for a suspended Cloud cluster).
+// CrateDB's own 401s are plain text too, so only 404 counts.
+func (e *CrateDBError) NotCrateDB() bool {
+	return e.StatusCode == http.StatusNotFound && !strings.HasPrefix(strings.TrimSpace(e.Body), "{")
 }
 
 // SQLRequest is the JSON body sent to POST /_sql.

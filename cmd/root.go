@@ -41,6 +41,9 @@ func newRootCmd() *cobra.Command {
 		Long:  "A terminal-based monitoring tool for CrateDB clusters.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE:  runRoot,
+		// Past flag parsing an error is about the cluster, not the command
+		// line: the usage text after it buried the message.
+		PersistentPreRun: func(cmd *cobra.Command, _ []string) { cmd.SilenceUsage = true },
 	}
 
 	cmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "CrateDB URL, e.g. https://user:pass@host:4200")

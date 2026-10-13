@@ -31,6 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   that slot say so instead of having no reason. `e` there sets the limit.
 - `indices.recovery.max_bytes_per_sec` of 0 shows as unlimited, which is
   what CrateDB makes of it.
+- A 404 that doesn't come from CrateDB, e.g. "404 page not found" from
+  the ingress of a suspended CrateDB Cloud cluster, was reported as a
+  CrateDB error. obsi now says something in front of CrateDB has no route
+  to the cluster, and on `*.cratedb.net` that a suspended cluster looks
+  like this. Connection errors no longer end in the usage text.
 
 ## [0.5.0] - 2026-10-13
 

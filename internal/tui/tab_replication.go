@@ -335,7 +335,7 @@ var crateMessageRe = regexp.MustCompile(`"message"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 // JSON body, e.g. MissingPrivilegeException[...], else the first line.
 func crateMessage(err string) string {
 	if m := crateMessageRe.FindStringSubmatch(err); m != nil {
-		return strings.ReplaceAll(m[1], `\"`, `"`)
+		return strings.Join(strings.Fields(strings.NewReplacer(`\"`, `"`, `\n`, " ").Replace(m[1])), " ")
 	}
 	return firstLine(err)
 }

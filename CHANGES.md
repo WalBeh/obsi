@@ -17,6 +17,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   times, tables, every failed shard, the repository's settings as
   CrateDB shows them (credentials masked), and the cluster's health,
   node count and CrateDB versions, with the tables named in the failures.
+- With `--read-write`, the Snapshots tab changes repositories: `w` makes
+  one read-only or writable again, `e` changes its settings
+  (`ALTER REPOSITORY`, CrateDB 6.4) after a review, and `d` drops it
+  after you type its name. When an `ALTER REPOSITORY` fails, CrateDB still
+  keeps the new settings; obsi shows them and offers to set the previous
+  ones back.
 - The changes board lists `CREATE/ALTER/DROP REPOSITORY` under a new
   `repository` kind.
 

@@ -177,6 +177,18 @@ again.
   even for the running one; with a throttled snapshot that is minutes
 - `ALTER REPOSITORY … SET (max_restore_bytes_per_sec = '200kb')` works on
   6.4.5; `sys.repositories` shows the new value at once
+- a failed `ALTER REPOSITORY` keeps the new settings: a wrong endpoint
+  stays, a wrong `secret_key` leaves the repository listed with no
+  snapshots and no error, and a `max_retries` of `abc` is stored too
+- `ALTER REPOSITORY` and `DROP REPOSITORY` refuse while a snapshot runs in
+  that repository ("currently used"); an ALTER of another repository
+  waits for its verification, which queues on the snapshot thread pool
+  behind the running snapshot (39s in the lab)
+
+`-run Repolab` runs what `w`, `e`, `d` and the undo send: a read-only
+round trip, a failed ALTER undone, a wrong secret undone with the right
+one typed in, and a drop followed by the `CREATE REPOSITORY` the dialog
+shows, which lists the same snapshots again.
 
 `-run Settingslab` changes a replication setting on the subscriber and a
 lease period on the lab the way the Replication tab does.

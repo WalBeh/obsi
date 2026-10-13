@@ -679,3 +679,96 @@ func TestSnapshotslab(t *testing.T) {
 	ov.snap = snap
 	fmt.Println(ov.renderSnapshots())
 }
+
+// TestRepolab runs what the Snapshots tab's w, e, d and the undo after a
+// failed ALTER send, against the backup cluster (./scenarios.sh backup).
+// It changes lab_fs and lab_s3 and leaves them as they were.
+func TestRepolab(t *testing.T) {
+	ctx := context.Background()
+	reg := cratedb.NewRegistry("http://127.0.0.1:44230", "crate", "", 3*time.Second, 10*time.Second, time.Hour, time.Hour, false)
+	if err := reg.Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	repo := func(name string) cratedb.Repository {
+		t.Helper()
+		resp, err := reg.Query(ctx, `SELECT type, settings FROM sys.repositories WHERE name = ?`, name)
+		if err != nil || len(resp.Rows) == 0 {
+			t.Fatalf("repository %s: %v", name, err)
+		}
+		r := cratedb.Repository{Name: name, Type: cratedb.ToString(resp.Rows[0][0]), Settings: map[string]string{}}
+		for k, v := range resp.Rows[0][1].(map[string]interface{}) {
+			r.Settings[k] = fmt.Sprint(v)
+		}
+		return r
+	}
+	snapshots := func(name string) int {
+		resp, _ := reg.Query(ctx, `SELECT count(*) FROM sys.snapshots WHERE repository = ?`, name)
+		return int(cratedb.ToInt64(resp.Rows[0][0]))
+	}
+	run := func(m replModal, keys ...string) RepoResultMsg {
+		t.Helper()
+		cmd := typeModal(m, keys...)
+		if cmd == nil {
+			t.Fatalf("no statement:\n%s", m.render(140, 60))
+		}
+		return applyRepo(ctx, reg, cmd().(RepoApplyMsg))
+	}
+
+	// w twice: read-only refuses CREATE SNAPSHOT.
+	if res := run(&readOnlyToggle{repo: repo("lab_fs"), to: true}, "y"); res.Error != "" {
+		t.Fatal(res.Error)
+	}
+	if _, err := reg.Query(ctx, `CREATE SNAPSHOT lab_fs.ro_check ALL WITH (wait_for_completion = true)`); err == nil || !strings.Contains(err.Error(), "readonly") {
+		t.Errorf("snapshot into a read-only repository: %v", err)
+	}
+	if res := run(&readOnlyToggle{repo: repo("lab_fs"), to: false}, "y"); res.Error != "" || repo("lab_fs").ReadOnly() {
+		t.Fatalf("back to writable: %+v", res)
+	}
+
+	// A failed ALTER keeps the bad endpoint; the undo sets it back.
+	before := repo("lab_s3")
+	f := newRepoForm(before, repoGuard{})
+	keyIndex(t, f, "endpoint")
+	res := run(f, "enter", "backspace", "9", "enter", "r", "y") // s3:9000 → s3:9009
+	if !res.Undo || !res.Stored || res.Now["endpoint"] != "s3:9009" {
+		t.Fatalf("failed ALTER: %+v", res)
+	}
+	fmt.Println("failed ALTER:", res.Error)
+	if res := run(newRepoUndo(res), "u"); res.Error != "" || repo("lab_s3").Settings["endpoint"] != "s3:9000" {
+		t.Fatalf("undo: %+v, endpoint %s", res, repo("lab_s3").Settings["endpoint"])
+	}
+
+	// A wrong secret: masked before and after, so the undo asks for it.
+	f = newRepoForm(repo("lab_s3"), repoGuard{})
+	keyIndex(t, f, "secret_key")
+	res = run(f, "enter", "wrong", "enter", "r", "y")
+	if !res.Undo || len(res.undoKeys()) != 1 {
+		t.Fatalf("wrong secret: %+v", res)
+	}
+	if n := snapshots("lab_s3"); n != 0 {
+		t.Errorf("lab_s3 lists %d snapshots with a wrong secret_key", n)
+	}
+	if res := run(newRepoUndo(res), "enter", "obsilab-secret", "enter", "u"); res.Error != "" {
+		t.Fatalf("undo with the secret typed: %+v", res)
+	}
+	if n := snapshots("lab_s3"); n == 0 {
+		t.Error("lab_s3 lists no snapshots after the undo")
+	}
+	resp, _ := reg.Query(ctx, `SELECT stmt FROM sys.jobs_log WHERE stmt LIKE 'ALTER REPOSITORY "lab_s3" SET ("secret_key"%' ORDER BY ended DESC LIMIT 1`)
+	if len(resp.Rows) == 0 || strings.Contains(cratedb.ToString(resp.Rows[0][0]), "obsilab") {
+		t.Errorf("jobs_log: %v", resp.Rows)
+	}
+
+	// d, then the CREATE the drop dialog shows brings the snapshots back.
+	fs := repo("lab_fs")
+	n := snapshots("lab_fs")
+	if res := run(&repoDrop{repo: fs, snapshots: n}, "lab_fs", "enter"); res.Error != "" {
+		t.Fatal(res.Error)
+	}
+	if _, err := reg.Query(ctx, recreateRepo(fs)); err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshots("lab_fs"); got != n {
+		t.Errorf("after DROP and the shown CREATE lab_fs lists %d snapshots, before %d", got, n)
+	}
+}

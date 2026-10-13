@@ -23,7 +23,8 @@ const SnapshotsTick = time.Minute
 // repository index plus two blobs per snapshot, whatever the WHERE or
 // LIMIT. So it's read every configured interval, and sooner only when it
 // can have changed: a repository came, went or changed, a snapshot was
-// running, or someone asked (R).
+// running, or someone asked (R). The interval is counted in ticks, which
+// the throttle stretches like every other poll.
 const (
 	repositoriesQuery = `SELECT name, type, settings FROM sys.repositories`
 	restoresQuery     = `SELECT repository, name, state, shards['state'] FROM sys.snapshot_restore`
@@ -37,16 +38,16 @@ type SnapshotsCollector struct {
 	interval time.Duration // between sys.snapshots reads
 	tracker  *QueryTracker
 
-	mu       sync.Mutex // Collect runs from the poll loop and from R
-	listedAt time.Time
-	repoKey  string
-	running  bool // the last listing had a snapshot IN_PROGRESS
-	force    atomic.Bool
-	reset    atomic.Bool // set by Reset, which mustn't wait for a slow listing
+	mu      sync.Mutex // Collect runs from the poll loop and from R
+	ticks   int        // polls since the last listing; -1 before the first
+	repoKey string
+	running bool // the last listing had a snapshot IN_PROGRESS
+	force   atomic.Bool
+	reset   atomic.Bool // set by Reset, which mustn't wait for a slow listing
 }
 
 func NewSnapshotsCollector(cfg config.CollectorConfig, tracker *QueryTracker) *SnapshotsCollector {
-	return &SnapshotsCollector{interval: cfg.Interval.Duration, tracker: tracker}
+	return &SnapshotsCollector{interval: cfg.Interval.Duration, tracker: tracker, ticks: -1}
 }
 
 func (c *SnapshotsCollector) Name() string            { return "snapshots" }
@@ -61,7 +62,7 @@ func (c *SnapshotsCollector) Collect(ctx context.Context, reg *cratedb.Registry,
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.reset.Swap(false) {
-		c.listedAt, c.repoKey, c.running = time.Time{}, "", false
+		c.ticks, c.repoKey, c.running = -1, "", false
 	}
 	resp, err := trackedQuery(ctx, c.tracker, QuerySnapshotRepos, reg, repositoriesQuery)
 	if err != nil {
@@ -78,17 +79,21 @@ func (c *SnapshotsCollector) Collect(ctx context.Context, reg *cratedb.Registry,
 	key := repositoriesKey(repos)
 	force := c.force.Swap(false)
 	if len(repos) == 0 {
-		c.listedAt, c.repoKey, c.running = time.Now(), key, false
+		c.ticks, c.repoKey, c.running = 0, key, false
 		return nil
 	}
-	if !force && !c.running && key == c.repoKey && time.Since(c.listedAt) < c.interval {
+	if c.ticks >= 0 && !force {
+		c.ticks++
+	}
+	every := max(int((c.interval+c.Interval()-1)/c.Interval()), 1)
+	if !force && !c.running && key == c.repoKey && c.ticks >= 0 && c.ticks < every {
 		return nil
 	}
 	start := time.Now()
 	resp, err = trackedQuery(ctx, c.tracker, QuerySnapshots, reg, snapshotsQuery)
 	// A failed read waits for the interval too: it is the expensive one,
 	// e.g. timing out on a slow bucket. While a snapshot runs it's retried.
-	c.listedAt, c.repoKey = time.Now(), key
+	c.ticks, c.repoKey = 0, key
 	if err != nil {
 		st.SetSnapshotsError(true, err.Error())
 		return err

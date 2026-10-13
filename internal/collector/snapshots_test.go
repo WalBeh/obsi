@@ -132,6 +132,11 @@ func TestSnapshotsCollectorListsWhenDue(t *testing.T) {
 	state.Store("SUCCESS")
 	step("finished", 1)
 	step("then quiet", 0)
+	// 15m in 1m ticks; the throttle stretches the ticks, so the listing.
+	for range 13 {
+		step("within the interval", 0)
+	}
+	step("interval reached", 1)
 	fail.Store(true)
 	c.Force()
 	step("failing", 1)

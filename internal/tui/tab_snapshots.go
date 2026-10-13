@@ -26,7 +26,8 @@ type SnapshotsModel struct {
 	maxScroll int
 	selected  int // repositories first, then the shown snapshots
 	searching bool
-	search    string
+	search    string // matched anywhere in repository.name
+	repo      string // enter on a repository: only its snapshots
 }
 
 func NewSnapshotsModel(width, height int) SnapshotsModel {
@@ -52,13 +53,13 @@ func (m SnapshotsModel) inputMode() bool { return m.searching }
 
 // shown is the snapshots the filter lets through, newest first.
 func (m SnapshotsModel) shown() []cratedb.SnapshotInfo {
-	if m.search == "" {
+	if m.search == "" && m.repo == "" {
 		return m.st.Snapshots
 	}
 	q := strings.ToLower(m.search)
 	var out []cratedb.SnapshotInfo
 	for _, s := range m.st.Snapshots {
-		if strings.Contains(strings.ToLower(s.Repository+"."+s.Name), q) {
+		if (m.repo == "" || s.Repository == m.repo) && strings.Contains(strings.ToLower(s.Repository+"."+s.Name), q) {
 			out = append(out, s)
 		}
 	}
@@ -75,8 +76,8 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 		case tea.KeyEnter:
 			m.searching = false
 		case tea.KeyBackspace:
-			if m.search != "" {
-				m.search = m.search[:len(m.search)-1]
+			if r := []rune(m.search); len(r) > 0 {
+				m.search = string(r[:len(r)-1])
 			}
 		case tea.KeyRunes:
 			m.search += string(msg.Runes)
@@ -90,12 +91,12 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 		m.searching, m.search = true, ""
 		return m.clampScroll(), nil
 	case "esc":
-		m.search = ""
+		m.search, m.repo = "", ""
 		return m.clampScroll(), nil
 	case "enter":
 		// On a repository: show only its snapshots.
 		if m.selected < len(m.st.Repositories) {
-			m.search = m.st.Repositories[m.selected].Name + "."
+			m.repo = m.st.Repositories[m.selected].Name
 			m = m.clampScroll()
 			if len(m.shown()) > 0 {
 				m.selected = len(m.st.Repositories)
@@ -150,11 +151,24 @@ func (m SnapshotsModel) followSelection() SnapshotsModel {
 		for end+1 < len(lines) && strings.HasPrefix(lines[end+1], detailIndent) {
 			end++
 		}
-		switch {
-		case i < m.scroll+1:
+		// What's visible from a scroll position: the "more" markers take a
+		// line each, as in body.
+		last := func(scroll int) int {
+			room := m.bodyHeight()
+			if scroll > 0 {
+				room--
+			}
+			if scroll+room < len(lines) {
+				room--
+			}
+			return scroll + room - 1
+		}
+		if i <= m.scroll {
 			m.scroll = max(i-1, 0)
-		case end >= m.scroll+m.bodyHeight()-1:
-			m.scroll = min(end-m.bodyHeight()+2, i-1)
+		}
+		// Keep the row itself (and one line above it) in view.
+		for end > last(m.scroll) && m.scroll < i-1 {
+			m.scroll++
 		}
 		break
 	}
@@ -310,22 +324,29 @@ func (m SnapshotsModel) renderSnapshotList() []string {
 	if !st.ListedAt.IsZero() {
 		title += styleDim.Render(fmt.Sprintf("  listed %s, took %s", ageShort(m.now.Sub(st.ListedAt)), formatDuration(st.ListTook.Round(time.Millisecond))))
 		if st.ListEvery > 0 {
-			title += styleDim.Render(fmt.Sprintf(" · every %s, sooner while one runs", strings.TrimSuffix(st.ListEvery.String(), "0s")))
+			title += styleDim.Render(fmt.Sprintf(" · every %s, sooner while one runs", shortDuration(st.ListEvery)))
 		}
 	}
 	lines := []string{title}
+	var filter []string
+	if m.repo != "" {
+		filter = append(filter, "repository "+m.repo)
+	}
 	switch {
 	case m.searching:
-		lines = append(lines, fmt.Sprintf("  filter: %s▏", m.search))
+		filter = append(filter, m.search+"▏")
 	case m.search != "":
-		lines = append(lines, fmt.Sprintf("  filter: %q  %s", m.search, styleDim.Render("(esc clears)")))
+		filter = append(filter, fmt.Sprintf("%q", m.search))
+	}
+	if len(filter) > 0 {
+		lines = append(lines, "  filter: "+strings.Join(filter, " · ")+"  "+styleDim.Render("(esc clears)"))
 	}
 	if st.ListedAt.IsZero() {
 		return append(lines, styleDim.Render("  listing snapshots (reads every repository)..."))
 	}
 	shown := m.shown()
 	if len(shown) == 0 {
-		if m.search != "" {
+		if m.search != "" || m.repo != "" {
 			return append(lines, styleDim.Render("  no snapshot matches"))
 		}
 		return append(lines, styleHealthYellow.Render("  no snapshots"))
@@ -454,7 +475,24 @@ func snapshotTook(d time.Duration) string {
 	if d < time.Second {
 		return formatDuration(d.Round(time.Millisecond))
 	}
-	return strings.TrimSuffix(d.Round(time.Second).String(), "0s")
+	return shortDuration(d)
+}
+
+// shortDuration is d in whole seconds without zero parts: 10s, 5m45s,
+// 15m, 2h, 2h5m (no seconds from an hour on).
+func shortDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour && d%time.Minute == 0:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < time.Hour:
+		return formatDuration(d)
+	case d%time.Hour < time.Minute:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return formatDuration(d)
 }
 
 func snapshotStateStyle(state string) lipgloss.Style {

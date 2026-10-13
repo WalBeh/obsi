@@ -146,6 +146,13 @@ func TestReplicationHiddenCopy(t *testing.T) {
 	if strings.Contains(flat, "Subscription mine is copying") || strings.Contains(flat, "nightly") {
 		t.Errorf("listed subscription or a real restore flagged:\n%s", flat)
 	}
+	// Before pg_subscription was read, or when reading it failed, every
+	// copy would look like another user's.
+	for _, early := range []store.ReplicationState{{}, {UpdatedAt: time.Now(), User: "crate", Errs: map[string]string{"subscriptions": "boom"}}} {
+		if got := hiddenCopies(early, snap.Snapshots.Restores); got != nil {
+			t.Errorf("hidden copies with %+v: %v", early, got)
+		}
+	}
 	ov := NewOverviewModel(200, 40, true)
 	ov.snap = snap
 	if out := ov.renderReplication(); !strings.Contains(out, "s_owner2 copying (another user's subscription)") || strings.Contains(out, "mine copying") {

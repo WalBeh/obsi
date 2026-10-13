@@ -348,8 +348,12 @@ func (m ReplicationModel) layout() []string {
 // hiddenCopies are initial copies of subscriptions pg_subscription
 // doesn't list: another user owns them. The copy is a restore, and
 // sys.snapshot_restore shows it to every user; once it ends, obsi can't
-// tell the subscription exists.
+// tell the subscription exists. Nothing until pg_subscription was read:
+// before that every copy would look like another user's.
 func hiddenCopies(r store.ReplicationState, restores []cratedb.SnapshotRestore) []cratedb.SnapshotRestore {
+	if r.UpdatedAt.IsZero() || r.Errs["subscriptions"] != "" {
+		return nil
+	}
 	listed := map[string]bool{}
 	for _, s := range r.Subscriptions {
 		listed[s.Name] = true

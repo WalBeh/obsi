@@ -274,8 +274,7 @@ func (s *Store) Snapshot(throttleMultiplier int, hint SnapshotHint) StoreSnapsho
 	if hint.IncludeCluster {
 		snap.ClusterSettings = s.clusterSettings
 		snap.Summit = s.summit
-		snap.Snapshots = s.snapshots
-		snap.Snapshots.Snapshots = copySlice(s.snapshots.Snapshots)
+		snap.Snapshots = s.snapshots.copy()
 	}
 	if hint.IncludeHealth {
 		snap.ClusterChecks = copySlice(s.clusterChecks)

@@ -53,14 +53,24 @@ func TestRenderSnapshots(t *testing.T) {
 	if !strings.Contains(m.renderSnapshots(), "no snapshot repository configured") {
 		t.Error("want the no-repository line")
 	}
-	start := time.Date(2026, 9, 24, 3, 0, 0, 0, time.Local)
-	m.snap.Snapshots = store.SnapshotsState{UpdatedAt: time.Now(), Repositories: 1, Snapshots: []cratedb.SnapshotInfo{
-		{Repository: "backups", Name: "nightly", State: "PARTIAL", Started: start, Finished: start.Add(5 * time.Minute), Failures: 3},
+	repos := []cratedb.Repository{{Name: "backups"}, {Name: "offsite"}, {Name: "spare"}}
+	m.snap.Snapshots = store.SnapshotsState{UpdatedAt: time.Now(), Repositories: repos}
+	if !strings.Contains(m.renderSnapshots(), "listing snapshots") {
+		t.Error("want the listing line before the first sys.snapshots read")
+	}
+	m.snap.Snapshots = store.SnapshotsState{UpdatedAt: time.Now(), ListedAt: time.Now(), Repositories: repos, Snapshots: []cratedb.SnapshotInfo{
+		{Repository: "backups", Name: "now", State: "IN_PROGRESS"},
+		{Repository: "backups", Name: "nightly", State: "PARTIAL", Finished: time.Now().Add(-5 * time.Hour)},
+		{Repository: "backups", Name: "older", State: "FAILED", Finished: time.Now().Add(-29 * time.Hour)},
+		{Repository: "offsite", Name: "weekly", State: "SUCCESS", Finished: time.Now().Add(-72 * time.Hour)},
 	}}
 	out := m.renderSnapshots()
-	for _, want := range []string{"2026-09-24 03:00", "backups", "nightly", "PARTIAL", "5m", "3"} {
+	for _, want := range []string{"backups PARTIAL 5h ago", "offsite SUCCESS 3d ago", "spare no snapshots", "1 running", "8: details"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("section missing %q:\n%s", want, out)
+			t.Errorf("line missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "FAILED") {
+		t.Errorf("only the newest per repository counts:\n%s", out)
 	}
 }

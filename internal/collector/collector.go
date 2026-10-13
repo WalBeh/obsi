@@ -21,6 +21,12 @@ type Resetter interface {
 	Reset()
 }
 
+// Forcer is implemented by collectors that skip expensive reads between
+// their intervals; a manual refresh forces those.
+type Forcer interface {
+	Force()
+}
+
 // FastPathCollector is an optional interface for collectors that support
 // a lightweight, high-frequency collection mode for active monitoring.
 type FastPathCollector interface {

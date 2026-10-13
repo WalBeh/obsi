@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/waltergrande/cratedb-observer/internal/collector"
 	"github.com/waltergrande/cratedb-observer/internal/config"
 	"github.com/waltergrande/cratedb-observer/internal/store"
@@ -27,7 +28,7 @@ func newTestApp(t *testing.T) *App {
 func TestAppTabSwitching(t *testing.T) {
 	a := newTestApp(t)
 	// SQL last: its editor takes number keys as text.
-	for _, want := range []Tab{TabOverview, TabNodes, TabQueries, TabTables, TabShards, TabReplication, TabSQL} {
+	for _, want := range []Tab{TabOverview, TabNodes, TabQueries, TabTables, TabShards, TabReplication, TabSnapshots, TabSQL} {
 		a.Update(keyRune(rune('1' + want)))
 		if a.activeTab != want {
 			t.Errorf("key %d: activeTab=%d, want %d", want+1, a.activeTab, want)
@@ -39,12 +40,13 @@ func TestAppTabSwitching(t *testing.T) {
 		t.Errorf("tab from SQL: activeTab=%d, want replication", a.activeTab)
 	}
 	a.Update(keyType(tea.KeyTab))
+	a.Update(keyType(tea.KeyTab))
 	if a.activeTab != TabOverview {
-		t.Errorf("tab from replication: activeTab=%d, want overview (wrap)", a.activeTab)
+		t.Errorf("tab from snapshots: activeTab=%d, want overview (wrap)", a.activeTab)
 	}
 	a.Update(keyType(tea.KeyShiftTab))
-	if a.activeTab != TabReplication {
-		t.Errorf("shift+tab from overview: activeTab=%d, want replication", a.activeTab)
+	if a.activeTab != TabSnapshots {
+		t.Errorf("shift+tab from overview: activeTab=%d, want snapshots", a.activeTab)
 	}
 }
 
@@ -154,5 +156,17 @@ func TestAppTabLeavesSettingsEditor(t *testing.T) {
 	a.Update(keyType(tea.KeyTab))
 	if a.activeTab != TabNodes {
 		t.Errorf("tab in editor: activeTab=%d, want nodes", a.activeTab)
+	}
+}
+
+func TestTabBarFits80Columns(t *testing.T) {
+	a := newTestApp(t)
+	a.width = 80
+	if w := lipgloss.Width(a.renderTabBar()); w > 78 {
+		t.Errorf("tab bar is %d wide on 80 columns", w)
+	}
+	a.width = 160
+	if !strings.Contains(a.renderTabBar(), "  Snapshots  ") {
+		t.Error("wide terminals keep the usual padding")
 	}
 }

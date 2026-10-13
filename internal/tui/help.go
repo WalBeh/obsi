@@ -101,6 +101,14 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 			{"c", "replication settings: ops_batch_size, reads_poll_duration, chunk_size, max_concurrent_file_chunks, node_initial_primaries_recoveries"},
 			{km.Yank.Help().Key, "copy a subscribe ticket: CREATE SUBSCRIPTION to fill in, tables, publisher nodes and ports (also in read-only)"},
 		}
+	case TabSnapshots:
+		return "Snapshots", []helpEntry{
+			{"↑ ↓", "select a repository or snapshot; it opens with its details (scroll past either end)"},
+			{"enter", "on a repository: list only its snapshots"},
+			{"/", "filter snapshots by repository.name (esc clears)"},
+			{"pgup pgdn", "scroll"},
+			{km.Refresh.Help().Key, "list snapshots now (reads every repository)"},
+		}
 	case TabSQL:
 		return "SQL", []helpEntry{
 			{"enter", "run query"},
@@ -114,7 +122,14 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 
 // tabNotes explains what a tab shows where the tab itself has no room.
 func tabNotes(tab Tab) []string {
-	if tab != TabReplication {
+	switch tab {
+	case TabSnapshots:
+		return []string{
+			"Listing snapshots (sys.snapshots) reads every repository: its index and two files per snapshot, whatever the query asks for. obsi lists them every 15 minutes by default ([collectors.snapshots] interval), every minute while one runs, when a repository changes, and on R. Repositories and running restores are cluster state, read every minute.",
+			"A repository CrateDB can't read lists no snapshots and gives no error.",
+		}
+	case TabReplication:
+	default:
 		return nil
 	}
 	return []string{
@@ -126,7 +141,7 @@ func tabNotes(tab Tab) []string {
 
 func globalHelp(km KeyMap) []helpEntry {
 	return []helpEntry{
-		{"1-7", "switch tab"},
+		{"1-8", "switch tab"},
 		{km.NextTab.Help().Key + " " + km.PrevTab.Help().Key, "next / prev tab"},
 		bindingHelp(km.Refresh),
 		bindingHelp(km.Throttle),

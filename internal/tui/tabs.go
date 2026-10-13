@@ -95,6 +95,13 @@ func (a *App) tabs() []tabModel {
 			hint:       store.SnapshotHint{IncludeTables: true, IncludeNodes: true},
 			collectors: []string{"replication"},
 		},
+		TabSnapshots: tab[SnapshotsModel]{
+			m: &a.snapshots, refresh: SnapshotsModel.Refresh, setSize: SnapshotsModel.SetSize,
+			handleKey: SnapshotsModel.HandleKey, view: SnapshotsModel.View,
+			inputMode:  SnapshotsModel.inputMode,
+			hint:       store.SnapshotHint{IncludeCluster: true, IncludeNodes: true},
+			collectors: []string{"snapshots"},
+		},
 		TabSQL: tab[SQLModel]{
 			m: &a.sql, setSize: SQLModel.SetSize,
 			handleKey: SQLModel.HandleKey, view: SQLModel.View,

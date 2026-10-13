@@ -39,6 +39,7 @@ const (
 	QueryChangesTables         = "changes.table_settings"
 	QuerySnapshotRepos         = "snapshots.repositories"
 	QuerySnapshots             = "snapshots.list"
+	QuerySnapshotRestores      = "snapshots.restores"
 	QueryReplSubscriptions     = "replication.subscriptions"
 	QueryReplPublications      = "replication.publications"
 	QueryReplicaShards         = "replication.replica_shards"
@@ -123,7 +124,8 @@ func NewQueryTracker(cfg map[string]config.CollectorConfig, connCfg config.Conne
 		{QueryChangesLog, "changes", ci("changes")},
 		{QueryChangesCluster, "changes", ci("changes")},
 		{QueryChangesTables, "changes", 0},
-		{QuerySnapshotRepos, "snapshots", ci("snapshots")},
+		{QuerySnapshotRepos, "snapshots", min(ci("snapshots"), SnapshotsTick)},
+		{QuerySnapshotRestores, "snapshots", min(ci("snapshots"), SnapshotsTick)},
 		{QuerySnapshots, "snapshots", ci("snapshots")},
 		{QueryReplSubscriptions, "replication", ci("replication")},
 		{QueryReplPublications, "replication", ci("replication")},

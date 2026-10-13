@@ -43,6 +43,7 @@ func TestCheckRepoValue(t *testing.T) {
 		{"bool", "true", true}, {"bool", "yes", false},
 		{"int", "5", true}, {"int", "abc", false}, {"int", "-1", false},
 		{"size", "64mb", true}, {"size", "0", true}, {"size", "lots", false},
+		{"size", "64m", true}, {"size", "512K", true}, {"size", "1.5gb", true}, {"size", "64", false},
 		{"time", "30s", true}, {"time", "0", true}, {"time", "soon", false},
 		{"protocol", "http", true}, {"protocol", "ftp", false},
 		{"text", "anything", true},
@@ -211,8 +212,13 @@ func TestRepoUndo(t *testing.T) {
 		}
 	}
 	// Without the old secret: endpoint set back, region reset, secret left.
-	if s := u.stmts(); len(s) != 2 || s[0].SQL != `ALTER REPOSITORY "lab_s3" SET ("endpoint" = ?)` || s[1].SQL != `ALTER REPOSITORY "lab_s3" RESET ("region")` {
+	if s, sent := u.stmts(); !reflect.DeepEqual(sent, []string{"endpoint", "region"}) || len(s) != 2 || s[0].SQL != `ALTER REPOSITORY "lab_s3" SET ("endpoint" = ?)` || s[1].SQL != `ALTER REPOSITORY "lab_s3" RESET ("region")` {
 		t.Errorf("stmts = %+v", s)
+	}
+	// The undo names only the keys it sends: an untouched secret can't be
+	// reported as changed by a failing undo.
+	if apply := typeModal(newRepoUndo(res), "u")().(RepoApplyMsg); !reflect.DeepEqual(apply.Changed, []string{"endpoint", "region"}) {
+		t.Errorf("undo without the secret: Changed = %v", apply.Changed)
 	}
 	typeModal(u, "enter", "old", "enter")
 	apply := typeModal(u, "u")().(RepoApplyMsg)
@@ -221,5 +227,23 @@ func TestRepoUndo(t *testing.T) {
 	}
 	if !apply.Alter || apply.Before["endpoint"] != "s3:9999" {
 		t.Errorf("undo of the undo: %+v", apply)
+	}
+}
+
+// Every verification failure means CrateDB stored the settings first,
+// whatever the message says.
+func TestStoredBeforeFailure(t *testing.T) {
+	for msg, want := range map[string]bool{
+		`RepositoryVerificationException[[r] path [/x] is not accessible on master node]`:         true,
+		`RepositoryVerificationException[[r] Unable to verify the repository, [r] is not ...]`:    true,
+		`SQLParseException[Setting 'bucket' is not supported]`:                                    false,
+		`IllegalStateException[trying to modify or unregister repository that is currently used]`: false,
+	} {
+		if got := storedBeforeFailure(msg, false); got != want {
+			t.Errorf("%s: stored %v", msg, got)
+		}
+	}
+	if !storedBeforeFailure("", true) {
+		t.Error("a timeout may have stored them")
 	}
 }

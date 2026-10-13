@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,12 +91,24 @@ func applyRepo(ctx context.Context, reg *cratedb.Registry, msg RepoApplyMsg) Rep
 			}
 		}
 		res.Before, res.Now, res.Changed = msg.Before, now, msg.Changed
-		res.Stored = timedOut || strings.Contains(err.Error(), "verify")
+		res.Stored = storedBeforeFailure(err.Error(), timedOut)
 		res.Undo = len(res.undoKeys()) > 0
 		return res
 	}
 	return RepoResultMsg{Repo: msg.Repo, Note: msg.Done}
 }
+
+// storedBeforeFailure says whether CrateDB stored an ALTER's settings
+// before it failed: it verifies after storing, and every failure there is
+// a RepositoryVerificationException, whatever its wording. A timeout may
+// be one still running.
+func storedBeforeFailure(err string, timedOut bool) bool {
+	return timedOut || strings.Contains(err, "RepositoryVerificationException")
+}
+
+// repoSizeRe is what CrateDB's ByteSizeValue parses: a number with a unit,
+// short or long (64m, 64mb), or 0.
+var repoSizeRe = regexp.MustCompile(`(?i)^(0|\d+(\.\d+)?(b|k|kb|m|mb|g|gb|t|tb|p|pb))$`)
 
 // checkRepoValue catches values CrateDB would only reject when verifying,
 // after it has stored them: a stored max_retries = 'abc' leaves the
@@ -111,7 +124,7 @@ func checkRepoValue(k cratedb.RepositoryKey, v string) string {
 			return k.Name + " is a whole number"
 		}
 	case "size":
-		if v != "0" && parseByteRate(v) <= 0 {
+		if !repoSizeRe.MatchString(v) {
 			return k.Name + " is a size like 64mb or 512kb"
 		}
 	case "time":
@@ -609,9 +622,11 @@ func (u *repoUndo) masked() []string {
 	return out
 }
 
-func (u *repoUndo) stmts() []repoStmt {
+// stmts sets back what it can, and names the keys it sends: a masked key
+// nobody typed a value for is left out.
+func (u *repoUndo) stmts() ([]repoStmt, []string) {
 	name := cratedb.QuoteIdent(u.res.Repo)
-	var set, reset []string
+	var set, reset, sent []string
 	var args []interface{}
 	for _, k := range u.keys {
 		before, wasSet := u.res.Before[k]
@@ -619,14 +634,17 @@ func (u *repoUndo) stmts() []repoStmt {
 		case !wasSet:
 			reset = append(reset, cratedb.QuoteIdent(k))
 		case before == cratedb.MaskedValue:
-			if v := u.asked[k]; v != "" {
-				set = append(set, cratedb.QuoteIdent(k)+" = ?")
-				args = append(args, v)
+			v := u.asked[k]
+			if v == "" {
+				continue
 			}
+			set = append(set, cratedb.QuoteIdent(k)+" = ?")
+			args = append(args, v)
 		default:
 			set = append(set, cratedb.QuoteIdent(k)+" = ?")
 			args = append(args, before)
 		}
+		sent = append(sent, k)
 	}
 	var out []repoStmt
 	if len(set) > 0 {
@@ -635,7 +653,7 @@ func (u *repoUndo) stmts() []repoStmt {
 	if len(reset) > 0 {
 		out = append(out, repoStmt{SQL: fmt.Sprintf("ALTER REPOSITORY %s RESET (%s)", name, strings.Join(reset, ", "))})
 	}
-	return out
+	return out, sent
 }
 
 func (u *repoUndo) key(msg tea.KeyMsg) (bool, tea.Cmd) {
@@ -666,11 +684,11 @@ func (u *repoUndo) key(msg tea.KeyMsg) (bool, tea.Cmd) {
 			u.typing = true
 		}
 	case "u":
-		stmts := u.stmts()
+		stmts, sent := u.stmts()
 		if len(stmts) == 0 {
 			return false, nil
 		}
-		apply := RepoApplyMsg{Repo: u.res.Repo, Stmts: stmts, Alter: true, Before: u.res.Now, Changed: u.keys,
+		apply := RepoApplyMsg{Repo: u.res.Repo, Stmts: stmts, Alter: true, Before: u.res.Now, Changed: sent,
 			Done: fmt.Sprintf("repository %s: previous settings set back", u.res.Repo)}
 		return true, func() tea.Msg { return apply }
 	}
@@ -719,7 +737,7 @@ func (u *repoUndo) render(width, height int) string {
 		add(styleDim, "CrateDB doesn't show credentials, so obsi can't set them back by itself.")
 	}
 	lines = append(lines, "")
-	if len(u.stmts()) == 0 {
+	if stmts, _ := u.stmts(); len(stmts) == 0 {
 		add(styleDim, "Nothing obsi can set back without the previous values.")
 	} else {
 		add(styleDim, "Setting them back verifies again and can fail the same way (e.g. the storage is unreachable); the previous settings stay either way.")

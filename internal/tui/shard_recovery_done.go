@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -103,13 +104,33 @@ func (m ShardsModel) addFinished(msg FinishedRecoveriesMsg) ShardsModel {
 	return m
 }
 
+// localStage says what a primary opening from its own disk is doing;
+// sys.shards has the stage but no translog progress.
+func localStage(stage string) string {
+	switch stage {
+	case "INIT", "":
+		return "starting"
+	case "INDEX":
+		return "reading its files"
+	case "VERIFY_INDEX":
+		return "checking its files"
+	case "TRANSLOG":
+		return "replaying the translog"
+	case "FINALIZE":
+		return "finishing"
+	case "DONE":
+		return "done, about to start"
+	}
+	return strings.ToLower(stage)
+}
+
 // recoveryStatus says whether the throttle is what limits a running copy.
 // elapsed only undercounts (obsi may have come late), so "slower" is certain.
 func recoveryStatus(r recovery, elapsed time.Duration) (string, bool) {
 	fastest := r.fastest()
 	switch {
 	case r.from == "":
-		return "from its own disk, not throttled", false
+		return "own disk: " + localStage(r.shard.RecoveryStage), false
 	case fastest == 0:
 		return "", false
 	case elapsed > fastest:

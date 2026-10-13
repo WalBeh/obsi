@@ -107,6 +107,11 @@ func diagnoseShard(s cratedb.ShardInfo, a cratedb.AllocationInfo, cs cratedb.Clu
 	if strings.Contains(all, "reached the limit of incoming shard recoveries") || strings.Contains(all, "reached the limit of outgoing shard recoveries") {
 		add(shardFix{key: "throttled", cause: "waiting for a recovery slot (node_concurrent_recoveries)"})
 	}
+	// A primary opening from its own disk, a snapshot or a replication copy
+	// waits for its own slot, as after a full restart.
+	if strings.Contains(all, "reached the limit of ongoing initial primary recoveries") {
+		add(shardFix{key: "primary-throttled", cause: "waiting for a primary recovery slot (node_initial_primaries_recoveries): primaries open one batch after another, from their own disk, a snapshot or a replication copy"})
+	}
 	return fixes
 }
 

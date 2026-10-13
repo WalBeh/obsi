@@ -196,6 +196,16 @@ again.
   waits for its verification, which queues on the snapshot thread pool
   behind the running snapshot (39s in the lab)
 
+A full restart of the backup cluster (`docker kill` both, then start;
+`doc.rec`, 60 shards, `node_initial_primaries_recoveries` = 2) shows the
+primaries' side of recovery: each waits in `sys.allocations` with
+"reached the limit of ongoing initial primary recoveries [2], cluster
+setting [cluster.routing.allocation.node_initial_primaries_recoveries=2]"
+and is listed by `sys.shards` as UNASSIGNED with `primary` false. Even
+with ~700MB of translog each shard opened in about half a second here, so
+the stages before DONE (INIT, INDEX, VERIFY_INDEX, TRANSLOG, FINALIZE)
+weren't caught; `sys.shards.recovery` has no translog progress.
+
 `-run Repolab` runs what `w`, `e`, `d` and the undo send: a read-only
 round trip, a failed ALTER undone, a wrong secret undone with the right
 one typed in, and a drop followed by the `CREATE REPOSITORY` the dialog

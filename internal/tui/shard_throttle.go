@@ -38,11 +38,13 @@ var throttlePaths = []string{
 	"indices.recovery.max_bytes_per_sec",
 	"cluster.routing.allocation.node_concurrent_recoveries",
 	"cluster.routing.allocation.cluster_concurrent_rebalance",
+	"cluster.routing.allocation.node_initial_primaries_recoveries",
 }
 
 func (m ShardsModel) newThrottleForm() *throttleForm {
 	cs := m.snap.ClusterSettings
-	vals := []string{cs.RecoveryMaxBytesPerSec, strconv.Itoa(cs.NodeConcurrentRecoveries), strconv.Itoa(cs.ClusterConcurrentRebalance)}
+	vals := []string{cs.RecoveryMaxBytesPerSec, strconv.Itoa(cs.NodeConcurrentRecoveries), strconv.Itoa(cs.ClusterConcurrentRebalance),
+		strconv.Itoa(cs.NodeInitialPrimariesRecoveries)}
 	f := &throttleForm{}
 	for i, p := range throttlePaths {
 		f.fields = append(f.fields, throttleField{path: p, value: vals[i], orig: vals[i]})
@@ -136,7 +138,7 @@ func (m ShardsModel) renderThrottleForm() string {
 		if i == f.cursor {
 			marker, val = "▸ ", styleEditInput.Render(fl.value+"▏")
 		}
-		lines = append(lines, fmt.Sprintf("%s%-56s %s", marker, fl.path, val))
+		lines = append(lines, fmt.Sprintf("%s%-60s %s", marker, fl.path, val))
 	}
 	lines = append(lines, "",
 		styleDim.Render("Set TRANSIENT: gone after a full cluster restart. Allowed in read-only mode."),

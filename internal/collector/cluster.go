@@ -32,7 +32,8 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 		settings['cluster']['routing']['allocation']['disk']['watermark']['low'] AS wm_low,
 		settings['cluster']['routing']['allocation']['disk']['watermark']['high'] AS wm_high,
 		settings['cluster']['routing']['allocation']['disk']['watermark']['flood_stage'] AS wm_flood,
-		settings['cluster']['routing']['rebalance']['enable'] AS rebalance_enable
+		settings['cluster']['routing']['rebalance']['enable'] AS rebalance_enable,
+		settings['cluster']['routing']['allocation']['node_initial_primaries_recoveries'] AS initial_primaries
 	FROM sys.cluster`)
 	if err != nil {
 		return err
@@ -53,6 +54,9 @@ func (c *ClusterCollector) Collect(ctx context.Context, reg *cratedb.Registry, s
 		DiskWatermarkHigh:          cratedb.ToString(row[6]),
 		DiskWatermarkFlood:         cratedb.ToString(row[7]),
 		RebalanceEnable:            cratedb.ToString(row[8]),
+	}
+	if len(row) > 9 {
+		settings.NodeInitialPrimariesRecoveries = int(cratedb.ToFloat64(row[9]))
 	}
 
 	st.UpdateClusterSettings(settings)

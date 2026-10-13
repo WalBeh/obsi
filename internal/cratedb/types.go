@@ -91,15 +91,18 @@ type NodeHealth struct {
 
 // ClusterSettings holds key cluster-level settings from sys.cluster.
 type ClusterSettings struct {
-	MaxShardsPerNode           int
-	AllocationEnable           string // "all", "primaries", "new_primaries", "none"
-	NodeConcurrentRecoveries   int
-	ClusterConcurrentRebalance int
-	RecoveryMaxBytesPerSec     string // e.g. "40mb"
-	DiskWatermarkLow           string // e.g. "85%"
-	DiskWatermarkHigh          string // e.g. "90%"
-	DiskWatermarkFlood         string // e.g. "95%"
-	RebalanceEnable            string // "all", "primaries", "replicas", "none"
+	MaxShardsPerNode         int
+	AllocationEnable         string // "all", "primaries", "new_primaries", "none"
+	NodeConcurrentRecoveries int
+	// NodeInitialPrimariesRecoveries caps primaries a node opens from its
+	// own disk, a snapshot or a replication copy at once.
+	NodeInitialPrimariesRecoveries int
+	ClusterConcurrentRebalance     int
+	RecoveryMaxBytesPerSec         string // e.g. "40mb"
+	DiskWatermarkLow               string // e.g. "85%"
+	DiskWatermarkHigh              string // e.g. "90%"
+	DiskWatermarkFlood             string // e.g. "95%"
+	RebalanceEnable                string // "all", "primaries", "replicas", "none"
 }
 
 // Summit is a random mountain from sys.summits — CrateDB's Easter egg.

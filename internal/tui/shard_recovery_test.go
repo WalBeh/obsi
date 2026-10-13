@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/waltergrande/cratedb-observer/internal/cratedb"
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
@@ -119,5 +122,61 @@ func TestRecoveryMovingReplicaSource(t *testing.T) {
 	m := NewShardsModel(160, 50).Refresh(snap)
 	if len(m.recoveries) != 1 || m.recoveries[0].from != "lab3" || m.recoveries[0].to != "lab1" || m.recoveries[0].size != 350 {
 		t.Fatalf("recoveries = %+v", m.recoveries)
+	}
+}
+
+// After a full restart (the reported case): primaries open from their own
+// disk, limited by node_initial_primaries_recoveries, not by
+// node_concurrent_recoveries or max_bytes_per_sec; the rest wait with the
+// decider message checked on the lab.
+func TestRecoveryViewLocalPrimaries(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	shards := []cratedb.ShardInfo{
+		{SchemaName: "doc", TableName: "sensor", ID: 0, Primary: true, RoutingState: "INITIALIZING", NodeID: "n1", NodeName: "lab1", RecoveryType: "EXISTING_STORE", RecoveryStage: "TRANSLOG"},
+		{SchemaName: "doc", TableName: "sensor", ID: 1, Primary: true, RoutingState: "INITIALIZING", NodeID: "n1", NodeName: "lab1", RecoveryType: "EXISTING_STORE", RecoveryStage: "DONE", Size: 40 << 20},
+		{SchemaName: "doc", TableName: "sensor", ID: 2, RoutingState: "UNASSIGNED"},
+		{SchemaName: "doc", TableName: "restored", ID: 0, Primary: true, RoutingState: "INITIALIZING", NodeID: "n2", NodeName: "lab2", RecoveryType: "SNAPSHOT", RecoveryStage: "INDEX"},
+		{SchemaName: "doc", TableName: "x", ID: 0, Primary: true, RoutingState: "STARTED", NodeID: "n2", NodeName: "lab2"},
+	}
+	allocs := []cratedb.AllocationInfo{
+		{TableSchema: "doc", TableName: "sensor", ShardID: 0, Primary: true, CurrentState: "INITIALIZING", NodeID: "n1"},
+		{TableSchema: "doc", TableName: "sensor", ShardID: 1, Primary: true, CurrentState: "INITIALIZING", NodeID: "n1"},
+		{TableSchema: "doc", TableName: "restored", ShardID: 0, Primary: true, CurrentState: "INITIALIZING", NodeID: "n2"},
+		{TableSchema: "doc", TableName: "sensor", ShardID: 2, Primary: true, CurrentState: "UNASSIGNED",
+			Decisions: []cratedb.AllocationDecision{decision("lab1", "reached the limit of ongoing initial primary recoveries [2], cluster setting [cluster.routing.allocation.node_initial_primaries_recoveries=2]")}},
+	}
+	snap := store.StoreSnapshot{Shards: shards, Allocations: allocs, ClusterSettings: cratedb.ClusterSettings{
+		NodeConcurrentRecoveries: 8, NodeInitialPrimariesRecoveries: 2, RecoveryMaxBytesPerSec: "0b"}}
+	m := NewShardsModel(220, 60).Refresh(snap)
+	if m.queuedLocal != 1 || m.queued != 0 {
+		t.Fatalf("queuedLocal=%d queued=%d", m.queuedLocal, m.queued)
+	}
+	if out := m.View(); !strings.Contains(out, "waiting for a primary recovery slot (node_initial_primaries_recoveries)") {
+		t.Errorf("no reason for the queued primary:\n%s", out)
+	}
+	m, _ = m.HandleKey(keyRune('v'))
+	out := strings.Join(m.renderRecovery(time.Now(), 60), "\n")
+	for _, want := range []string{
+		"Copies: 0 running · 0 queued for a slot · 8 in/out per node (node_concurrent_recoveries) · unlimited per node",
+		"Primaries opening (own disk, snapshot or replication): 3 running · 1 queued · 2 per node (node_initial_primaries_recoveries) · from a snapshot also max_bytes_per_sec",
+		"OPENING", "0/8     0/8     2/2", "0/8     0/8     1/2",
+		"own disk: replaying the translog", "own disk: done, about to start",
+		"snapshot → lab2", "snapshot or replication copy: reading its files",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("recovery view missing %q:\n%s", want, out)
+		}
+	}
+	// No size while the files aren't open; 40MB once they are.
+	if !regexp.MustCompile(`sensor\s+0\s+P\s+local disk → lab1\s+\?`).MatchString(out) || !strings.Contains(out, "40.0MB") {
+		t.Errorf("sizes:\n%s", out)
+	}
+}
+
+func TestRateLabel(t *testing.T) {
+	for in, want := range map[string]string{"40mb": "40mb", "0b": "unlimited", "0": "unlimited", "-1": "unlimited", "0mb": "unlimited", "": "?"} {
+		if got := rateLabel(in); got != want {
+			t.Errorf("rateLabel(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -63,11 +63,14 @@ func (m *ShardsModel) buildRecoveries(now time.Time) {
 	seen := map[string]bool{}
 	prev := m.recoveries
 	m.recoveries = nil
-	m.queued = 0
+	m.queued, m.queuedLocal = 0, 0
 	for i, s := range m.problemShards {
 		for _, f := range m.fixes[i] {
-			if f.key == "throttled" {
+			switch f.key {
+			case "throttled":
 				m.queued++
+			case "primary-throttled":
+				m.queuedLocal++
 			}
 		}
 		var r recovery
@@ -175,25 +178,54 @@ func parseByteRate(s string) int64 {
 	return 0
 }
 
+// rateLabel is indices.recovery.max_bytes_per_sec as CrateDB applies it:
+// 0 or less turns the rate limiter off.
+func rateLabel(v string) string {
+	if v == "" {
+		return "?"
+	}
+	n, err := strconv.ParseFloat(strings.TrimRight(strings.ToLower(strings.TrimSpace(v)), "kmgtpb"), 64)
+	if err == nil && n <= 0 {
+		return "unlimited"
+	}
+	return v
+}
+
 func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 	cs := m.snap.ClusterSettings
-	slots := "?"
+	slots, localSlots := "?", "?"
 	if cs.NodeConcurrentRecoveries > 0 {
 		slots = strconv.Itoa(cs.NodeConcurrentRecoveries)
 	}
-	rate := cs.RecoveryMaxBytesPerSec
-	if rate == "" {
-		rate = "?"
+	if cs.NodeInitialPrimariesRecoveries > 0 {
+		localSlots = strconv.Itoa(cs.NodeInitialPrimariesRecoveries)
 	}
-	lines := []string{fmt.Sprintf("  Recovery: %d running · %d queued for a slot · %s in/out per node (node_concurrent_recoveries) · %s per node (indices.recovery.max_bytes_per_sec)",
-		len(m.recoveries), m.queued, slots, rate)}
-
-	in, out := map[string]int{}, map[string]int{}
+	in, out, local := map[string]int{}, map[string]int{}, map[string]int{}
+	locals, restores := 0, 0
 	for _, r := range m.recoveries {
-		in[r.to]++
-		if r.from != "" {
-			out[r.from]++
+		if r.from == "" {
+			local[r.to]++
+			locals++
+			if r.shard.RecoveryType == "SNAPSHOT" {
+				restores++
+			}
+			continue
 		}
+		in[r.to]++
+		out[r.from]++
+	}
+	lines := []string{fmt.Sprintf("  Copies: %d running · %d queued for a slot · %s in/out per node (node_concurrent_recoveries) · %s per node (indices.recovery.max_bytes_per_sec)",
+		len(m.recoveries)-locals, m.queued, slots, rateLabel(cs.RecoveryMaxBytesPerSec))}
+	showLocal := locals > 0 || m.queuedLocal > 0
+	if showLocal {
+		line := fmt.Sprintf("  Primaries opening (own disk, snapshot or replication): %d running · %d queued · %s per node (node_initial_primaries_recoveries)",
+			locals, m.queuedLocal, localSlots)
+		// RESTORE SNAPSHOT reads through both limits; own disk and a
+		// replication copy through neither.
+		if restores > 0 {
+			line += " · from a snapshot also max_bytes_per_sec and the repository's max_restore_bytes_per_sec"
+		}
+		lines = append(lines, line)
 	}
 	var nodes []string
 	for id, name := range m.nodeNames {
@@ -207,10 +239,18 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 	sort.Strings(nodes)
 	throttle := parseByteRate(cs.RecoveryMaxBytesPerSec)
 	peaks := nodePeaks(m.history)
-	lines = append(lines, "", styleHeader.Render(fmt.Sprintf("  %-20s %7s %7s  %-18s", "NODE", "IN", "OUT", "MOVED, LAST HOUR")))
+	localHdr := ""
+	if showLocal {
+		localHdr = fmt.Sprintf(" %7s", "OPENING")
+	}
+	lines = append(lines, "", styleHeader.Render(fmt.Sprintf("  %-20s %7s %7s%s  %-18s", "NODE", "IN", "OUT", localHdr, "MOVED, LAST HOUR")))
 	for _, n := range nodes {
 		row := fmt.Sprintf("  %-20s %7s %7s", truncateString(n, 20), fmt.Sprintf("%d/%s", in[n], slots), fmt.Sprintf("%d/%s", out[n], slots))
-		if cs.NodeConcurrentRecoveries > 0 && (in[n] >= cs.NodeConcurrentRecoveries || out[n] >= cs.NodeConcurrentRecoveries) {
+		if showLocal {
+			row += fmt.Sprintf(" %7s", fmt.Sprintf("%d/%s", local[n], localSlots))
+		}
+		if (cs.NodeConcurrentRecoveries > 0 && (in[n] >= cs.NodeConcurrentRecoveries || out[n] >= cs.NodeConcurrentRecoveries)) ||
+			(cs.NodeInitialPrimariesRecoveries > 0 && local[n] >= cs.NodeInitialPrimariesRecoveries) {
 			row = styleHealthYellow.Render(row)
 		}
 		peak := styleDim.Render("—")
@@ -264,6 +304,9 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		from := r.from
 		if from == "" {
 			from = "local disk"
+			if r.shard.RecoveryType == "SNAPSHOT" {
+				from = "snapshot"
+			}
 		}
 		fastest := "?"
 		if d := r.fastest(); d > 0 {
@@ -286,9 +329,13 @@ func (m ShardsModel) renderRecovery(now time.Time, height int) []string {
 		if _, ok := m.movedBack(r, r.since); ok {
 			mark = styleHealthYellow.Render("↩ ")
 		}
+		size := formatBytes(r.size)
+		if r.from == "" && r.size == 0 {
+			size = "?" // not known until the shard's files are open
+		}
 		lines = append(lines, fmt.Sprintf("%s%-28s %5d  %s  %-29s %10s %9s %8s  %s", mark,
 			truncateString(r.shard.SchemaName+"."+r.shard.TableName, 28), r.shard.ID, pr,
-			truncateString(from+" → "+r.to, 29), formatBytes(r.size),
+			truncateString(from+" → "+r.to, 29), size,
 			shown, fastest, status))
 	}
 	return append(lines, m.renderFinished()...)

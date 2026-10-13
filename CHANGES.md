@@ -23,6 +23,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tab now says so when it finds none. A subscriber pulling tables from
   another user's publication was marked as pulling unpublished tables;
   the mark now says it may be either.
+- The Shards recovery view after a full restart: primaries opening from
+  their own disk were counted against `node_concurrent_recoveries` and
+  shown with size 0B. They're now counted apart, against
+  `node_initial_primaries_recoveries`, with their stage (e.g. replaying
+  the translog) and no size until CrateDB knows it; primaries waiting for
+  that slot say so instead of having no reason. `e` there sets the limit.
+- `indices.recovery.max_bytes_per_sec` of 0 shows as unlimited, which is
+  what CrateDB makes of it.
 
 ## [0.5.0] - 2026-10-13
 

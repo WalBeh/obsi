@@ -48,6 +48,7 @@ type ShardsModel struct {
 	recoverySeen map[string]time.Time // recovery key -> first seen, for ELAPSED
 	minShare     map[string]int64     // recovery key -> smallest throttle share seen
 	queued       int                  // copies waiting for a recovery slot
+	queuedLocal  int                  // primaries waiting for an initial recovery slot
 	finished     []finishedRecovery   // newest first, with the new copy's own record
 	pending      []finishedRecovery   // gone from the running list, record not read yet
 	history      []finishedRecovery   // finished within historyWindow, for node peaks and moves back

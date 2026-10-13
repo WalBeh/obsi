@@ -111,6 +111,7 @@ func (a *App) newTabModels() {
 	a.shards.readOnly = a.readOnly
 	a.tables.readOnly = a.readOnly
 	a.replication.readOnly = a.readOnly
+	a.snapshots.readOnly = a.readOnly
 	a.replication.persistent = a.persistent
 }
 
@@ -412,6 +413,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SnapshotsNoticeMsg:
 		a.snapshots = a.snapshots.notice(msg)
+		return a, nil
+
+	case RepoApplyMsg:
+		reg, ctx := a.registry, a.ctx
+		return a, func() tea.Msg { return applyRepo(ctx, reg, msg) }
+
+	case RepoResultMsg:
+		a.snapshots = a.snapshots.result(msg)
+		if msg.Error == "" || msg.Stored {
+			a.collectors.TriggerCollector(a.ctx, "snapshots")
+			a.collectors.TriggerCollector(a.ctx, "changes")
+		}
 		return a, nil
 
 	case YankTableDDLMsg:

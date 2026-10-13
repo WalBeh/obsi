@@ -32,6 +32,10 @@ type SnapshotsModel struct {
 	noticeText  string
 	noticeIsErr bool
 	noticeAt    time.Time
+
+	readOnly   bool
+	minVersion string    // the oldest node's, for ALTER REPOSITORY (6.4.0)
+	modal      replModal // the open dialog, nil without one
 }
 
 func NewSnapshotsModel(width, height int) SnapshotsModel {
@@ -41,8 +45,12 @@ func NewSnapshotsModel(width, height int) SnapshotsModel {
 func (m SnapshotsModel) Refresh(snap store.StoreSnapshot) SnapshotsModel {
 	m.st, m.now = snap.Snapshots, time.Now()
 	m.nodeNames = map[string]string{}
+	m.minVersion = ""
 	for _, n := range snap.Nodes {
 		m.nodeNames[n.ID] = n.Name
+		if !n.Gone && n.Version != "" && (m.minVersion == "" || cratedb.CompareVersions(n.Version, m.minVersion) < 0) {
+			m.minVersion = n.Version
+		}
 	}
 	m.selected = min(m.selected, max(m.items()-1, 0))
 	return m.clampScroll()
@@ -53,7 +61,25 @@ func (m SnapshotsModel) SetSize(width, height int) SnapshotsModel {
 	return m.clampScroll()
 }
 
-func (m SnapshotsModel) inputMode() bool { return m.searching }
+func (m SnapshotsModel) inputMode() bool { return m.searching || m.modal != nil }
+
+// result shows how a repository statement went; a failed ALTER that left
+// changed settings opens the undo.
+func (m SnapshotsModel) result(msg RepoResultMsg) SnapshotsModel {
+	if msg.Undo {
+		m.modal = newRepoUndo(msg)
+		return m
+	}
+	return m.notice(SnapshotsNoticeMsg{Note: msg.Note, Error: msg.Error})
+}
+
+// selectedRepo is the repository under the cursor.
+func (m SnapshotsModel) selectedRepo() (cratedb.Repository, bool) {
+	if m.selected < len(m.st.Repositories) {
+		return m.st.Repositories[m.selected], true
+	}
+	return cratedb.Repository{}, false
+}
 
 func (m SnapshotsModel) notice(msg SnapshotsNoticeMsg) SnapshotsModel {
 	m.noticeText, m.noticeIsErr, m.noticeAt = msg.Note, msg.Error != "", time.Now()
@@ -107,6 +133,13 @@ func (m SnapshotsModel) shown() []cratedb.SnapshotInfo {
 func (m SnapshotsModel) items() int { return len(m.st.Repositories) + len(m.shown()) }
 
 func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
+	if m.modal != nil {
+		done, cmd := m.modal.key(msg)
+		if done {
+			m.modal = nil
+		}
+		return m, cmd
+	}
 	if m.searching {
 		switch msg.Type {
 		case tea.KeyEsc:
@@ -131,6 +164,24 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 	case "esc":
 		m.search, m.repo = "", ""
 		return m.clampScroll(), nil
+	case "w", "e", "d":
+		repo, ok := m.selectedRepo()
+		switch {
+		case m.readOnly:
+			return m.notice(SnapshotsNoticeMsg{Error: readOnlyRefusal("repositories can't be changed")}), nil
+		case !ok:
+			return m.notice(SnapshotsNoticeMsg{Error: "select a repository (↑) first"}), nil
+		case msg.String() == "e":
+			m.modal = newRepoForm(repo, m.guard(repo.Name))
+		case msg.String() == "d":
+			_, count := m.newestFinished()
+			m.modal = &repoDrop{repo: repo, snapshots: count[repo.Name], guard: m.guard(repo.Name)}
+		case !cratedb.CanToggleReadOnly(repo.Type):
+			return m.notice(SnapshotsNoticeMsg{Error: fmt.Sprintf("a %s repository has no readonly setting", repo.Type)}), nil
+		default:
+			m.modal = &readOnlyToggle{repo: repo, to: !repo.ReadOnly(), guard: m.guard(repo.Name)}
+		}
+		return m, nil
 	case "y":
 		s, repo, ok := m.selectedSnapshot()
 		if !ok {
@@ -221,7 +272,12 @@ func (m SnapshotsModel) followSelection() SnapshotsModel {
 	return m
 }
 
-func (m SnapshotsModel) View() string { return m.body() + "\n" + m.noticeLine() }
+func (m SnapshotsModel) View() string {
+	if m.modal != nil {
+		return m.modal.render(m.width, m.height)
+	}
+	return m.body() + "\n" + m.noticeLine()
+}
 
 func (m SnapshotsModel) body() string {
 	lines := m.render()
@@ -286,7 +342,7 @@ func (m SnapshotsModel) layout() []string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, m.renderSnapshotList()...)
-	return append(lines, "", styleDim.Render("  ↑↓ select · enter on a repository: its snapshots · / filter · y copy snapshot details · R list snapshots now · ? help"))
+	return append(lines, "", styleDim.Render("  ↑↓ select · enter: a repository's snapshots · / filter · y copy snapshot · w read-only · e change · d drop · R list now · ? help"))
 }
 
 // newestFinished is the newest snapshot per repository that isn't

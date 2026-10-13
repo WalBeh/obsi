@@ -4,7 +4,7 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [0.5.0] - 2026-10-13
 
 ### Added
 
@@ -41,6 +41,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Azure `account` and `key` and the gcs credentials in
   `CREATE/ALTER REPOSITORY` showed in clear on the Queries tab;
   they're masked now, like the S3 keys already were.
+- CrateDB errors on the Replication tab no longer show literal `\n`
+  sequences.
 
 ## [0.4.2] - 2026-10-13
 

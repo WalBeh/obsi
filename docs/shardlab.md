@@ -135,6 +135,11 @@ that isn't a superuser.
   subscription `owner2` created on pub2 (`pg_catalog` filters on the
   owner, `SystemCollectSource` always passes the session user); without
   DQL on `sys` a user can't read `sys.shards` or `sys.cluster` either
+- during a subscription's initial copy `sys.snapshot_restore` lists a
+  restore from `_logical_replication_<subscription>` to every user, so
+  `crate` sees `owner2`'s subscription by name until the copy ends;
+  afterwards only `recovery['type']` SNAPSHOT is left on its shards, the
+  same as after a RESTORE
 - `EXPLAIN INSERT INTO t SELECT … WHERE false` on a subscribed table fails
   with "included in a logical replication subscription", without running
   anything: a way to tell a subscribed table whose subscription isn't

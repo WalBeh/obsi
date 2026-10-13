@@ -353,6 +353,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Ran {
 			a.collectors.TriggerCollector(a.ctx, "replication")
 			a.collectors.TriggerCollector(a.ctx, "changes")
+			// Restores are read once a minute: a dropped subscription's copy
+			// would otherwise look like another user's until then.
+			a.collectors.TriggerCollector(a.ctx, "snapshots")
 		}
 		return a, nil
 

@@ -56,7 +56,13 @@ func (m OverviewModel) renderSnapshots() string {
 	if running > 0 {
 		line += fmt.Sprintf(" · %d running", running)
 	}
-	if n := len(st.Restores); n > 0 {
+	n := 0
+	for _, r := range st.Restores {
+		if _, copying := r.Subscription(); !copying {
+			n++
+		}
+	}
+	if n > 0 {
 		line += " · " + styleHealthYellow.Render(fmt.Sprintf("%d %s", n, plural(n, "restore", "restores")))
 	}
 	return title + "\n  " + line + styleDim.Render("  (8: details)")

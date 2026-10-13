@@ -33,6 +33,7 @@ type ReplicationModel struct {
 	persistent  bool                 // SET GLOBAL PERSISTENT, from set_global_mode
 	version     string               // the oldest node's, for cratedb.Quirk
 	nodes       []store.NodeSnapshot // for the logical_replication thread pool
+	restores    []cratedb.SnapshotRestore
 	noticeText  string
 	noticeIsErr bool
 	noticeAt    time.Time
@@ -44,6 +45,7 @@ func NewReplicationModel(width, height int) ReplicationModel {
 
 func (m ReplicationModel) Refresh(snap store.StoreSnapshot) ReplicationModel {
 	m.repl, m.now = snap.Replication, time.Now()
+	m.restores = snap.Snapshots.Restores
 	m.tables = m.tables[:0]
 	m.replicas = map[string]tableReplicas{}
 	for _, t := range snap.Tables {
@@ -289,6 +291,18 @@ func (m ReplicationModel) layout() []string {
 			lines = append(lines, "  "+styleHealthRed.Render(l))
 		}
 	}
+	owner := "another user"
+	if r.User != "" {
+		owner = "a user other than " + r.User
+	}
+	for _, rs := range hiddenCopies(r, m.restores) {
+		sub, _ := rs.Subscription()
+		text := fmt.Sprintf("▲ Subscription %s is copying its tables now (%d/%d shards, from sys.snapshot_restore). It isn't listed because %s owns it, and CrateDB shows a subscription only to its owner.",
+			sub, rs.Done, rs.Shards, owner)
+		for _, w := range wrapText(text, max(m.width-6, 40)) {
+			lines = append(lines, "  "+styleHealthYellow.Render(w))
+		}
+	}
 	switch {
 	case r.UpdatedAt.IsZero():
 		lines = append(lines, styleDim.Render("  waiting for the first replication poll"))
@@ -329,6 +343,28 @@ func (m ReplicationModel) layout() []string {
 		lines = append(lines, styleDim.Render("  Shows what "+r.User+" owns: CrateDB hides other users' publications and subscriptions, also from superusers."))
 	}
 	return append(lines, styleDim.Render("  ↑↓ select · n publication · s subscription · e tables · d drop · l lease period · c settings · y ticket · ? help"))
+}
+
+// hiddenCopies are initial copies of subscriptions pg_subscription
+// doesn't list: another user owns them. The copy is a restore, and
+// sys.snapshot_restore shows it to every user; once it ends, obsi can't
+// tell the subscription exists. Nothing until pg_subscription was read:
+// before that every copy would look like another user's.
+func hiddenCopies(r store.ReplicationState, restores []cratedb.SnapshotRestore) []cratedb.SnapshotRestore {
+	if r.UpdatedAt.IsZero() || r.Errs["subscriptions"] != "" {
+		return nil
+	}
+	listed := map[string]bool{}
+	for _, s := range r.Subscriptions {
+		listed[s.Name] = true
+	}
+	var out []cratedb.SnapshotRestore
+	for _, rs := range restores {
+		if sub, ok := rs.Subscription(); ok && !listed[sub] {
+			out = append(out, rs)
+		}
+	}
+	return out
 }
 
 // ownerNote explains why other users' replication doesn't show.

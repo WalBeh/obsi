@@ -325,24 +325,43 @@ func (m SnapshotsModel) layout() []string {
 	case st.UpdatedAt.IsZero():
 		return append(lines, styleDim.Render("  waiting for the first snapshots poll"))
 	case len(st.Repositories) == 0:
-		return append(lines,
+		lines = append(lines,
 			"  "+styleHealthYellow.Render("No snapshot repository on this cluster: nothing is backed up by snapshots."),
 			styleDim.Render("  CREATE REPOSITORY adds one (fs, s3, azure, gcs, url); CREATE SNAPSHOT then writes to it."))
+		return append(lines, m.renderRestores()...)
 	}
 	lines = append(lines, m.renderRepositories()...)
-	if len(st.Restores) > 0 {
-		lines = append(lines, "", sectionTitle("Restores running"))
-		for _, r := range st.Restores {
-			l := fmt.Sprintf("  %s.%s  %s  %d/%d shards", r.Repository, r.Name, r.State, r.Done, r.Shards)
-			if r.Failed > 0 {
-				l += ", " + styleHealthRed.Render(fmt.Sprintf("%d failed", r.Failed))
-			}
-			lines = append(lines, l)
-		}
-	}
+	lines = append(lines, m.renderRestores()...)
 	lines = append(lines, "")
 	lines = append(lines, m.renderSnapshotList()...)
 	return append(lines, "", styleDim.Render("  ↑↓ select · enter: a repository's snapshots · / filter · y copy snapshot · w read-only · e change · d drop · R list now · ? help"))
+}
+
+// renderRestores lists running restores, and apart from them the initial
+// copies of subscriptions, which CrateDB runs as restores from an
+// internal repository.
+func (m SnapshotsModel) renderRestores() []string {
+	var restores, copies []string
+	for _, r := range m.st.Restores {
+		progress := fmt.Sprintf("%s  %d/%d shards", r.State, r.Done, r.Shards)
+		if r.Failed > 0 {
+			progress += ", " + styleHealthRed.Render(fmt.Sprintf("%d failed", r.Failed))
+		}
+		if sub, ok := r.Subscription(); ok {
+			copies = append(copies, fmt.Sprintf("  subscription %s  %s", sub, progress))
+			continue
+		}
+		restores = append(restores, fmt.Sprintf("  %s.%s  %s", r.Repository, r.Name, progress))
+	}
+	var lines []string
+	if len(restores) > 0 {
+		lines = append(append(lines, "", sectionTitle("Restores running")), restores...)
+	}
+	if len(copies) > 0 {
+		lines = append(append(lines, "", sectionTitle("Replication copies running")), copies...)
+		lines = append(lines, styleDim.Render("  a subscription's initial copy runs as a restore; the Replication tab (7) says more"))
+	}
+	return lines
 }
 
 // newestFinished is the newest snapshot per repository that isn't

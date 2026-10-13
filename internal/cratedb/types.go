@@ -2,6 +2,7 @@ package cratedb
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -147,7 +148,19 @@ func (r Repository) ReadOnly() bool {
 	return r.Type == "url" || r.Settings["readonly"] == "true"
 }
 
-// SnapshotRestore is a running RESTORE SNAPSHOT from sys.snapshot_restore.
+// replicationRepoPrefix names the internal repository a subscription's
+// initial copy restores from (LogicalReplicationRepository).
+const replicationRepoPrefix = "_logical_replication_"
+
+// Subscription is the subscription whose initial copy this restore is,
+// when it is one. sys.snapshot_restore lists it to every user, while
+// pg_subscription lists a subscription only to its owner.
+func (r SnapshotRestore) Subscription() (string, bool) {
+	return strings.CutPrefix(r.Repository, replicationRepoPrefix)
+}
+
+// SnapshotRestore is a running RESTORE SNAPSHOT from sys.snapshot_restore,
+// or a subscription's initial copy.
 type SnapshotRestore struct {
 	Repository string
 	Name       string

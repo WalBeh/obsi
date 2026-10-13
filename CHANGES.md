@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The status bar shows who obsi connects as, and whether that user is a
   superuser.
+- While a subscription another user owns copies its tables, the
+  Replication tab and the Overview name it: its initial copy shows in
+  `sys.snapshot_restore`, which every user can read. The Snapshots tab
+  lists such copies as replication copies instead of restores.
 
 ### Fixed
 

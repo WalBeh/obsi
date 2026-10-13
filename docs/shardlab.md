@@ -78,7 +78,12 @@ And about logical replication (6.4.5):
 - after `DROP PUBLICATION` its subscribers keep replicating the tables
   they have, over 6 minutes and counting: changes to existing shards and
   partitions arrive, the tables stay read-only and `r`, the leases are
-  renewed; new partitions don't arrive. `ALTER PUBLICATION ... DROP
+  renewed; new partitions don't arrive. Nor do new columns: after `ADD
+  COLUMN` on the publisher, rows using it fail on the subscriber
+  (`TranslogMappingUpdateException: Unknown column`, logged every minute)
+  and are skipped while rows without it keep coming. Restarting either
+  side doesn't change it, and recreating the publication under the same
+  name doesn't resume tracking. `ALTER PUBLICATION ... DROP
   TABLE` on the other hand stops the table at once: lease released, gone
   from `pg_subscription_rel`, writable on the subscriber
 - `CREATE PUBLICATION ... FOR TABLE t` refuses a table that's already in

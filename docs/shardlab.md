@@ -71,7 +71,8 @@ And about logical replication (6.4.5):
   the subscriber's own table of that name. The cluster state update fails
   to apply (`NoSuchElementException` in `Metadata$MetadataDiff.apply`),
   the node loses and re-elects master in a loop and every subscription
-  fails. Reproduced on a fresh subscriber; only a new container helped
+  fails. Reproduced on a fresh subscriber; only a new container helped.
+  `./repro-deletes-local-table.sh` runs it (and breaks the subscriber)
 - an expired retention lease isn't removed right away; a subscriber that
   came back a little after expiry still caught up
 - `DROP PUBLICATION` and `ALTER PUBLICATION ... DROP TABLE` don't stop a

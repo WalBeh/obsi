@@ -16,6 +16,7 @@ const (
 	ChangeTable       ChangeKind = "table"
 	ChangeSecurity    ChangeKind = "security"
 	ChangeReplication ChangeKind = "replication"
+	ChangeRepository  ChangeKind = "repository"
 )
 
 // ChangeTag marks changes obsi runs itself (settings editor, shard fixes,
@@ -24,8 +25,9 @@ const (
 const ChangeTag = " /* obsi change */"
 
 // ClassifyChange says whether stmt changes cluster settings, table settings,
-// users and privileges, or logical replication. Session SETs, schema DDL,
-// REFRESH and friends are not changes.
+// users and privileges, logical replication, or snapshot repositories.
+// Session SETs, schema DDL, REFRESH and friends are not changes, nor are
+// snapshots themselves: scheduled ones would crowd out everything else.
 func ClassifyChange(stmt string) ChangeKind {
 	t := lexSQL(stmt, 4)
 	switch {
@@ -41,6 +43,8 @@ func ClassifyChange(stmt string) ChangeKind {
 	case (t.word(0, "CREATE") || t.word(0, "ALTER") || t.word(0, "DROP")) &&
 		(t.word(1, "PUBLICATION") || t.word(1, "SUBSCRIPTION")):
 		return ChangeReplication
+	case isRepositoryDDL(t):
+		return ChangeRepository
 	case t.word(0, "ALTER") && t.word(1, "TABLE"):
 		if _, _, _, ok := AlteredTable(stmt); ok {
 			return ChangeTable
@@ -137,10 +141,23 @@ var secretRe = regexp.MustCompile(`(?i)("?\b(?:password|secret\w*|\w*access_key|
 // CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u&password=x'.
 var connPasswordRe = regexp.MustCompile(`(?i)([?&]password=)[^&'\s]*`)
 
+// repoSecretRe finds the repository settings CrateDB masks in
+// sys.repositories that secretRe misses: the Azure account and key, the
+// gcs credentials. Names like key or account are common column names, so
+// it only applies to repository DDL.
+var repoSecretRe = regexp.MustCompile(`(?i)("?\b(?:key|account|private_key|private_key_id|client_id|client_email)\b"?\s*=?\s*)'(?:[^']|'')*'`)
+
+func isRepositoryDDL(t tokens) bool {
+	return (t.word(0, "CREATE") || t.word(0, "ALTER") || t.word(0, "DROP")) && t.word(1, "REPOSITORY")
+}
+
 // Redact replaces password-like literals in stmt with '***', and passwords
 // in connection URLs with ***.
 func Redact(stmt string) string {
 	stmt = secretRe.ReplaceAllString(stmt, "$1'***'")
+	if isRepositoryDDL(lexSQL(stmt, 2)) {
+		stmt = repoSecretRe.ReplaceAllString(stmt, "$1'***'")
+	}
 	return connPasswordRe.ReplaceAllString(stmt, "${1}***")
 }
 

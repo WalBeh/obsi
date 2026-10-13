@@ -506,6 +506,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.alerts = snap.Alerts
 		a.statusBar.alerts = snap.Alerts
+		a.statusBar.user, a.statusBar.superuser = snap.Replication.User, snap.Replication.Superuser
 		shardStat := a.collectors.QueryTracker().GetStat(collector.QueryShards)
 		a.statusBar = a.statusBar.Refresh(
 			status,

@@ -101,10 +101,29 @@ func TestReplicationLimitedUser(t *testing.T) {
 	for _, want := range []string{
 		"couldn't read subscriber leases (sys.shards), showing the last poll: SchemaUnknownException",
 		"couldn't read replication settings (sys.cluster): MissingPrivilegeException[Missing 'DQL' privilege for user 'mon'] · GRANT DQL ON SCHEMA sys TO mon",
-		"obsi connects as mon, not a superuser",
 		"No publications or subscriptions owned by mon.",
+		"only to the user who created them, superusers included: obsi connects as mon",
 	} {
 		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+}
+
+// CrateDB filters pg_subscription and pg_publication by owner for
+// superusers too (checked on 6.4.5): crate doesn't see admin's.
+func TestReplicationOwnerNote(t *testing.T) {
+	st := store.ReplicationState{UpdatedAt: time.Now(), User: "crate", Superuser: true}
+	view := NewReplicationModel(240, 40).Refresh(store.StoreSnapshot{Replication: st}).View()
+	if !strings.Contains(strings.Join(strings.Fields(view), " "), "superusers included: obsi connects as crate, so replication set up by another user (e.g. admin on CrateDB Cloud) doesn't show here") {
+		t.Errorf("no owner note for a superuser:\n%s", view)
+	}
+	st.Subscribers = []store.LeaseHolder{{Subscriber: "sub", Tables: 2, Unpublished: 1, LastSeen: time.Now()}}
+	view = NewReplicationModel(240, 40).Refresh(store.StoreSnapshot{Replication: st}).View()
+	flat := strings.Join(strings.Fields(view), " ")
+	for _, want := range []string{"none owned by crate (others' don't show)", "* pulls tables no publication visible to crate lists: one another user owns",
+		"Shows what crate owns: CrateDB hides other users' publications and subscriptions, also from superusers."} {
+		if !strings.Contains(flat, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
 	}

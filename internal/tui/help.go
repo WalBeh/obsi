@@ -140,6 +140,7 @@ func tabNotes(tab Tab) []string {
 		"Subscriber side: how far behind the publisher a table is shows only on the publisher; here it's changes/s and when obsi last saw one arrive.",
 		"Publisher side: subscribers are the cluster names from the retention leases they hold on published primaries; BEHIND is the operations those leases haven't reached. A lease that expires lets the publisher drop operations the subscriber hasn't pulled yet.",
 		"Settings (c) are cluster settings read where the subscription runs, the subscriber.",
+		"CrateDB lists publications and subscriptions only to the user who created them, superusers included: replication another user set up doesn't show here. The status bar shows who obsi connects as.",
 	}
 }
 

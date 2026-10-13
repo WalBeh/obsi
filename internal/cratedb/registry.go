@@ -37,6 +37,7 @@ type RegistryStatus struct {
 	ActiveNode      string // name of the node that last answered a query
 	ClusterName     string
 	ClusterID       string
+	Username        string           // as configured; the replication poll reads CURRENT_USER
 	Foreign         *ClusterIdentity // set while a different cluster answers
 	TotalNodes      int
 	HealthyNodes    int  // direct nodes reachable (may be 0 for cloud clusters)
@@ -423,6 +424,7 @@ func (r *Registry) Status() RegistryStatus {
 	status := RegistryStatus{
 		ClusterName:  r.clusterName,
 		ClusterID:    r.clusterID,
+		Username:     r.username,
 		TotalNodes:   len(r.nodes),
 		ActiveNode:   r.lastActive,
 		PrimaryOK:    r.primaryOK,

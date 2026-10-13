@@ -26,6 +26,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The Replication tab's general explanations moved into its `?` help;
   the tab keeps one key line and only the notes about what's on screen.
 
+### Fixed
+
+- Removing a table from a publication said subscribers would keep
+  replicating it. They stop: the table leaves their subscription and
+  becomes writable there. It's dropping the whole publication that leaves
+  them replicating (without new partitions).
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

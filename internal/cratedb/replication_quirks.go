@@ -46,6 +46,12 @@ var (
 	// answers CREATE SUBSCRIPTION when the subscriber doesn't trust the
 	// publisher's certificate.
 	QuirkTLSHangs = Quirk{SeenOn: "6.4.5"}
+	// QuirkDropKeepsSubscribers: after DROP PUBLICATION its subscribers
+	// keep replicating the tables they have (existing shards and
+	// partitions, read-only, leases renewed); only new partitions stop.
+	// ALTER PUBLICATION ... DROP TABLE does stop the table and makes it
+	// writable on the subscriber.
+	QuirkDropKeepsSubscribers = Quirk{SeenOn: "6.4.5"}
 	// QuirkCreateRefusesPublished: CREATE PUBLICATION ... FOR TABLE
 	// refuses a table already in a publication; ALTER PUBLICATION ... ADD
 	// TABLE takes it.

@@ -74,7 +74,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 | `7` | Replication | Logical replication: subscriptions with per-table state, shards, docs, changes/s and the last change seen; publications with their tables and the subscriber clusters holding leases, how many operations each is behind and when its lease expires; create, change and drop publications (`n`/`e`/`d`), copy a subscribe ticket (`y`); create a subscription from a pasted ticket (`s`) and drop one (`d`, type its name); the replication settings (`c`) and each published table's retention lease period (`l`); the `logical_replication` thread pool; sparklines of changes/s per table and BEHIND per subscriber, operations pulled/s, and what each finished initial copy moved |
-| `8` | Snapshots | Repositories with type, read-only or writable and their settings (credentials masked by CrateDB); every snapshot with state, duration, shards, tables and partitions, the failed shards of a PARTIAL one by table, partition and node; running restores; `enter` on a repository lists its snapshots, `/` filters |
+| `8` | Snapshots | Repositories with type, read-only or writable and their settings (credentials masked by CrateDB); every snapshot with state, duration, shards, tables and partitions, the failed shards of a PARTIAL one by table, partition and node; running restores; `enter` on a repository lists its snapshots, `/` filters, `y` copies a snapshot's details for a ticket |
 
 ## Keys
 
@@ -93,7 +93,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `e` | Tables tab: set the node-left delay (`unassigned.node_left.delayed_timeout`) of the selected table, partitions included, after a confirm |
 | `K` | Kill selected query (Queries tab) |
 | `i` | Operation details for selected query — per-op memory, full statement (Queries tab) |
-| `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52); on the Tables tab, `SHOW CREATE TABLE` of the selected table |
+| `y` | Yank selected query + operations to clipboard (Queries list or `i` modal, via OSC 52); on the Tables tab, `SHOW CREATE TABLE` of the selected table; on the Snapshots tab, the selected snapshot with every failure, its repository's settings (as CrateDB shows them, credentials masked) and the cluster's health, node count and CrateDB versions, fenced for Slack or GitHub |
 | `h` | Show/hide stuck queries (Queries tab) — queries running longer than 24h are hidden by default |
 | `E` | Explain the selected query (Queries tab, live list and boards): `EXPLAIN` plan right away, `a` for `EXPLAIN ANALYZE` with the bind values you type (CrateDB doesn't keep them; `ctrl+n` takes a suggestion from partition values or `pg_stats`), `↑↓`/`pgup`/`pgdn` scroll the result, `y` copies everything. The analyze run is killed on `esc` or after `explain_timeout` |
 | `S` | Toggle between live queries and the 20 slowest seen since obsi started (Queries tab) |

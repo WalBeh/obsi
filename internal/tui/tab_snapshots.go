@@ -28,6 +28,10 @@ type SnapshotsModel struct {
 	searching bool
 	search    string // matched anywhere in repository.name
 	repo      string // enter on a repository: only its snapshots
+
+	noticeText  string
+	noticeIsErr bool
+	noticeAt    time.Time
 }
 
 func NewSnapshotsModel(width, height int) SnapshotsModel {
@@ -50,6 +54,40 @@ func (m SnapshotsModel) SetSize(width, height int) SnapshotsModel {
 }
 
 func (m SnapshotsModel) inputMode() bool { return m.searching }
+
+func (m SnapshotsModel) notice(msg SnapshotsNoticeMsg) SnapshotsModel {
+	m.noticeText, m.noticeIsErr, m.noticeAt = msg.Note, msg.Error != "", time.Now()
+	if msg.Error != "" {
+		m.noticeText = msg.Error
+	}
+	return m
+}
+
+func (m SnapshotsModel) noticeLine() string {
+	if m.noticeText == "" || time.Since(m.noticeAt) > 8*time.Second {
+		return ""
+	}
+	if m.noticeIsErr {
+		return "  " + styleHealthRed.Render(m.noticeText)
+	}
+	return "  " + styleHealthGreen.Render(m.noticeText)
+}
+
+// selectedSnapshot is the snapshot under the cursor and its repository.
+func (m SnapshotsModel) selectedSnapshot() (cratedb.SnapshotInfo, cratedb.Repository, bool) {
+	i := m.selected - len(m.st.Repositories)
+	shown := m.shown()
+	if i < 0 || i >= len(shown) {
+		return cratedb.SnapshotInfo{}, cratedb.Repository{}, false
+	}
+	s := shown[i]
+	for _, r := range m.st.Repositories {
+		if r.Name == s.Repository {
+			return s, r, true
+		}
+	}
+	return s, cratedb.Repository{Name: s.Repository}, true
+}
 
 // shown is the snapshots the filter lets through, newest first.
 func (m SnapshotsModel) shown() []cratedb.SnapshotInfo {
@@ -93,6 +131,12 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 	case "esc":
 		m.search, m.repo = "", ""
 		return m.clampScroll(), nil
+	case "y":
+		s, repo, ok := m.selectedSnapshot()
+		if !ok {
+			return m.notice(SnapshotsNoticeMsg{Error: "select a snapshot (↓) to copy its details"}), nil
+		}
+		return m, func() tea.Msg { return SnapshotReportRequest{Snapshot: s, Repository: repo} }
 	case "enter":
 		// On a repository: show only its snapshots.
 		if m.selected < len(m.st.Repositories) {
@@ -129,7 +173,8 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m SnapshotsModel) bodyHeight() int { return max(m.height, 3) }
+// bodyHeight leaves the last line for notices.
+func (m SnapshotsModel) bodyHeight() int { return max(m.height-1, 3) }
 
 func (m SnapshotsModel) clampScroll() SnapshotsModel {
 	m.maxScroll = 0
@@ -176,7 +221,9 @@ func (m SnapshotsModel) followSelection() SnapshotsModel {
 	return m
 }
 
-func (m SnapshotsModel) View() string {
+func (m SnapshotsModel) View() string { return m.body() + "\n" + m.noticeLine() }
+
+func (m SnapshotsModel) body() string {
 	lines := m.render()
 	if len(lines) <= m.bodyHeight() {
 		return strings.Join(lines, "\n")
@@ -239,7 +286,7 @@ func (m SnapshotsModel) layout() []string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, m.renderSnapshotList()...)
-	return append(lines, "", styleDim.Render("  ↑↓ select · enter on a repository: its snapshots · / filter · R list snapshots now · ? help"))
+	return append(lines, "", styleDim.Render("  ↑↓ select · enter on a repository: its snapshots · / filter · y copy snapshot details · R list snapshots now · ? help"))
 }
 
 // newestFinished is the newest snapshot per repository that isn't

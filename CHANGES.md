@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shards, tables and partitions, and for a PARTIAL one each failed shard
   by table, partition, node and reason; running restores. `enter` on a
   repository lists its snapshots, `/` filters.
+- `y` on a snapshot copies its details for a ticket or chat: state,
+  times, tables, every failed shard, the repository's settings as
+  CrateDB shows them (credentials masked), and the cluster's health,
+  node count and CrateDB versions, with the tables named in the failures.
 - The changes board lists `CREATE/ALTER/DROP REPOSITORY` under a new
   `repository` kind.
 

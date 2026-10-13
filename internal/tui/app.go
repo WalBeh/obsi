@@ -402,6 +402,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case SnapshotReportRequest:
+		snap := a.store.Snapshot(1, store.SnapshotHint{IncludeNodes: true, IncludeHealth: true})
+		cluster := "?"
+		if a.registry != nil {
+			cluster = a.registry.Status().ClusterName
+		}
+		return a, func() tea.Msg { return copySnapshotReport(msg, snap, cluster) }
+
+	case SnapshotsNoticeMsg:
+		a.snapshots = a.snapshots.notice(msg)
+		return a, nil
+
 	case YankTableDDLMsg:
 		reg, ctx := a.registry, a.ctx
 		return a, func() tea.Msg { return yankTableDDL(ctx, reg, msg) }

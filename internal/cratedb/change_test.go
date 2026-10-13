@@ -33,6 +33,12 @@ func TestClassifyChange(t *testing.T) {
 		{`CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u' PUBLICATION p`, ChangeReplication},
 		{`ALTER SUBSCRIPTION s DISABLE`, ChangeReplication},
 		{`DROP SUBSCRIPTION s`, ChangeReplication},
+		{`CREATE REPOSITORY r TYPE fs WITH (location = '/backups')`, ChangeRepository},
+		{`alter repository r set (readonly = true)`, ChangeRepository},
+		{`DROP REPOSITORY r`, ChangeRepository},
+		{`CREATE SNAPSHOT r.s ALL`, ""},
+		{`DROP SNAPSHOT r.s`, ""},
+		{`RESTORE SNAPSHOT r.s TABLE doc.t`, ""},
 
 		{`SET search_path TO doc`, ""},
 		{`SET SESSION enable_hashjoin = true`, ""},
@@ -82,9 +88,13 @@ func TestSettingNames(t *testing.T) {
 
 func TestRedact(t *testing.T) {
 	cases := map[string]string{
-		`CREATE USER u WITH (password = 'se''cr3t')`:                                                            `CREATE USER u WITH (password = '***')`,
-		`ALTER USER u SET ("password"='x')`:                                                                     `ALTER USER u SET ("password"='***')`,
-		`CREATE REPOSITORY r TYPE s3 WITH (access_key = 'AK', secret_key = 'SK')`:                               `CREATE REPOSITORY r TYPE s3 WITH (access_key = '***', secret_key = '***')`,
+		`CREATE USER u WITH (password = 'se''cr3t')`:                                                         `CREATE USER u WITH (password = '***')`,
+		`ALTER USER u SET ("password"='x')`:                                                                  `ALTER USER u SET ("password"='***')`,
+		`CREATE REPOSITORY r TYPE s3 WITH (access_key = 'AK', secret_key = 'SK')`:                            `CREATE REPOSITORY r TYPE s3 WITH (access_key = '***', secret_key = '***')`,
+		`CREATE REPOSITORY r TYPE azure WITH (account = 'acc', key = 'K', sas_token = 'T', container = 'c')`: `CREATE REPOSITORY r TYPE azure WITH (account = '***', key = '***', sas_token = '***', container = 'c')`,
+		`ALTER REPOSITORY r SET ("key" = 'K')`:                                                               `ALTER REPOSITORY r SET ("key" = '***')`,
+		`CREATE REPOSITORY r TYPE gcs WITH (bucket = 'b', project_id = 'p', private_key_id = 'i', private_key = 'k', client_id = 'c', client_email = 'e')`: `CREATE REPOSITORY r TYPE gcs WITH (bucket = 'b', project_id = 'p', private_key_id = '***', private_key = '***', client_id = '***', client_email = '***')`,
+		`SELECT * FROM t WHERE key = 'k' AND account = 'a'`:                                                     `SELECT * FROM t WHERE key = 'k' AND account = 'a'`,
 		`ALTER USER u SET (password = ?)`:                                                                       `ALTER USER u SET (password = ?)`,
 		`SELECT name FROM sys.users WHERE name = 'password'`:                                                    `SELECT name FROM sys.users WHERE name = 'password'`,
 		`CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u&password=p%26s&sslmode=disable' PUBLICATION p`: `CREATE SUBSCRIPTION s CONNECTION 'crate://h:4300?user=u&password=***&sslmode=disable' PUBLICATION p`,

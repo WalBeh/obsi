@@ -4,6 +4,19 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- The changes board lists `CREATE/ALTER/DROP REPOSITORY` under a new
+  `repository` kind.
+
+### Fixed
+
+- The Azure `account` and `key` and the gcs credentials in
+  `CREATE/ALTER REPOSITORY` showed in clear on the Queries tab;
+  they're masked now, like the S3 keys already were.
+
 ## [0.4.2] - 2026-10-13
 
 ### Fixed

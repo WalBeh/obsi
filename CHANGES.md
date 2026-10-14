@@ -29,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   each repository as a group row with its snapshots below it and relative
   times, state marks, and the selected row's details in a pane at the
   bottom instead of opening inside the list.
+- The Replication tab's sparklines are braille dots, two samples per
+  character, with the peak after them (e.g. `peak 3.0K/s`); an idle
+  table or subscriber draws nothing instead of a row of `▁`.
 
 ### Fixed
 

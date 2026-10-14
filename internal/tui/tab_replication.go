@@ -415,7 +415,7 @@ func (m ReplicationModel) renderSubscriptions() []string {
 	spark := m.sparks() && m.subActivity()
 	sparkHdr := ""
 	if spark {
-		sparkHdr = fmt.Sprintf("  %-*s", sparkWidth, spanLabel(m.repl.HistorySpan))
+		sparkHdr = fmt.Sprintf("  %-*s", sparkWidth+1+sparkPeakWidth, spanLabel(m.repl.HistorySpan))
 	}
 	header := fmt.Sprintf("  %-*s  %6s  %8s  %9s%s  %s", nameW+2, "SUBSCRIPTION / TABLE", "SHARDS", "DOCS", "CHANGES/s", sparkHdr, "LAST CHANGE")
 	lines := []string{styleColumns.Render(header)}
@@ -478,9 +478,10 @@ func (m ReplicationModel) subscribedRow(t cratedb.SubscribedTable, nameW int, sp
 	}
 	sparkCell := ""
 	if spark {
-		sparkCell = "  " + strings.Repeat(" ", sparkWidth)
+		sparkCell = "  " + strings.Repeat(" ", sparkWidth+1+sparkPeakWidth)
 		if t.State == "r" {
-			sparkCell = "  " + sparkline0(r.History, m.repl.HistoryLen, sparkWidth)
+			sparkCell = "  " + styleSpark.Render(sparkline0(r.History, m.repl.HistoryLen, sparkWidth)) + " " +
+				styleDim.Render(fmt.Sprintf("%-*s", sparkPeakWidth, sparkPeak(r.History, "/s")))
 		}
 	}
 	lines := []string{fmt.Sprintf("    %-*s  %6s  %8s  %9s%s  %s",
@@ -573,7 +574,7 @@ func (m ReplicationModel) renderPublications() []string {
 	showSpark = showSpark && m.sparks()
 	spark := ""
 	if showSpark {
-		spark = fmt.Sprintf("  %-*s", sparkWidth, "BEHIND, "+strings.TrimPrefix(spanLabel(m.repl.HistorySpan), "LAST "))
+		spark = fmt.Sprintf("  %-*s", sparkWidth+1+sparkPeakWidth, "BEHIND, "+strings.TrimPrefix(spanLabel(m.repl.HistorySpan), "LAST "))
 	}
 	lines = append(lines, styleColumns.Render(fmt.Sprintf("  %-*s  %6s  %12s%s  %9s  %-10s  %s",
 		nameW+2, "SUBSCRIBER", "TABLES", "BEHIND (ops)", spark, "PULLED/s", "LAST SEEN", "RETENTION LEASE")))
@@ -591,7 +592,8 @@ func (m ReplicationModel) renderPublications() []string {
 		}
 		spark := ""
 		if showSpark {
-			spark = "  " + sparkline0(h.History, m.repl.HistoryLen, sparkWidth)
+			spark = "  " + styleSpark.Render(sparkline0(h.History, m.repl.HistoryLen, sparkWidth)) + " " +
+				styleDim.Render(fmt.Sprintf("%-*s", sparkPeakWidth, sparkPeak(h.History, "")))
 		}
 		lines = append(lines, fmt.Sprintf("    %-*s  %s  %12s%s  %s  %-10s  %s",
 			nameW, truncateString(h.Subscriber, nameW), tables, behindCell, spark, pulledCell(h),

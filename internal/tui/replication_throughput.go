@@ -19,54 +19,82 @@ const (
 	sparkMinWidth = 120
 )
 
-// sparkline0 draws values on a timeline of total polls in width
-// characters, scaled from 0 so a flat line at a high value reads as high.
-// A series that started later than the others is padded on the left, so
-// its newest point lines up with theirs; with more polls than characters
-// each character is the busiest of an even share of them.
+// sparkline0 draws values on a timeline of total polls as braille dots,
+// two samples per character in width characters, scaled from 0 so a flat
+// line at a high value reads as high. Zero and gaps stay blank, so an idle
+// series draws nothing. A series that started later than the others is
+// padded on the left, so its newest point lines up with theirs; with more
+// polls than slots each slot is the busiest of an even share of them.
 func sparkline0(values []float64, total, width int) string {
+	slots := 2 * width
 	total = max(total, len(values))
-	if total == 0 {
-		return strings.Repeat(" ", width)
-	}
-	padded := make([]float64, total)
-	gap := total - len(values)
-	for i := range padded {
-		if i < gap {
-			padded[i] = math.NaN()
-		} else {
-			padded[i] = values[i-gap]
-		}
-	}
-	n := min(total, width)
-	buckets := make([]float64, n)
-	top := 0.0
-	for b := range buckets {
-		lo, hi := b*total/n, (b+1)*total/n
-		buckets[b] = math.NaN()
-		for _, v := range padded[lo:hi] {
-			if !math.IsNaN(v) && (math.IsNaN(buckets[b]) || v > buckets[b]) {
-				buckets[b] = v
+	level := make([]int, slots) // dots per slot, 0-4
+	if total > 0 {
+		padded := make([]float64, total)
+		gap := total - len(values)
+		for i := range padded {
+			if i < gap {
+				padded[i] = math.NaN()
+			} else {
+				padded[i] = values[i-gap]
 			}
 		}
-		if !math.IsNaN(buckets[b]) {
+		n := min(total, slots)
+		buckets := make([]float64, n)
+		top := 0.0
+		for b := range buckets {
+			lo, hi := b*total/n, (b+1)*total/n
+			for _, v := range padded[lo:hi] {
+				if !math.IsNaN(v) {
+					buckets[b] = max(buckets[b], v)
+				}
+			}
 			top = max(top, buckets[b])
 		}
-	}
-	blocks := []rune("▁▂▃▄▅▆▇█")
-	var out strings.Builder
-	for _, v := range buckets {
-		switch {
-		case math.IsNaN(v):
-			out.WriteRune(' ')
-		case top > 0:
-			out.WriteRune(blocks[int(v/top*float64(len(blocks)-1))])
-		default:
-			out.WriteRune(blocks[0])
+		for b, v := range buckets {
+			if v > 0 && top > 0 {
+				level[slots-n+b] = max(1, int(math.Round(v/top*4)))
+			}
 		}
 	}
-	return out.String() + strings.Repeat(" ", width-n)
+	// Braille dots bottom up: 7 3 2 1 on the left, 8 6 5 4 on the right.
+	left := []rune{0x40, 0x04, 0x02, 0x01}
+	right := []rune{0x80, 0x20, 0x10, 0x08}
+	var out strings.Builder
+	for c := range width {
+		code := rune(0x2800)
+		for k := range level[2*c] {
+			code |= left[k]
+		}
+		for k := range level[2*c+1] {
+			code |= right[k]
+		}
+		if code == 0x2800 {
+			out.WriteRune(' ')
+		} else {
+			out.WriteRune(code)
+		}
+	}
+	return out.String()
 }
+
+// sparkPeak is the scale for a sparkline: its highest value, so a burst
+// of 5/s doesn't read like one of 5,000/s. Empty when there was none.
+func sparkPeak(values []float64, unit string) string {
+	top := 0.0
+	for _, v := range values {
+		if !math.IsNaN(v) {
+			top = max(top, v)
+		}
+	}
+	if top <= 0 {
+		return ""
+	}
+	return "peak " + formatRecords(int64(top+0.5)) + unit
+}
+
+// sparkPeakWidth is the room after a sparkline for its peak.
+const sparkPeakWidth = 12
 
 // spanLabel names the time the sparklines cover, e.g. "LAST 20M".
 func spanLabel(d time.Duration) string {

@@ -13,6 +13,10 @@ import (
 // tabs: bold and dim, no rule under it, so the rows carry the weight.
 var styleColumns = lipgloss.NewStyle().Bold(true).Foreground(colorDim)
 
+// styleSpark colours the braille sparklines, so they read as a line of
+// their own next to the numbers.
+var styleSpark = lipgloss.NewStyle().Foreground(colorPrimary)
+
 // subStateMark is a subscribed table's state as a mark and a word; the
 // marks differ in shape, not only in colour.
 func subStateMark(state string) string {

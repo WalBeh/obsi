@@ -11,11 +11,16 @@ import (
 
 func TestSparkline0(t *testing.T) {
 	// 6 samples into 3 characters: the max of each pair, scaled from 0.
-	if got := sparkline0([]float64{0, 8, 1, 2, 4, 4}, 6, 3); got != "█▂▄" {
+	// Two samples per character, dots from the bottom, scaled from 0:
+	// 8 is four dots, 1 and 2 round to one, 4 to two; 0 stays blank.
+	if got := sparkline0([]float64{0, 8, 1, 2, 4, 4}, 6, 3); got != "⢸⣀⣤" {
 		t.Errorf("got %q", got)
 	}
-	if got := sparkline0([]float64{5, 5}, 2, 4); got != "██  " {
-		t.Errorf("flat high line: %q", got)
+	if got := sparkline0([]float64{5, 5}, 2, 4); got != "   ⣿" {
+		t.Errorf("flat high line, right-aligned: %q", got)
+	}
+	if got := sparkline0([]float64{0, 0, 0, 0}, 4, 2); got != "  " {
+		t.Errorf("idle series draws nothing: %q", got)
 	}
 	if got := sparkline0(nil, 0, 3); got != "   " {
 		t.Errorf("empty: %q", got)
@@ -23,13 +28,17 @@ func TestSparkline0(t *testing.T) {
 	// Review finding: 21..119 samples kept 20 characters only at 120.
 	for _, n := range []int{21, 41, 61, 119, 120} {
 		vals := make([]float64, n)
+		vals[n-1] = 1
 		if got := []rune(sparkline0(vals, n, 20)); len(got) != 20 || got[19] == ' ' {
 			t.Errorf("%d samples: %q", n, string(got))
 		}
 	}
 	// A series that started 4 polls ago, on a timeline of 8: right-aligned.
-	if got := sparkline0([]float64{1, 2, 3, 4}, 8, 8); got != "    ▂▄▆█" {
+	if got := sparkline0([]float64{1, 2, 3, 4}, 8, 4); got != "  ⣠⣾" {
 		t.Errorf("late series: %q", got)
+	}
+	if sparkPeak([]float64{0, 95, 3}, "/s") != "peak 95/s" || sparkPeak([]float64{0, 0}, "") != "" {
+		t.Error("sparkPeak")
 	}
 }
 
@@ -53,18 +62,18 @@ func throughputSnap() store.StoreSnapshot {
 func TestReplicationThroughputView(t *testing.T) {
 	view := NewReplicationModel(160, 60).Refresh(throughputSnap()).View()
 	for _, want := range []string{
-		"LAST 20M", "▁▁█▃",
+		"LAST 20M", "⣇ peak 10/s",
 		"copied 1.2GB in 3m40s, 5.5MB/s · 1.0MB/s per shard",
 		"2 × 1.0MB chunks in flight at 1.0MB/s per shard ≈ one round trip every 2.0s",
 		"replicated since obsi started: 4.0K changes (≈ 4.0MB",
-		"BEHIND, 20M", "PULLED/s", "▁▃▅█", "operations pulled since obsi started: dr 9.0K",
+		"BEHIND, 20M", "PULLED/s", "⢀⣾ peak 300", "operations pulled since obsi started: dr 9.0K",
 	} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q:\n%s", want, view)
 		}
 	}
 	narrow := NewReplicationModel(100, 60).Refresh(throughputSnap()).View()
-	if strings.Contains(narrow, "LAST 20M") || strings.Contains(narrow, "▁▃▅█") {
+	if strings.Contains(narrow, "LAST 20M") || strings.Contains(narrow, "peak 300") {
 		t.Errorf("sparklines on a narrow terminal:\n%s", narrow)
 	}
 }

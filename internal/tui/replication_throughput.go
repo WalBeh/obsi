@@ -57,25 +57,7 @@ func sparkline0(values []float64, total, width int) string {
 			}
 		}
 	}
-	// Braille dots bottom up: 7 3 2 1 on the left, 8 6 5 4 on the right.
-	left := []rune{0x40, 0x04, 0x02, 0x01}
-	right := []rune{0x80, 0x20, 0x10, 0x08}
-	var out strings.Builder
-	for c := range width {
-		code := rune(0x2800)
-		for k := range level[2*c] {
-			code |= left[k]
-		}
-		for k := range level[2*c+1] {
-			code |= right[k]
-		}
-		if code == 0x2800 {
-			out.WriteRune(' ')
-		} else {
-			out.WriteRune(code)
-		}
-	}
-	return out.String()
+	return brailleBars(level)
 }
 
 // sparkPeak is the scale for a sparkline: its highest value, so a burst

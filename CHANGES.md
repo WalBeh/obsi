@@ -4,6 +4,15 @@ All notable changes to obsi are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- The Nodes tab's and the Overview's sparklines are braille dots too, two
+  values per character, so they cover twice the time in the same width;
+  they still show the shape between the lowest and highest value, and a
+  zero is blank.
+
 ## [0.5.1] - 2026-10-14
 
 ### Added

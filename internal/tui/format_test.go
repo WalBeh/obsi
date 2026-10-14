@@ -51,3 +51,24 @@ func TestWrapTextUTF8(t *testing.T) {
 		t.Errorf("ascii wrap = %q", got)
 	}
 }
+
+// Node sparklines show the shape: scaled between the smallest and largest
+// non-zero values, two per character; zero blank, flat a row of dots.
+func TestSparklineBraille(t *testing.T) {
+	for _, c := range []struct {
+		vals  []float64
+		width int
+		want  string
+	}{
+		{[]float64{10, 20, 30, 40}, 2, "⣠⣾"},
+		{[]float64{5, 5, 5, 5}, 2, "⣀⣀"},
+		{[]float64{0, 0, 7, 0}, 2, " ⡀"},
+		{[]float64{9, 9, 3, 4, 5, 6}, 2, "⣠⣾"}, // only the last 2×width, scaled among them
+		{[]float64{3}, 4, "⡀"},
+		{nil, 4, ""},
+	} {
+		if got := sparkline(c.vals, c.width); got != c.want {
+			t.Errorf("sparkline(%v, %d) = %q, want %q", c.vals, c.width, got, c.want)
+		}
+	}
+}

@@ -31,9 +31,24 @@ func (m ReplicationModel) settingValue(s replSetting) (string, bool) {
 	return v, ok && !strings.EqualFold(v, s.def)
 }
 
-// renderReplSettings shows the subscriber's settings on one line, the
-// non-defaults highlighted. Shown on a subscriber, or anywhere one was
-// changed.
+// settingsSummary is the headline's word on the settings: dim while all
+// are default, else how many differ.
+func (m ReplicationModel) settingsSummary() string {
+	changed := 0
+	for _, s := range replSettings {
+		if _, nonDefault := m.settingValue(s); nonDefault {
+			changed++
+		}
+	}
+	if changed == 0 {
+		return styleDim.Render("settings default")
+	}
+	return styleHealthYellow.Render(fmt.Sprintf("%d %s changed (c)", changed, plural(changed, "setting", "settings")))
+}
+
+// renderReplSettings lists the subscriber's settings, the non-defaults
+// highlighted, when any differs from its default; the headline says so
+// otherwise.
 func (m ReplicationModel) renderReplSettings() []string {
 	var parts []string
 	changed := false
@@ -49,7 +64,7 @@ func (m ReplicationModel) renderReplSettings() []string {
 		}
 		parts = append(parts, part)
 	}
-	if len(parts) == 0 || (!changed && len(m.repl.Subscriptions) == 0) {
+	if len(parts) == 0 || !changed {
 		return nil
 	}
 	lines := []string{sectionTitle("Subscriber settings")}
@@ -88,7 +103,7 @@ func (m ReplicationModel) leasePeriodLine(p cratedb.Publication) string {
 	case known == 0:
 		return ""
 	case len(odd) == 0:
-		return styleDim.Render("    retention lease period 12h (default) on all")
+		return ""
 	}
 	line := "    retention lease period: " + strings.Join(odd, ", ")
 	if known > len(odd) {
@@ -97,41 +112,63 @@ func (m ReplicationModel) leasePeriodLine(p cratedb.Publication) string {
 	return line
 }
 
-// renderPool is the logical_replication thread pool over the nodes: one
-// summary line, then the nodes with a queue or rejections.
-func (m ReplicationModel) renderPool() []string {
-	var nodes, threads, active, queue, rejected int64
-	var busy []string
+type poolStats struct {
+	nodes, threads, active, queue, rejected int64
+	busy                                    []string // nodes with a queue or rejections
+}
+
+func (m ReplicationModel) pool() poolStats {
+	var p poolStats
 	for _, n := range m.nodes {
-		for _, p := range n.ThreadPools {
-			if p.Name != "logical_replication" {
+		for _, tp := range n.ThreadPools {
+			if tp.Name != "logical_replication" {
 				continue
 			}
-			nodes++
-			threads += p.Threads
-			active += p.Active
-			queue += p.Queue
-			rejected += p.Rejected
-			if p.Queue > 0 || p.Rejected > 0 {
-				cell := fmt.Sprintf("%s queue %d, rejected %d", shortenHostname(n.Name, 24), p.Queue, p.Rejected)
-				if p.Rejected > 0 {
+			p.nodes++
+			p.threads += tp.Threads
+			p.active += tp.Active
+			p.queue += tp.Queue
+			p.rejected += tp.Rejected
+			if tp.Queue > 0 || tp.Rejected > 0 {
+				cell := fmt.Sprintf("%s queue %d, rejected %d", shortenHostname(n.Name, 24), tp.Queue, tp.Rejected)
+				if tp.Rejected > 0 {
 					cell = styleHealthRed.Render(cell)
 				} else {
 					cell = styleHealthYellow.Render(cell)
 				}
-				busy = append(busy, cell)
+				p.busy = append(p.busy, cell)
 			}
 		}
 	}
-	if nodes == 0 {
+	return p
+}
+
+// poolSummary is the headline's word on the logical_replication thread
+// pool: idle, busy, or queueing and rejecting.
+func (m ReplicationModel) poolSummary() string {
+	p := m.pool()
+	switch {
+	case p.nodes == 0:
+		return ""
+	case p.rejected > 0:
+		return styleHealthRed.Render(fmt.Sprintf("pool rejected %d", p.rejected))
+	case p.queue > 0:
+		return styleHealthYellow.Render(fmt.Sprintf("pool queue %d", p.queue))
+	case p.active > 0:
+		return styleDim.Render(fmt.Sprintf("pool %d active", p.active))
+	}
+	return styleDim.Render("pool idle")
+}
+
+// renderPool details the logical_replication thread pool over the nodes,
+// only while one queues or has rejected work.
+func (m ReplicationModel) renderPool() []string {
+	p := m.pool()
+	if len(p.busy) == 0 {
 		return nil
 	}
-	lines := []string{fmt.Sprintf("  logical_replication thread pool: %d nodes, %d threads, %d active, queue %d, rejected %d (since node start)",
-		nodes, threads, active, queue, rejected)}
-	if len(busy) > 0 {
-		lines = append(lines, "    "+strings.Join(busy, " · "))
-	}
-	return lines
+	return []string{fmt.Sprintf("  logical_replication thread pool: %d nodes, %d threads, %d active, queue %d, rejected %d (since node start)",
+		p.nodes, p.threads, p.active, p.queue, p.rejected), "    " + strings.Join(p.busy, " · ")}
 }
 
 // ReplSettingRequest asks the App to SET or RESET a replication setting.

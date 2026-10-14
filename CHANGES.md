@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   values per character, so they cover twice the time in the same width;
   they still show the shape between the lowest and highest value, and a
   zero is blank.
+- `enter` on the Snapshots tab folds a repository's snapshots into its
+  row and opens them again, also from one of its snapshots. It used to
+  filter the list to that repository, which `enter` couldn't undo; `/`
+  still filters.
 
 ## [0.5.1] - 2026-10-14
 

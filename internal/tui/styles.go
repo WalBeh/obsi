@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -228,42 +230,58 @@ func healthStyle(health string) lipgloss.Style {
 	}
 }
 
-// sparkline renders a sparkline from a series of values.
+// sparkline draws the last 2×width values as braille dots, two per
+// character. It shows the shape, not the level: values scale between the
+// series' smallest and largest non-zero ones to one to four dots, so a
+// flat line is a row of single dots; zero stays blank.
 func sparkline(values []float64, width int) string {
 	if len(values) == 0 || width <= 0 {
 		return ""
 	}
-
-	blocks := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
-
-	// Use only the last 'width' values
-	if len(values) > width {
-		values = values[len(values)-width:]
+	if len(values) > 2*width {
+		values = values[len(values)-2*width:]
 	}
-
-	// Find min/max
-	min, max := values[0], values[0]
+	lo, hi := math.Inf(1), math.Inf(-1)
 	for _, v := range values {
-		if v < min {
-			min = v
-		}
-		if v > max {
-			max = v
+		if v > 0 {
+			lo, hi = min(lo, v), max(hi, v)
 		}
 	}
-
-	result := make([]rune, len(values))
+	levels := make([]int, len(values))
 	for i, v := range values {
-		if max == min {
-			result[i] = blocks[0]
-		} else {
-			idx := int((v - min) / (max - min) * float64(len(blocks)-1))
-			if idx >= len(blocks) {
-				idx = len(blocks) - 1
-			}
-			result[i] = blocks[idx]
+		switch {
+		case v <= 0:
+		case hi == lo:
+			levels[i] = 1
+		default:
+			levels[i] = 1 + int(math.Round((v-lo)/(hi-lo)*3))
 		}
 	}
+	return brailleBars(levels)
+}
 
-	return string(result)
+// brailleBars draws dot levels (0-4, filled from the bottom) two per
+// character; a character without dots is a space.
+func brailleBars(levels []int) string {
+	// Braille dots bottom up: 7 3 2 1 on the left, 8 6 5 4 on the right.
+	left := []rune{0x40, 0x04, 0x02, 0x01}
+	right := []rune{0x80, 0x20, 0x10, 0x08}
+	var out strings.Builder
+	for i := 0; i < len(levels); i += 2 {
+		code := rune(0x2800)
+		for k := range min(levels[i], 4) {
+			code |= left[k]
+		}
+		if i+1 < len(levels) {
+			for k := range min(levels[i+1], 4) {
+				code |= right[k]
+			}
+		}
+		if code == 0x2800 {
+			out.WriteRune(' ')
+		} else {
+			out.WriteRune(code)
+		}
+	}
+	return out.String()
 }

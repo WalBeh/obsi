@@ -13,9 +13,9 @@ import (
 	"github.com/waltergrande/cratedb-observer/internal/store"
 )
 
-// SnapshotsModel is the Snapshots tab: the repositories, running restores
-// and every snapshot sys.snapshots lists. The selected repository or
-// snapshot opens in place with its details.
+// SnapshotsModel is the Snapshots tab: a headline, the repositories each
+// with its snapshots below it, running restores, and the selected row's
+// details in a pane at the bottom.
 type SnapshotsModel struct {
 	st        store.SnapshotsState
 	nodeNames map[string]string // node ID → name, for the failures
@@ -24,7 +24,7 @@ type SnapshotsModel struct {
 	height    int
 	scroll    int
 	maxScroll int
-	selected  int // repositories first, then the shown snapshots
+	selected  int // index into rows()
 	searching bool
 	search    string // matched anywhere in repository.name
 	repo      string // enter on a repository: only its snapshots
@@ -73,10 +73,52 @@ func (m SnapshotsModel) result(msg RepoResultMsg) SnapshotsModel {
 	return m.notice(SnapshotsNoticeMsg{Note: msg.Note, Error: msg.Error})
 }
 
-// selectedRepo is the repository under the cursor.
+// snapRow is a selectable row: a repository, or a snapshot under it.
+type snapRow struct {
+	repo cratedb.Repository
+	snap *cratedb.SnapshotInfo // nil on the repository's own row
+}
+
+// rows is the table top to bottom: each repository, then its snapshots
+// the filter lets through, newest first. A filter hides repositories
+// with nothing to show.
+func (m SnapshotsModel) rows() []snapRow {
+	byRepo := map[string][]cratedb.SnapshotInfo{}
+	for _, s := range m.shown() {
+		byRepo[s.Repository] = append(byRepo[s.Repository], s)
+	}
+	filtering := m.search != "" || m.repo != ""
+	var out []snapRow
+	known := map[string]bool{}
+	add := func(r cratedb.Repository) {
+		snaps := byRepo[r.Name]
+		if filtering && len(snaps) == 0 && (m.repo != r.Name) && !(m.repo == "" && strings.Contains(strings.ToLower(r.Name), strings.ToLower(m.search))) {
+			return
+		}
+		out = append(out, snapRow{repo: r})
+		for i := range snaps {
+			out = append(out, snapRow{repo: r, snap: &snaps[i]})
+		}
+	}
+	for _, r := range m.st.Repositories {
+		known[r.Name] = true
+		add(r)
+	}
+	// Snapshots of a repository sys.repositories no longer lists.
+	for _, s := range m.shown() {
+		if !known[s.Repository] {
+			known[s.Repository] = true
+			add(cratedb.Repository{Name: s.Repository})
+		}
+	}
+	return out
+}
+
+// selectedRepo is the repository whose own row is under the cursor.
 func (m SnapshotsModel) selectedRepo() (cratedb.Repository, bool) {
-	if m.selected < len(m.st.Repositories) {
-		return m.st.Repositories[m.selected], true
+	rows := m.rows()
+	if m.selected < len(rows) && rows[m.selected].snap == nil {
+		return rows[m.selected].repo, true
 	}
 	return cratedb.Repository{}, false
 }
@@ -101,18 +143,11 @@ func (m SnapshotsModel) noticeLine() string {
 
 // selectedSnapshot is the snapshot under the cursor and its repository.
 func (m SnapshotsModel) selectedSnapshot() (cratedb.SnapshotInfo, cratedb.Repository, bool) {
-	i := m.selected - len(m.st.Repositories)
-	shown := m.shown()
-	if i < 0 || i >= len(shown) {
+	rows := m.rows()
+	if m.selected >= len(rows) || rows[m.selected].snap == nil {
 		return cratedb.SnapshotInfo{}, cratedb.Repository{}, false
 	}
-	s := shown[i]
-	for _, r := range m.st.Repositories {
-		if r.Name == s.Repository {
-			return s, r, true
-		}
-	}
-	return s, cratedb.Repository{Name: s.Repository}, true
+	return *rows[m.selected].snap, rows[m.selected].repo, true
 }
 
 // shown is the snapshots the filter lets through, newest first.
@@ -130,7 +165,7 @@ func (m SnapshotsModel) shown() []cratedb.SnapshotInfo {
 	return out
 }
 
-func (m SnapshotsModel) items() int { return len(m.st.Repositories) + len(m.shown()) }
+func (m SnapshotsModel) items() int { return len(m.rows()) }
 
 func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 	if m.modal != nil {
@@ -156,7 +191,7 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 		m.selected = min(m.selected, max(m.items()-1, 0))
 		return m.clampScroll().followSelection(), nil
 	}
-	page := max(m.height-2, 1)
+	page := max(m.listHeight()-1, 1)
 	switch msg.String() {
 	case "/":
 		m.searching, m.search = true, ""
@@ -189,14 +224,13 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 		}
 		return m, func() tea.Msg { return SnapshotReportRequest{Snapshot: s, Repository: repo} }
 	case "enter":
-		// On a repository: show only its snapshots.
-		if m.selected < len(m.st.Repositories) {
-			m.repo = m.st.Repositories[m.selected].Name
-			m = m.clampScroll()
+		// On a repository: show only its snapshots, the first selected.
+		if repo, ok := m.selectedRepo(); ok {
+			m.repo, m.selected = repo.Name, 0
 			if len(m.shown()) > 0 {
-				m.selected = len(m.st.Repositories)
+				m.selected = 1
 			}
-			return m.followSelection(), nil
+			return m.clampScroll().followSelection(), nil
 		}
 		return m, nil
 	case "up", "k":
@@ -224,33 +258,32 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 	return m, nil
 }
 
-// bodyHeight leaves the last line for notices.
-func (m SnapshotsModel) bodyHeight() int { return max(m.height-1, 3) }
+// listHeight is what the table may use: the detail pane, the key line
+// and the notice line take the rest.
+func (m SnapshotsModel) listHeight() int {
+	return max(m.height-len(m.detail())-2, 3)
+}
 
 func (m SnapshotsModel) clampScroll() SnapshotsModel {
 	m.maxScroll = 0
-	if n := len(m.render()); n > m.bodyHeight() {
-		m.maxScroll = n - (m.bodyHeight() - 1)
+	if n := len(m.render()); n > m.listHeight() {
+		m.maxScroll = n - (m.listHeight() - 1)
 	}
 	m.scroll = min(max(m.scroll, 0), m.maxScroll)
 	return m
 }
 
-// followSelection scrolls the selected row, and what it opened, into view.
+// followSelection scrolls the selected row into view.
 func (m SnapshotsModel) followSelection() SnapshotsModel {
 	lines := m.render()
 	for i, l := range lines {
 		if !strings.Contains(l, "▸ ") {
 			continue
 		}
-		end := i
-		for end+1 < len(lines) && strings.HasPrefix(lines[end+1], detailIndent) {
-			end++
-		}
 		// What's visible from a scroll position: the "more" markers take a
 		// line each, as in body.
 		last := func(scroll int) int {
-			room := m.bodyHeight()
+			room := m.listHeight()
 			if scroll > 0 {
 				room--
 			}
@@ -262,8 +295,7 @@ func (m SnapshotsModel) followSelection() SnapshotsModel {
 		if i <= m.scroll {
 			m.scroll = max(i-1, 0)
 		}
-		// Keep the row itself (and one line above it) in view.
-		for end > last(m.scroll) && m.scroll < i-1 {
+		for i > last(m.scroll) {
 			m.scroll++
 		}
 		break
@@ -276,15 +308,17 @@ func (m SnapshotsModel) View() string {
 	if m.modal != nil {
 		return m.modal.render(m.width, m.height)
 	}
-	return m.body() + "\n" + m.noticeLine()
+	out := []string{m.body()}
+	out = append(out, m.detail()...)
+	return strings.Join(append(out, m.keyLine(), m.noticeLine()), "\n")
 }
 
 func (m SnapshotsModel) body() string {
 	lines := m.render()
-	if len(lines) <= m.bodyHeight() {
-		return strings.Join(lines, "\n")
+	if len(lines) <= m.listHeight() {
+		return strings.Join(append(lines, make([]string, m.listHeight()-len(lines))...), "\n")
 	}
-	room := m.bodyHeight()
+	room := m.listHeight()
 	if m.scroll > 0 {
 		room--
 	}
@@ -302,9 +336,6 @@ func (m SnapshotsModel) body() string {
 	}
 	return strings.Join(out, "\n")
 }
-
-// detailIndent starts the lines a selected row opens.
-const detailIndent = "      "
 
 func (m SnapshotsModel) render() []string {
 	return strings.Split(strings.Join(m.layout(), "\n"), "\n")
@@ -330,11 +361,24 @@ func (m SnapshotsModel) layout() []string {
 			styleDim.Render("  CREATE REPOSITORY adds one (fs, s3, azure, gcs, url); CREATE SNAPSHOT then writes to it."))
 		return append(lines, m.renderRestores()...)
 	}
-	lines = append(lines, m.renderRepositories()...)
-	lines = append(lines, m.renderRestores()...)
+	lines = append(lines, m.headline())
+	switch {
+	case m.searching:
+		lines = append(lines, "  filter: "+m.filterText()+m.search+"▏")
+	case m.search != "" || m.repo != "":
+		lines = append(lines, "  filter: "+m.filterText()+fmt.Sprintf("%q", m.search)+"  "+styleDim.Render("(esc clears)"))
+	}
 	lines = append(lines, "")
-	lines = append(lines, m.renderSnapshotList()...)
-	return append(lines, "", styleDim.Render("  ↑↓ select · enter: a repository's snapshots · / filter · y copy snapshot · w read-only · e change · d drop · R list now · ? help"))
+	lines = append(lines, m.renderTable()...)
+	return append(lines, m.renderRestores()...)
+}
+
+// filterText is the repository part of the filter line.
+func (m SnapshotsModel) filterText() string {
+	if m.repo == "" {
+		return ""
+	}
+	return "repository " + m.repo + " · "
 }
 
 // renderRestores lists running restores, and apart from them the initial
@@ -377,119 +421,133 @@ func (m SnapshotsModel) newestFinished() (map[string]cratedb.SnapshotInfo, map[s
 	return newest, count
 }
 
-func (m SnapshotsModel) renderRepositories() []string {
-	newest, count := m.newestFinished()
-	nameW, lastW := len("REPOSITORY"), 0
-	for _, r := range m.st.Repositories {
-		nameW = max(nameW, len(r.Name))
-		if s, ok := newest[r.Name]; ok {
-			lastW = max(lastW, len(s.Name))
+// headline answers "did the backups run?" before any row is read, and
+// says how fresh the listing is.
+func (m SnapshotsModel) headline() string {
+	st := m.st
+	n := len(st.Repositories)
+	head := styleValue.Render(fmt.Sprintf("%d %s", n, plural(n, "repository", "repositories")))
+	if st.ListedAt.IsZero() {
+		return "  " + head + styleDim.Render(" · listing snapshots (reads every repository)...")
+	}
+	var newest time.Time
+	failed, partial, running := 0, 0, 0
+	newestFinished, _ := m.newestFinished()
+	for _, s := range newestFinished {
+		switch s.State {
+		case "FAILED", "INCOMPATIBLE":
+			failed++
+		case "PARTIAL":
+			partial++
 		}
 	}
-	nameW, lastW = min(nameW, 30), min(lastW, 30)
-	row := fmt.Sprintf("%%s%%-%ds  %%-5s  %%-9s  %%9s  %%s", nameW)
-	lines := []string{sectionTitle("Repositories"), styleHeader.Render(fmt.Sprintf(row, "  ", "NAME", "TYPE", "ACCESS", "SNAPSHOTS", "NEWEST"))}
-	listed := !m.st.ListedAt.IsZero()
-	for i, r := range m.st.Repositories {
-		marker := "  "
-		if i == m.selected {
-			marker = "▸ "
+	for _, s := range st.Snapshots {
+		if s.State == "IN_PROGRESS" {
+			running++
 		}
+		if s.Finished.After(newest) {
+			newest = s.Finished
+		}
+	}
+	if newest.IsZero() {
+		head += styleDim.Render(" · no finished snapshot")
+	} else {
+		head += styleDim.Render(" · newest snapshot " + ageShort(m.now.Sub(newest)))
+	}
+	var marks []string
+	if failed > 0 {
+		marks = append(marks, styleHealthRed.Render(fmt.Sprintf("✕ %d FAILED", failed)))
+	}
+	if partial > 0 {
+		marks = append(marks, styleHealthYellow.Render(fmt.Sprintf("▲ %d PARTIAL", partial)))
+	}
+	if len(marks) == 0 && !newest.IsZero() {
+		marks = append(marks, styleHealthGreen.Render("● newest per repository succeeded"))
+	}
+	if running > 0 {
+		marks = append(marks, styleDim.Render(fmt.Sprintf("◐ %d running", running)))
+	}
+	head += "  " + strings.Join(marks, "  ")
+	fresh := fmt.Sprintf("listed %s · R lists now", ageShort(m.now.Sub(st.ListedAt)))
+	if gap := m.width - lipgloss.Width(head) - len(fresh) - 4; gap > 2 {
+		return "  " + head + strings.Repeat(" ", gap) + styleDim.Render(fresh)
+	}
+	return "  " + head + styleDim.Render(" · "+fresh)
+}
+
+// repoSummary is a repository's group-row line: type, access, where its
+// snapshots live, and a snapshot throttle when one is set.
+func repoSummary(r cratedb.Repository) string {
+	parts := []string{r.Type}
+	if r.Type != "" {
 		access := "writable"
 		if r.ReadOnly() {
 			access = "read-only"
 		}
-		snaps, last := "?", styleDim.Render("not listed yet")
-		if listed {
-			snaps = fmt.Sprint(count[r.Name])
-			last = styleHealthYellow.Render("none listed")
-			if count[r.Name] > 0 {
-				last = styleDim.Render("running, none finished")
+		parts = append(parts, access)
+	}
+	for _, k := range []string{"location", "url", "bucket", "container"} {
+		if v := r.Settings[k]; v != "" && v != cratedb.MaskedValue {
+			if bp := r.Settings["base_path"]; bp != "" {
+				v += "/" + strings.TrimPrefix(bp, "/")
 			}
-			if s, ok := newest[r.Name]; ok {
-				last = fmt.Sprintf("%-*s  %s", lastW, truncateString(s.Name, lastW), snapshotStateStyle(s.State).Render(fmt.Sprintf("%-11s", s.State)))
-				if !s.Finished.IsZero() {
-					last += "  " + ageShort(m.now.Sub(s.Finished))
-				}
-			}
-		}
-		lines = append(lines, fmt.Sprintf(row, marker, truncateString(r.Name, nameW), r.Type, access, snaps, last))
-		if i == m.selected {
-			lines = append(lines, m.repositoryDetail(r, listed && count[r.Name] == 0)...)
+			parts = append(parts, v)
+			break
 		}
 	}
-	return lines
+	if v := r.Settings["max_snapshot_bytes_per_sec"]; v != "" {
+		parts = append(parts, "snapshots throttled to "+v+"/s")
+	}
+	return strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), " · ")
 }
 
-func (m SnapshotsModel) repositoryDetail(r cratedb.Repository, empty bool) []string {
-	var lines []string
-	for _, k := range slices.Sorted(maps.Keys(r.Settings)) {
-		lines = append(lines, detailIndent+styleDim.Render(k+" = ")+r.Settings[k])
+// snapMark is a snapshot's state as a mark and a word.
+func snapMark(state string) string {
+	switch state {
+	case "SUCCESS":
+		return styleHealthGreen.Render(fmt.Sprintf("%-11s", "● SUCCESS"))
+	case "PARTIAL":
+		return styleHealthYellow.Render(fmt.Sprintf("%-11s", "▲ PARTIAL"))
+	case "FAILED", "INCOMPATIBLE":
+		return styleHealthRed.Render(fmt.Sprintf("%-11s", "✕ "+state))
+	case "IN_PROGRESS":
+		return styleDim.Render(fmt.Sprintf("%-11s", "◐ running"))
 	}
-	if len(r.Settings) == 0 {
-		lines = append(lines, detailIndent+styleDim.Render("no settings"))
-	}
-	if r.Settings["access_key"] == "[xxxxx]" || r.Settings["key"] == "[xxxxx]" || r.Settings["private_key"] == "[xxxxx]" {
-		lines = append(lines, detailIndent+styleDim.Render("[xxxxx]: CrateDB doesn't show credentials"))
-	}
-	if empty {
-		for _, l := range wrapText("No snapshots listed: the repository is empty, or CrateDB couldn't read it (sys.snapshots leaves out a repository it can't read, without an error).", max(m.width-10, 40)) {
-			lines = append(lines, detailIndent+styleHealthYellow.Render(l))
-		}
-	}
-	return lines
+	return fmt.Sprintf("%-11s", state)
 }
 
-func (m SnapshotsModel) renderSnapshotList() []string {
-	st := m.st
-	title := sectionTitle("Snapshots")
-	if !st.ListedAt.IsZero() {
-		title += styleDim.Render(fmt.Sprintf("  listed %s, took %s", ageShort(m.now.Sub(st.ListedAt)), formatDuration(st.ListTook.Round(time.Millisecond))))
-		if st.ListEvery > 0 {
-			title += styleDim.Render(fmt.Sprintf(" · every %s, sooner while one runs", shortDuration(st.ListEvery)))
+// renderTable is the repositories, each a group row with its snapshots
+// below, under one column header.
+func (m SnapshotsModel) renderTable() []string {
+	rows := m.rows()
+	nameW := len("REPOSITORY / SNAPSHOT") - 2
+	for _, r := range rows {
+		if r.snap != nil {
+			nameW = max(nameW, min(len(r.snap.Name), 40))
 		}
 	}
-	lines := []string{title}
-	var filter []string
-	if m.repo != "" {
-		filter = append(filter, "repository "+m.repo)
-	}
-	switch {
-	case m.searching:
-		filter = append(filter, m.search+"▏")
-	case m.search != "":
-		filter = append(filter, fmt.Sprintf("%q", m.search))
-	}
-	if len(filter) > 0 {
-		lines = append(lines, "  filter: "+strings.Join(filter, " · ")+"  "+styleDim.Render("(esc clears)"))
-	}
-	if st.ListedAt.IsZero() {
-		return append(lines, styleDim.Render("  listing snapshots (reads every repository)..."))
-	}
-	shown := m.shown()
-	if len(shown) == 0 {
-		if m.search != "" || m.repo != "" {
-			return append(lines, styleDim.Render("  no snapshot matches"))
-		}
-		return append(lines, styleHealthYellow.Render("  no snapshots"))
-	}
-	repoW, nameW := len("REPOSITORY"), len("NAME")
-	for _, s := range shown {
-		repoW = max(repoW, len(s.Repository))
-		nameW = max(nameW, len(s.Name))
-	}
-	repoW, nameW = min(repoW, 24), min(nameW, 40)
-	row := fmt.Sprintf("%%s%%-16s  %%-%ds  %%-%ds  %%s  %%8s  %%6s  %%6s  %%s", repoW, nameW)
-	lines = append(lines, styleHeader.Render(fmt.Sprintf(row, "  ", "STARTED", "REPOSITORY", "NAME", fmt.Sprintf("%-11s", "STATE"), "TOOK", "SHARDS", "TABLES", "FAILURES")))
-	base := len(st.Repositories)
-	for i, s := range shown {
+	row := fmt.Sprintf("    %%-%ds  %%s  %%9s  %%8s  %%6s  %%s", nameW)
+	lines := []string{styleColumns.Render(fmt.Sprintf("  %-*s  %-11s  %9s  %8s  %6s  %s", nameW+2, "REPOSITORY / SNAPSHOT", "STATE", "STARTED", "TOOK", "SHARDS", "FAILED"))}
+	_, count := m.newestFinished()
+	for i, r := range rows {
 		marker := "  "
-		if base+i == m.selected {
+		if i == m.selected {
 			marker = "▸ "
 		}
+		if r.snap == nil {
+			lines = append(lines, marker+styleValue.Render(r.repo.Name)+"  "+styleDim.Render(repoSummary(r.repo)))
+			switch {
+			case m.st.ListedAt.IsZero():
+				lines = append(lines, styleDim.Render("    not listed yet"))
+			case count[r.repo.Name] == 0 && m.search == "":
+				lines = append(lines, styleHealthYellow.Render("    none listed (empty, or CrateDB couldn't read it)"))
+			}
+			continue
+		}
+		s := *r.snap
 		started, took := "—", "—"
 		if !s.Started.IsZero() {
-			started = s.Started.Local().Format("2006-01-02 15:04")
+			started = ageShort(m.now.Sub(s.Started))
 			switch {
 			case !s.Finished.IsZero():
 				took = snapshotTook(s.Finished.Sub(s.Started))
@@ -497,26 +555,81 @@ func (m SnapshotsModel) renderSnapshotList() []string {
 				took = snapshotTook(m.now.Sub(s.Started)) + "…"
 			}
 		}
-		failures := ""
+		failed := ""
 		if n := len(s.Failures); n > 0 {
-			failures = styleHealthRed.Render(fmt.Sprint(n))
+			failed = styleHealthRed.Render(fmt.Sprint(n))
 		}
-		state := snapshotStateStyle(s.State).Render(fmt.Sprintf("%-11s", s.State))
-		lines = append(lines, fmt.Sprintf(row, marker, started, truncateString(s.Repository, repoW), truncateString(s.Name, nameW),
-			state, took, fmt.Sprint(s.TotalShards), fmt.Sprint(len(s.Tables)), failures))
-		if base+i == m.selected {
-			lines = append(lines, m.snapshotDetail(s)...)
+		line := fmt.Sprintf(row, truncateString(s.Name, nameW), snapMark(s.State), started, took, fmt.Sprint(s.TotalShards), failed)
+		lines = append(lines, "  "+marker+strings.TrimPrefix(line, "    "))
+	}
+	return lines
+}
+
+// detail is the selected row's details under a divider, at most half the
+// tab's height.
+func (m SnapshotsModel) detail() []string {
+	rows := m.rows()
+	if m.selected >= len(rows) || m.st.UpdatedAt.IsZero() {
+		return nil
+	}
+	r := rows[m.selected]
+	var lines []string
+	if r.snap == nil {
+		_, count := m.newestFinished()
+		lines = append(lines, "  "+styleValue.Render(r.repo.Name)+"  "+styleDim.Render(fmt.Sprintf("%s · %d %s listed", repoSummary(r.repo), count[r.repo.Name], plural(count[r.repo.Name], "snapshot", "snapshots"))))
+		lines = append(lines, m.repositoryDetail(r.repo)...)
+	} else {
+		s := *r.snap
+		head := "  " + styleValue.Render(s.Repository+"."+s.Name) + "  " + snapMark(s.State)
+		if !s.Started.IsZero() {
+			head += styleDim.Render(" started " + s.Started.Local().Format("2006-01-02 15:04:05"))
 		}
+		lines = append(lines, head)
+		lines = append(lines, m.snapshotDetail(s)...)
+	}
+	limit := max(m.height/2-1, 4)
+	if len(lines) > limit {
+		more := len(lines) - limit + 1
+		lines = append(lines[:limit-1], styleDim.Render(fmt.Sprintf("  … %d more lines (y copies all of a snapshot)", more)))
+	}
+	return append([]string{styleDim.Render(strings.Repeat("─", max(m.width-2, 20)))}, lines...)
+}
+
+// keyLine is the keys that matter here, and the way to all of them.
+func (m SnapshotsModel) keyLine() string {
+	keys := "  enter only this repository · / filter · y copy · w e d change · ? all keys"
+	if _, _, ok := m.selectedSnapshot(); ok {
+		keys = "  y copy this snapshot · / filter · esc clear · ? all keys"
+	}
+	return styleDim.Render(keys)
+}
+
+// repositoryDetail is a repository's settings as sys.repositories gives
+// them, on as few lines as fit.
+func (m SnapshotsModel) repositoryDetail(r cratedb.Repository) []string {
+	var parts []string
+	for _, k := range slices.Sorted(maps.Keys(r.Settings)) {
+		parts = append(parts, k+" "+r.Settings[k])
+	}
+	if len(parts) == 0 {
+		return []string{"  " + styleDim.Render("no settings")}
+	}
+	var lines []string
+	for _, l := range wrapText(strings.Join(parts, " · "), max(m.width-6, 40)) {
+		lines = append(lines, "  "+l)
+	}
+	if slices.Contains(slices.Collect(maps.Values(r.Settings)), cratedb.MaskedValue) {
+		lines = append(lines, "  "+styleDim.Render("[xxxxx]: CrateDB doesn't show credentials"))
 	}
 	return lines
 }
 
 func (m SnapshotsModel) snapshotDetail(s cratedb.SnapshotInfo) []string {
-	w := max(m.width-len(detailIndent)-2, 40)
+	w := max(m.width-4, 40)
 	var lines []string
 	add := func(style lipgloss.Style, text string) {
 		for _, l := range wrapText(text, w) {
-			lines = append(lines, detailIndent+style.Render(l))
+			lines = append(lines, "  "+style.Render(l))
 		}
 	}
 	if s.Started.IsZero() && s.State == "FAILED" {

@@ -69,40 +69,53 @@ func pressSnap(m SnapshotsModel, keys ...string) SnapshotsModel {
 	return m
 }
 
+// selectRow puts the cursor on a repository's row (snap "") or on one of
+// its snapshots.
+func selectRow(t *testing.T, m SnapshotsModel, repo, snap string) SnapshotsModel {
+	t.Helper()
+	for i, r := range m.rows() {
+		if r.repo.Name == repo && ((snap == "" && r.snap == nil) || (r.snap != nil && r.snap.Name == snap)) {
+			m.selected = i
+			return m.clampScroll().followSelection()
+		}
+	}
+	t.Fatalf("no row %s/%s", repo, snap)
+	return m
+}
+
 func TestSnapshotsView(t *testing.T) {
 	m := snapshotsModel(t)
 	out := m.View()
+	flat := strings.Join(strings.Fields(out), " ")
 	for _, want := range []string{
-		"lab_fs", "read-only", "writable", "nightly  PARTIAL", // the running one isn't the newest finished
-		"t1_only  SUCCESS", "none listed", // lab_empty
-		"running, none finished", // lab_new
-		"lab_fs.nightly  STARTED  3/10 shards", "1 failed",
-		"listed 3m ago, took 400ms · every 15m, sooner while one runs",
-		"location = /repo/lab_fs", // the first repository is selected and open
+		"4 repositories · newest snapshot", "▲ 1 PARTIAL", "◐ 2 running", "listed 3m ago · R lists now",
+		"lab_fs fs · read-only · /repo/lab_fs", "lab_s3 s3 · writable · b",
+		"nightly ▲ PARTIAL 2h ago 5m 10 2", "t1_only ● SUCCESS", "running ◐ running",
+		"lab_empty fs · writable · /repo/e none listed (empty, or CrateDB couldn't read it)",
+		"lab_fs.nightly STARTED 3/10 shards", "1 failed",
+		"location /repo/lab_fs · readonly true", // the first repository is selected, its settings below
 	} {
-		if !strings.Contains(out, want) {
+		if !strings.Contains(flat, want) {
 			t.Errorf("view missing %q:\n%s", want, out)
 		}
 	}
-	// Newest first, the unreadable one without times last.
-	if i, j := strings.Index(out, "running"), strings.Index(out, "lost"); i < 0 || j < i {
+	// Under each repository newest first; the unreadable one without times last.
+	if i, j := strings.Index(out, "nightly"), strings.Index(out, "lost"); i < 0 || j < i {
 		t.Errorf("snapshot order:\n%s", out)
+	}
+	if strings.Contains(out, "── Repositories") || strings.Contains(out, "── Snapshots") {
+		t.Errorf("old section rules:\n%s", out)
 	}
 }
 
 func TestSnapshotsDetails(t *testing.T) {
 	m := snapshotsModel(t)
-	out := pressSnap(m, "down").View()
-	if !strings.Contains(out, "[xxxxx]: CrateDB doesn't show credentials") {
+	if out := selectRow(t, m, "lab_s3", "").View(); !strings.Contains(out, "[xxxxx]: CrateDB doesn't show credentials") {
 		t.Errorf("s3 repository detail:\n%s", out)
 	}
-	if out := pressSnap(m, "down", "down").View(); !strings.Contains(out, "No snapshots listed: the repository is empty, or CrateDB couldn't read it") {
-		t.Errorf("empty repository detail:\n%s", out)
-	}
-	// Repositories, then the two running ones, then nightly.
-	out = pressSnap(m, "down", "down", "down", "down", "down", "down").View()
+	out := selectRow(t, m, "lab_fs", "nightly").View()
 	for _, want := range []string{
-		"written by CrateDB 6.4.5", "with cluster metadata",
+		"lab_fs.nightly", "written by CrateDB 6.4.5", "with cluster metadata",
 		"tables: doc.t1, doc.parted (1 partition: [d1])",
 		"2 of 10 shards failed:",
 		"doc.t1 shard 3 on bak2: node shutdown",
@@ -112,7 +125,7 @@ func TestSnapshotsDetails(t *testing.T) {
 			t.Errorf("snapshot detail missing %q:\n%s", want, out)
 		}
 	}
-	if out := pressSnap(m, "down", "down", "down", "down", "down", "down", "down", "down").View(); !strings.Contains(out, "couldn't read this snapshot's details") || !strings.Contains(out, "reason: can't read") {
+	if out := selectRow(t, m, "lab_fs", "lost").View(); !strings.Contains(out, "couldn't read this snapshot's details") || !strings.Contains(out, "reason: can't read") {
 		t.Errorf("unreadable snapshot detail:\n%s", out)
 	}
 }
@@ -123,12 +136,15 @@ func TestSnapshotsFilter(t *testing.T) {
 	if n := len(m.shown()); n != 1 || m.inputMode() {
 		t.Fatalf("filter t1: %d shown, input mode %v", n, m.inputMode())
 	}
+	if rows := m.rows(); len(rows) != 2 || rows[0].repo.Name != "lab_s3" {
+		t.Errorf("filter keeps repositories with matches only: %+v", rows)
+	}
 	if m = pressSnap(m, "esc"); len(m.shown()) != 5 {
 		t.Errorf("esc should clear the filter, %d shown", len(m.shown()))
 	}
 	// enter on lab_s3 lists its snapshots and selects the first.
-	m = pressSnap(m, "down", "enter")
-	if n := len(m.shown()); n != 2 || m.selected != len(m.st.Repositories) {
+	m = pressSnap(selectRow(t, m, "lab_s3", ""), "enter")
+	if n := len(m.shown()); n != 2 || m.selected != 1 {
 		t.Errorf("enter on lab_s3: %d shown, selected %d", n, m.selected)
 	}
 	if out := m.View(); !strings.Contains(out, `filter: repository lab_s3`) {
@@ -148,10 +164,10 @@ func TestSnapshotsNoRepository(t *testing.T) {
 	}
 }
 
-// Selecting a snapshot low on a short screen scrolls its details in.
+// On a short screen the selected row stays in the list and its details
+// in the pane below.
 func TestSnapshotsFollowSelection(t *testing.T) {
-	m := NewSnapshotsModel(160, 16).Refresh(snapshotsSnap(time.Now()))
-	m = pressSnap(m, "down", "down", "down", "down", "down", "down")
+	m := selectRow(t, NewSnapshotsModel(160, 16).Refresh(snapshotsSnap(time.Now())), "lab_fs", "nightly")
 	if out := m.View(); !strings.Contains(out, "node shutdown") || !strings.Contains(out, "▸ ") {
 		t.Errorf("selected snapshot or its failures off screen:\n%s", out)
 	}
@@ -185,11 +201,11 @@ func TestSnapshotsRepositoryFilterExact(t *testing.T) {
 			{Repository: "s3", Name: "b", Started: now},
 			{Repository: "x", Name: "data.1", Started: now},
 		}}})
-	m = pressSnap(m, "down", "enter")
+	m = pressSnap(selectRow(t, m, "s3", ""), "enter")
 	if got := m.shown(); len(got) != 1 || got[0].Name != "b" {
 		t.Errorf("enter on s3 shows %+v", got)
 	}
-	m = pressSnap(m, "esc", "up", "enter") // enter selected the first snapshot; x is just above
+	m = pressSnap(selectRow(t, pressSnap(m, "esc"), "x", ""), "enter")
 	if got := m.shown(); len(got) != 1 || got[0].Name != "data.1" {
 		t.Errorf("enter on x shows %+v", got)
 	}
@@ -203,8 +219,8 @@ func TestSnapshotsFilterBackspaceRune(t *testing.T) {
 	}
 }
 
-// Walking down the list keeps the selected snapshot's last detail line
-// on screen, also with "more" markers above and below.
+// Walking down a long list keeps the selected row on screen, also with
+// "more" markers above and below, and its details in the pane.
 func TestSnapshotsFollowSelectionKeepsDetails(t *testing.T) {
 	now := time.Now()
 	st := store.SnapshotsState{UpdatedAt: now, ListedAt: now, Repositories: []cratedb.Repository{{Name: "r"}}}
@@ -216,8 +232,9 @@ func TestSnapshotsFollowSelectionKeepsDetails(t *testing.T) {
 	m := NewSnapshotsModel(160, 12).Refresh(store.StoreSnapshot{Snapshots: st})
 	for i := range 30 {
 		m = pressSnap(m, "down")
-		if out := m.View(); !strings.Contains(out, fmt.Sprintf("tables: doc.last%02d", i)) {
-			t.Fatalf("after %d downs the selected snapshot's tables line is off screen:\n%s", i+1, out)
+		out := m.View()
+		if !strings.Contains(out, fmt.Sprintf("tables: doc.last%02d", i)) || !strings.Contains(out, fmt.Sprintf("s%02d", i)) || !strings.Contains(out, "▸ ") {
+			t.Fatalf("after %d downs the selected snapshot or its tables line is off screen:\n%s", i+1, out)
 		}
 	}
 }

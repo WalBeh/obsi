@@ -104,7 +104,7 @@ func tabHelp(tab Tab, km KeyMap, view queriesView) (string, []helpEntry) {
 	case TabSnapshots:
 		return "Snapshots", []helpEntry{
 			{"↑ ↓", "select a repository or snapshot; its details show in the pane below (scroll past either end)"},
-			{"enter", "on a repository: list only its snapshots"},
+			{"enter", "fold a repository's snapshots away, or open them again (on a snapshot: fold its repository)"},
 			{"/", "filter snapshots by repository.name (esc clears)"},
 			{km.Yank.Help().Key, "copy the selected snapshot's details, failures, repository settings (masked) and cluster state, for a ticket or chat"},
 			{"w", "make the selected repository read-only or writable again"},

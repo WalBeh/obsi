@@ -74,7 +74,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `5` | Shards | One-line verdict (data unavailable / fewer copies / rebalancing), non-STARTED shards with what each means and why it isn't allocated |
 | `6` | SQL | Ad-hoc SQL queries with auto LIMIT, history, scrollable results (reads only, unless `--read-write`) |
 | `7` | Replication | Logical replication: subscriptions with per-table state, shards, docs, changes/s and the last change seen; publications with their tables and the subscriber clusters holding leases, how many operations each is behind and when its lease expires; create, change and drop publications (`n`/`e`/`d`), copy a subscribe ticket (`y`); create a subscription from a pasted ticket (`s`) and drop one (`d`, type its name); the replication settings (`c`) and each published table's retention lease period (`l`); the `logical_replication` thread pool; sparklines of changes/s per table and BEHIND per subscriber, operations pulled/s, and what each finished initial copy moved |
-| `8` | Snapshots | Repositories with type, read-only or writable and their settings (credentials masked by CrateDB); every snapshot with state, duration, shards, tables and partitions, the failed shards of a PARTIAL one by table, partition and node; running restores; `enter` on a repository lists its snapshots, `/` filters, `y` copies a snapshot's details for a ticket; with `--read-write`, `w` makes a repository read-only or writable, `e` changes its settings (`ALTER REPOSITORY`) and `d` drops it |
+| `8` | Snapshots | Repositories with type, read-only or writable and their settings (credentials masked by CrateDB); every snapshot with state, duration, shards, tables and partitions, the failed shards of a PARTIAL one by table, partition and node; running restores; `enter` folds a repository's snapshots away and back, `/` filters, `y` copies a snapshot's details for a ticket; with `--read-write`, `w` makes a repository read-only or writable, `e` changes its settings (`ALTER REPOSITORY`) and `d` drops it |
 
 ## Keys
 
@@ -89,7 +89,7 @@ obsi starts read-only: the SQL tab only runs statements starting with `SELECT`, 
 | `e` | Edit cluster settings (Overview tab) |
 | `f` | Toggle unhealthy table filter (Tables tab) |
 | `enter` | Tables tab: partitions of the selected partitioned table — values, shards, records, size bar, health, node-left delay; `s` sorts, `y` copies, `esc` back |
-| `enter` | Snapshots tab: on a repository, list only its snapshots |
+| `enter` | Snapshots tab: fold a repository's snapshots away, or open them again |
 | `w` / `e` / `d` | Snapshots tab: make the selected repository read-only or writable, change its settings with a review, drop it after typing its name |
 | `e` | Tables tab: set the node-left delay (`unassigned.node_left.delayed_timeout`) of the selected table, partitions included, after a confirm |
 | `K` | Kill selected query (Queries tab) |

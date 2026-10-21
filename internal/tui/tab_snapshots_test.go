@@ -142,14 +142,6 @@ func TestSnapshotsFilter(t *testing.T) {
 	if m = pressSnap(m, "esc"); len(m.shown()) != 5 {
 		t.Errorf("esc should clear the filter, %d shown", len(m.shown()))
 	}
-	// enter on lab_s3 lists its snapshots and selects the first.
-	m = pressSnap(selectRow(t, m, "lab_s3", ""), "enter")
-	if n := len(m.shown()); n != 2 || m.selected != 1 {
-		t.Errorf("enter on lab_s3: %d shown, selected %d", n, m.selected)
-	}
-	if out := m.View(); !strings.Contains(out, `filter: repository lab_s3`) {
-		t.Errorf("filter line:\n%s", out)
-	}
 }
 
 func TestSnapshotsNoRepository(t *testing.T) {
@@ -190,24 +182,40 @@ func TestShortDuration(t *testing.T) {
 	}
 }
 
-// enter on a repository lists exactly its snapshots, not those of a
-// repository whose name contains it.
-func TestSnapshotsRepositoryFilterExact(t *testing.T) {
-	now := time.Now()
-	m := NewSnapshotsModel(160, 60).Refresh(store.StoreSnapshot{Snapshots: store.SnapshotsState{UpdatedAt: now, ListedAt: now,
-		Repositories: []cratedb.Repository{{Name: "backup_s3"}, {Name: "s3"}, {Name: "x"}},
-		Snapshots: []cratedb.SnapshotInfo{
-			{Repository: "backup_s3", Name: "a", Started: now},
-			{Repository: "s3", Name: "b", Started: now},
-			{Repository: "x", Name: "data.1", Started: now},
-		}}})
-	m = pressSnap(selectRow(t, m, "s3", ""), "enter")
-	if got := m.shown(); len(got) != 1 || got[0].Name != "b" {
-		t.Errorf("enter on s3 shows %+v", got)
+// enter folds a repository's snapshots into its row and opens them again;
+// on a snapshot it folds the repository it's in. A filter shows matches in
+// folded repositories too.
+func TestSnapshotsFold(t *testing.T) {
+	m := selectRow(t, snapshotsModel(t), "lab_s3", "")
+	m = pressSnap(m, "enter")
+	flat := strings.Join(strings.Fields(m.View()), " ")
+	if !strings.Contains(flat, "lab_s3 s3 · writable · b +2 snapshots folded") || strings.Contains(flat, "t1_only") {
+		t.Errorf("lab_s3 not folded:\n%s", m.View())
 	}
-	m = pressSnap(selectRow(t, pressSnap(m, "esc"), "x", ""), "enter")
-	if got := m.shown(); len(got) != 1 || got[0].Name != "data.1" {
-		t.Errorf("enter on x shows %+v", got)
+	if r := m.rows()[m.selected]; r.snap != nil || r.repo.Name != "lab_s3" {
+		t.Errorf("cursor left the folded repository: %+v", r)
+	}
+	m = pressSnap(m, "enter")
+	if out := m.View(); !strings.Contains(out, "t1_only") || strings.Contains(out, "folded") {
+		t.Errorf("lab_s3 not opened again:\n%s", out)
+	}
+	// From a snapshot row: fold its repository, cursor on the repository.
+	m = pressSnap(selectRow(t, m, "lab_fs", "nightly"), "enter")
+	for _, r := range m.rows() {
+		if r.snap != nil && r.repo.Name == "lab_fs" {
+			t.Errorf("lab_fs still lists %s after enter on nightly", r.snap.Name)
+		}
+	}
+	if r := m.rows()[m.selected]; r.snap != nil || r.repo.Name != "lab_fs" {
+		t.Errorf("enter on nightly didn't fold lab_fs:\n%s", m.View())
+	}
+	// A filter finds snapshots in folded repositories.
+	m = pressSnap(m, "/", "nightly", "enter")
+	if !strings.Contains(m.View(), "nightly") {
+		t.Errorf("filter hides a folded repository's match:\n%s", m.View())
+	}
+	if strings.Contains(m.View(), `""`) {
+		t.Errorf("empty quotes on the filter line:\n%s", m.View())
 	}
 }
 

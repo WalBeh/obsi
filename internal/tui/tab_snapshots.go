@@ -26,8 +26,8 @@ type SnapshotsModel struct {
 	maxScroll int
 	selected  int // index into rows()
 	searching bool
-	search    string // matched anywhere in repository.name
-	repo      string // enter on a repository: only its snapshots
+	search    string          // matched anywhere in repository.name
+	folded    map[string]bool // repositories whose snapshots enter folded away
 
 	noticeText  string
 	noticeIsErr bool
@@ -87,15 +87,19 @@ func (m SnapshotsModel) rows() []snapRow {
 	for _, s := range m.shown() {
 		byRepo[s.Repository] = append(byRepo[s.Repository], s)
 	}
-	filtering := m.search != "" || m.repo != ""
+	filtering := m.search != ""
 	var out []snapRow
 	known := map[string]bool{}
 	add := func(r cratedb.Repository) {
 		snaps := byRepo[r.Name]
-		if filtering && len(snaps) == 0 && (m.repo != r.Name) && !(m.repo == "" && strings.Contains(strings.ToLower(r.Name), strings.ToLower(m.search))) {
+		if filtering && len(snaps) == 0 && !strings.Contains(strings.ToLower(r.Name), strings.ToLower(m.search)) {
 			return
 		}
 		out = append(out, snapRow{repo: r})
+		// A filter shows its matches, folded or not.
+		if m.folded[r.Name] && !filtering {
+			return
+		}
 		for i := range snaps {
 			out = append(out, snapRow{repo: r, snap: &snaps[i]})
 		}
@@ -152,13 +156,13 @@ func (m SnapshotsModel) selectedSnapshot() (cratedb.SnapshotInfo, cratedb.Reposi
 
 // shown is the snapshots the filter lets through, newest first.
 func (m SnapshotsModel) shown() []cratedb.SnapshotInfo {
-	if m.search == "" && m.repo == "" {
+	if m.search == "" {
 		return m.st.Snapshots
 	}
 	q := strings.ToLower(m.search)
 	var out []cratedb.SnapshotInfo
 	for _, s := range m.st.Snapshots {
-		if (m.repo == "" || s.Repository == m.repo) && strings.Contains(strings.ToLower(s.Repository+"."+s.Name), q) {
+		if strings.Contains(strings.ToLower(s.Repository+"."+s.Name), q) {
 			out = append(out, s)
 		}
 	}
@@ -197,7 +201,7 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 		m.searching, m.search = true, ""
 		return m.clampScroll(), nil
 	case "esc":
-		m.search, m.repo = "", ""
+		m.search = ""
 		return m.clampScroll(), nil
 	case "w", "e", "d":
 		repo, ok := m.selectedRepo()
@@ -224,15 +228,23 @@ func (m SnapshotsModel) HandleKey(msg tea.KeyMsg) (SnapshotsModel, tea.Cmd) {
 		}
 		return m, func() tea.Msg { return SnapshotReportRequest{Snapshot: s, Repository: repo} }
 	case "enter":
-		// On a repository: show only its snapshots, the first selected.
-		if repo, ok := m.selectedRepo(); ok {
-			m.repo, m.selected = repo.Name, 0
-			if len(m.shown()) > 0 {
-				m.selected = 1
-			}
-			return m.clampScroll().followSelection(), nil
+		// Folds a repository's snapshots away or opens them again; on a
+		// snapshot it folds the repository it's in.
+		rows := m.rows()
+		if m.selected >= len(rows) {
+			return m, nil
 		}
-		return m, nil
+		name := rows[m.selected].repo.Name
+		if m.folded == nil {
+			m.folded = map[string]bool{}
+		}
+		m.folded[name] = !m.folded[name]
+		for i, r := range m.rows() {
+			if r.repo.Name == name && r.snap == nil {
+				m.selected = i
+			}
+		}
+		return m.clampScroll().followSelection(), nil
 	case "up", "k":
 		if m.selected > 0 {
 			m.selected--
@@ -364,21 +376,13 @@ func (m SnapshotsModel) layout() []string {
 	lines = append(lines, m.headline())
 	switch {
 	case m.searching:
-		lines = append(lines, "  filter: "+m.filterText()+m.search+"▏")
-	case m.search != "" || m.repo != "":
-		lines = append(lines, "  filter: "+m.filterText()+fmt.Sprintf("%q", m.search)+"  "+styleDim.Render("(esc clears)"))
+		lines = append(lines, "  filter: "+m.search+"▏")
+	case m.search != "":
+		lines = append(lines, "  filter: "+m.search+"  "+styleDim.Render("(esc clears)"))
 	}
 	lines = append(lines, "")
 	lines = append(lines, m.renderTable()...)
 	return append(lines, m.renderRestores()...)
-}
-
-// filterText is the repository part of the filter line.
-func (m SnapshotsModel) filterText() string {
-	if m.repo == "" {
-		return ""
-	}
-	return "repository " + m.repo + " · "
 }
 
 // renderRestores lists running restores, and apart from them the initial
@@ -535,8 +539,15 @@ func (m SnapshotsModel) renderTable() []string {
 			marker = "▸ "
 		}
 		if r.snap == nil {
-			lines = append(lines, marker+styleValue.Render(r.repo.Name)+"  "+styleDim.Render(repoSummary(r.repo)))
+			line := marker + styleValue.Render(r.repo.Name) + "  " + styleDim.Render(repoSummary(r.repo))
+			folded := m.folded[r.repo.Name] && m.search == "" && count[r.repo.Name] > 0
+			if folded {
+				n := count[r.repo.Name]
+				line += "  " + styleValue.Render(fmt.Sprintf("+%d %s folded", n, plural(n, "snapshot", "snapshots")))
+			}
+			lines = append(lines, line)
 			switch {
+			case folded:
 			case m.st.ListedAt.IsZero():
 				lines = append(lines, styleDim.Render("    not listed yet"))
 			case count[r.repo.Name] == 0 && m.search == "":
@@ -597,9 +608,9 @@ func (m SnapshotsModel) detail() []string {
 
 // keyLine is the keys that matter here, and the way to all of them.
 func (m SnapshotsModel) keyLine() string {
-	keys := "  enter only this repository · / filter · y copy · w e d change · ? all keys"
+	keys := "  enter fold · / filter · y copy · w e d change · ? all keys"
 	if _, _, ok := m.selectedSnapshot(); ok {
-		keys = "  y copy this snapshot · / filter · esc clear · ? all keys"
+		keys = "  y copy this snapshot · enter fold · / filter · ? all keys"
 	}
 	return styleDim.Render(keys)
 }
